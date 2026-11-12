@@ -1,375 +1,201 @@
-//! The values `nsh-mail/native` exchanges with TSX (docs/design.md §3). Each
-//! mirrors `mail_core::types` field for field, with the same JSON shape (a
-//! serde tag becomes a `type` / `kind` field, a flattened struct its
-//! fields), so the real backends convert one into the other mechanically.
+//! The values `nsh-mail/native` exchanges with TSX are `mail_core::types`
+//! (docs/design.md §3). They cross as their serde JSON in [`Js`], and
+//! [`DECLARATIONS`] is that JSON's TypeScript.
 
-use nsh_core::prelude::*;
+use mail_core::types::*;
+use nsh_core::{
+    JsonValue,
+    element::{JsHost, JsIn, JsOwned, JsValue, PropError, TsTypes},
+};
+use serde::{Serialize, de::DeserializeOwned};
 
-/// Where mail comes from.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PropEnum)]
-pub enum Mode {
-    /// Not chosen yet: onboarding.
-    #[default]
-    None,
-    /// On this device, straight to the mail servers.
-    Local,
-    /// Through an nsh-mail server.
-    Cloud,
+/// A `mail_core` value crossing to or from TSX as its JSON.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Js<T>(pub T);
+
+/// The TypeScript type of a value's JSON.
+pub trait Ts {
+    fn ts() -> String;
 }
 
-/// A failure: a stable `code` (`ERR_AUTH`, `ERR_NETWORK`, ...) and a message for people.
-#[derive(Debug, Clone, Default, PartialEq, JsObject)]
-pub struct ErrorInfo {
-    /// `ERR_AUTH`, `ERR_NETWORK`, `ERR_TLS`, `ERR_PROTOCOL`, `ERR_NOT_FOUND`, `ERR_INVALID_INPUT`, `ERR_UNSUPPORTED`, ...
-    pub code: String,
-    /// What went wrong.
-    pub message: String,
-}
-
-/// The state of the mail engine.
-#[derive(Debug, Clone, Default, PartialEq, JsObject)]
-pub struct Status {
-    /// Where mail comes from.
-    pub mode: Mode,
-    /// The server's URL in cloud mode.
-    pub server: Option<String>,
-    /// A sync is running.
-    pub syncing: bool,
-    /// The last sync error, until a sync succeeds.
-    pub error: Option<ErrorInfo>,
-}
-
-/// A mail folder, by role.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PropEnum)]
-pub enum Folder {
-    /// The inbox.
-    #[default]
-    Inbox,
-    /// Sent mail.
-    Sent,
-    /// Drafts.
-    Drafts,
-    /// Archive ("All Mail" on Gmail).
-    Archive,
-    /// Trash.
-    Trash,
-}
-
-/// How a connection is encrypted. Plain text is never allowed.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PropEnum)]
-pub enum Security {
-    /// TLS from the start (993, 465).
-    #[default]
-    Tls,
-    /// STARTTLS on a plain port (143, 587).
-    #[prop(rename = "starttls")]
-    StartTls,
-}
-
-/// A server to connect to.
-#[derive(Debug, Clone, Default, PartialEq, JsObject)]
-pub struct Endpoint {
-    /// Host name.
-    pub host: String,
-    /// Port.
-    pub port: u16,
-    /// Encryption.
-    pub security: Security,
-}
-
-/// The providers that sign in with OAuth.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PropEnum)]
-pub enum OAuthProvider {
-    /// Google.
-    #[default]
-    Google,
-    /// Microsoft.
-    Microsoft,
-}
-
-/// How an account signs in.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PropEnum)]
-pub enum AuthKind {
-    /// An app password.
-    #[default]
-    Password,
-    /// OAuth (`provider`).
-    #[prop(rename = "oauth")]
-    OAuth,
-}
-
-/// How an account signs in: `{ kind: "password" }` or `{ kind: "oauth", provider }`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, JsObject)]
-pub struct Auth {
-    /// Password or OAuth.
-    pub kind: AuthKind,
-    /// The OAuth provider.
-    pub provider: Option<OAuthProvider>,
-}
-
-/// What `detect(email)` found: what the add-account form starts with.
-#[derive(Debug, Clone, Default, PartialEq, JsObject)]
-pub struct ServerSettings {
-    /// The preset's id (`gmail`, `outlook`, `qq`, ...); absent when it came from autoconfig.
-    pub provider: Option<String>,
-    /// The provider's name ("QQ Mail").
-    pub display_name: Option<String>,
-    /// The login name.
-    pub username: String,
-    /// IMAP.
-    pub imap: Endpoint,
-    /// SMTP.
-    pub smtp: Endpoint,
-    /// `oauth`: the provider works only through `addOAuth`.
-    pub auth: Auth,
-    /// The provider wants an app password (授权码) rather than the login password.
-    pub app_password: bool,
-    /// Where the provider explains app passwords.
-    pub help_url: Option<String>,
-}
-
-/// What adding an IMAP account takes.
-#[derive(Debug, Clone, Default, PartialEq, JsObject)]
-pub struct ImapInput {
-    /// The address.
-    pub email: String,
-    /// The name mail is sent with.
-    pub name: Option<String>,
-    /// The login name (the address when left out).
-    pub username: Option<String>,
-    /// The app password.
-    pub password: String,
-    /// IMAP.
-    pub imap: Endpoint,
-    /// SMTP.
-    pub smtp: Endpoint,
-    /// The preset's id, as `detect` gave it.
-    pub provider: Option<String>,
-}
-
-/// A mail account.
-#[derive(Debug, Clone, Default, PartialEq, JsObject)]
-pub struct Account {
-    /// Stable id.
-    pub id: String,
-    /// The address.
-    pub email: String,
-    /// The name mail is sent with.
-    pub name: Option<String>,
-    /// The preset's id (`gmail`, `outlook`, `qq`, ...), when known.
-    pub provider: Option<String>,
-    /// The login name.
-    pub username: String,
-    /// How it signs in.
-    pub auth: Auth,
-    /// IMAP.
-    pub imap: Endpoint,
-    /// SMTP.
-    pub smtp: Endpoint,
-}
-
-/// A name and an address.
-#[derive(Debug, Clone, Default, PartialEq, JsObject)]
-pub struct Address {
-    /// The display name, when there is one.
-    pub name: Option<String>,
-    /// The address.
-    pub email: String,
-}
-
-/// A message in a list.
-#[derive(Debug, Clone, Default, PartialEq, JsObject)]
-pub struct Summary {
-    /// Stable id.
-    pub id: String,
-    /// The account it is in.
-    pub account_id: String,
-    /// The folder it is in.
-    pub folder: Folder,
-    /// The sender.
-    pub from: Option<Address>,
-    /// The recipients.
-    pub to: Vec<Address>,
-    /// The subject.
-    pub subject: String,
-    /// The start of the plain text.
-    pub snippet: String,
-    /// When it was sent (ms since the epoch).
-    pub date: f64,
-    /// Read.
-    pub seen: bool,
-    /// Flagged.
-    pub flagged: bool,
-    /// It has attachments.
-    pub has_attachments: bool,
-}
-
-/// An attachment's metadata.
-#[derive(Debug, Clone, Default, PartialEq, JsObject)]
-pub struct Attachment {
-    /// Its position among the message's attachments.
-    pub index: u32,
-    /// The file name.
-    pub filename: Option<String>,
-    /// Its MIME type.
-    pub mime_type: String,
-    /// Its size in bytes.
-    pub size: f64,
-    /// Shown inside the body rather than attached.
-    pub inline: bool,
-    /// The `Content-ID` an inline part is referred to by.
-    pub content_id: Option<String>,
-}
-
-/// A whole message: a summary's fields and the rest.
-#[derive(Debug, Clone, Default, PartialEq, JsObject)]
-pub struct Message {
-    /// Stable id.
-    pub id: String,
-    /// The account it is in.
-    pub account_id: String,
-    /// The folder it is in.
-    pub folder: Folder,
-    /// The sender.
-    pub from: Option<Address>,
-    /// The recipients.
-    pub to: Vec<Address>,
-    /// The subject.
-    pub subject: String,
-    /// The start of the plain text.
-    pub snippet: String,
-    /// When it was sent (ms since the epoch).
-    pub date: f64,
-    /// Read.
-    pub seen: bool,
-    /// Flagged.
-    pub flagged: bool,
-    /// It has attachments.
-    pub has_attachments: bool,
-    /// Copied recipients.
-    pub cc: Vec<Address>,
-    /// Where replies go, when not to the sender.
-    pub reply_to: Vec<Address>,
-    /// The `Message-ID` header.
-    pub message_id: Option<String>,
-    /// The `In-Reply-To` header.
-    pub in_reply_to: Option<String>,
-    /// The `References` header's ids.
-    pub references: Vec<String>,
-    /// The plain-text body.
-    pub text: Option<String>,
-    /// The HTML body, sanitized; remote images have no `src`, their URLs are `remoteImages`, in order.
-    pub html: Option<String>,
-    /// The URLs of the remote images taken out of `html`.
-    pub remote_images: Vec<String>,
-    /// Attachments.
-    pub attachments: Vec<Attachment>,
-}
-
-/// Flags to change; a field left out stays as it is.
-#[derive(Debug, Clone, Default, PartialEq, JsObject)]
-pub struct Flags {
-    /// Read.
-    pub seen: Option<bool>,
-    /// Flagged.
-    pub flagged: Option<bool>,
-}
-
-/// A message to send.
-#[derive(Debug, Clone, Default, PartialEq, JsObject)]
-pub struct Draft {
-    /// The account it is sent from.
-    pub account_id: String,
-    /// Recipients.
-    pub to: Vec<Address>,
-    /// Copied recipients.
-    #[prop(default)]
-    pub cc: Vec<Address>,
-    /// Hidden recipients.
-    #[prop(default)]
-    pub bcc: Vec<Address>,
-    /// The subject.
-    pub subject: String,
-    /// The plain-text body.
-    pub text: String,
-    /// An HTML body beside the text.
-    pub html: Option<String>,
-    /// The `Message-ID` replied to.
-    pub in_reply_to: Option<String>,
-    /// The thread's `References`.
-    #[prop(default)]
-    pub references: Vec<String>,
-}
-
-/// A page of a folder.
-#[derive(Debug, Clone, Default, PartialEq, JsObject)]
-pub struct ListQuery {
-    /// The folder.
-    pub folder: Folder,
-    /// One account's id; every account's when left out (the unified view).
-    pub account: Option<String>,
-    /// The id of the previous page's last message: the next page.
-    pub before: Option<String>,
-    /// At most this many.
-    pub limit: u32,
-}
-
-/// What a [`MailEvent`] reports.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PropEnum)]
-pub enum MailEventType {
-    /// A message arrived (`summary`).
-    NewMail,
-    /// Messages in `folder` of `accountId` changed: lists showing it reload.
-    #[default]
-    Changed,
-    /// A sync of `accountId` started or ended (`syncing`, `error`).
-    SyncState,
-    /// Something failed (`error`).
-    Error,
-}
-
-/// Something the mail engine reports to `Mail.on`'s listeners.
-#[derive(Debug, Clone, Default, PartialEq, JsObject)]
-pub struct MailEvent {
-    /// What happened.
-    pub r#type: MailEventType,
-    /// The message that arrived (`newMail`).
-    pub summary: Option<Summary>,
-    /// The account concerned.
-    pub account_id: Option<String>,
-    /// The folder that changed (`changed`).
-    pub folder: Option<Folder>,
-    /// Whether a sync runs (`syncState`).
-    pub syncing: Option<bool>,
-    /// What failed (`syncState`, `error`).
-    pub error: Option<ErrorInfo>,
-}
-
-impl MailEvent {
-    pub fn new_mail(summary: Summary) -> Self {
-        Self {
-            r#type: MailEventType::NewMail,
-            account_id: Some(summary.account_id.clone()),
-            summary: Some(summary),
-            ..Self::default()
+macro_rules! ts {
+    ($($ty:ty => $name:literal),* $(,)?) => {$(
+        impl Ts for $ty {
+            fn ts() -> String {
+                $name.into()
+            }
         }
-    }
+    )*};
+}
 
-    pub fn changed(account_id: Option<String>, folder: Option<Folder>) -> Self {
-        Self {
-            account_id,
-            folder,
-            ..Self::default()
-        }
-    }
+ts! {
+    Account => "Account",
+    Address => "Address",
+    Draft => "Draft",
+    Flags => "Flags",
+    FolderKind => "Folder",
+    ImapInput => "ImapInput",
+    ListQuery => "ListQuery",
+    MailEvent => "MailEvent",
+    Message => "Message",
+    OAuthProvider => "OAuthProvider",
+    ServerSettings => "ServerSettings",
+    Status => "Status",
+    Summary => "Summary",
+}
 
-    pub fn sync_state(account_id: Option<String>, syncing: bool, error: Option<ErrorInfo>) -> Self {
-        Self {
-            r#type: MailEventType::SyncState,
-            account_id,
-            syncing: Some(syncing),
-            error,
-            ..Self::default()
-        }
+impl<T: Ts> Ts for Vec<T> {
+    fn ts() -> String {
+        format!("{}[]", T::ts())
     }
 }
+
+impl<T: Ts> Ts for Option<T> {
+    fn ts() -> String {
+        format!("{} | null", T::ts())
+    }
+}
+
+impl<T: Ts + Serialize + DeserializeOwned + 'static> JsValue for Js<T> {
+    fn ts_type(types: &mut TsTypes) -> String {
+        for (name, declaration) in DECLARATIONS {
+            types.declare(name, |_| (*declaration).to_owned());
+        }
+        T::ts()
+    }
+
+    fn from_js(value: JsIn<'_>) -> Result<Self, PropError> {
+        let json = JsonValue::from_js(value)?;
+        serde_json::from_value(json.clone())
+            .map(Js)
+            .map_err(|e| PropError(format!("expected {}: {e}, got {json}", T::ts())))
+    }
+
+    fn to_js<'a>(&self, host: &'a dyn JsHost) -> Result<JsOwned<'a>, PropError> {
+        serde_json::to_value(&self.0)
+            .map_err(|e| PropError(e.to_string()))?
+            .to_js(host)
+    }
+}
+
+/// The JSON of `mail_core::types` in TypeScript; field names, tags and
+/// optional fields follow their serde attributes.
+const DECLARATIONS: &[(&str, &str)] = &[
+    (
+        "Mode",
+        "/** Where mail comes from: not chosen yet, this device, or an nsh-mail server. */\n\
+         export type Mode = \"none\" | \"local\" | \"cloud\";",
+    ),
+    (
+        "ErrorInfo",
+        "/** A failure: a stable `code` (`ERR_AUTH`, `ERR_NETWORK`, ...) and a message for people. */\n\
+         export interface ErrorInfo {\n  code: string;\n  message: string;\n}",
+    ),
+    (
+        "Status",
+        "/** The state of the mail engine. */\n\
+         export interface Status {\n  mode: Mode;\n  /** The server's URL in cloud mode. */\n  server?: string | null;\n  \
+         /** A sync is running. */\n  syncing: boolean;\n  /** The last sync error, until a sync succeeds. */\n  error?: ErrorInfo | null;\n}",
+    ),
+    (
+        "Folder",
+        "/** A mail folder, by role. */\n\
+         export type Folder = \"inbox\" | \"sent\" | \"drafts\" | \"archive\" | \"trash\";",
+    ),
+    (
+        "Security",
+        "/** How a connection is encrypted: TLS from the start (993, 465) or STARTTLS (143, 587). Never plain text. */\n\
+         export type Security = \"tls\" | \"starttls\";",
+    ),
+    (
+        "Endpoint",
+        "/** A server to connect to. */\n\
+         export interface Endpoint {\n  host: string;\n  port: number;\n  security: Security;\n}",
+    ),
+    (
+        "OAuthProvider",
+        "/** The providers that sign in with OAuth. */\n\
+         export type OAuthProvider = \"google\" | \"microsoft\";",
+    ),
+    (
+        "Auth",
+        "/** How an account signs in. */\n\
+         export type Auth = { kind: \"password\" } | { kind: \"oauth\"; provider: OAuthProvider };",
+    ),
+    (
+        "ServerSettings",
+        "/** What `detect(email)` found: what the add-account form starts with. */\n\
+         export interface ServerSettings {\n  /** The preset's id (`gmail`, `qq`, ...); null when it came from autoconfig. */\n  \
+         provider?: string | null;\n  /** The provider's name (\"QQ Mail\"). */\n  displayName?: string | null;\n  username: string;\n  \
+         imap: Endpoint;\n  smtp: Endpoint;\n  /** `oauth`: the provider works only through `addOAuth`. */\n  auth: Auth;\n  \
+         /** The provider wants an app password (授权码) rather than the login password. */\n  appPassword: boolean;\n  \
+         /** Where the provider explains app passwords. */\n  helpUrl?: string | null;\n}",
+    ),
+    (
+        "ImapInput",
+        "/** What adding an IMAP account takes. */\n\
+         export interface ImapInput {\n  email: string;\n  /** The name mail is sent with. */\n  name?: string | null;\n  \
+         /** The login name (the address when left out). */\n  username?: string | null;\n  /** The app password. */\n  password: string;\n  \
+         imap: Endpoint;\n  smtp: Endpoint;\n  /** The preset's id, as `detect` gave it. */\n  provider?: string | null;\n}",
+    ),
+    (
+        "Account",
+        "/** A mail account. */\n\
+         export interface Account {\n  id: string;\n  email: string;\n  name?: string | null;\n  \
+         /** The preset's id (`gmail`, `outlook`, `qq`, ...), when known. */\n  provider?: string | null;\n  username: string;\n  \
+         auth: Auth;\n  imap: Endpoint;\n  smtp: Endpoint;\n}",
+    ),
+    (
+        "Address",
+        "/** A name and an address. */\n\
+         export interface Address {\n  name?: string | null;\n  email: string;\n}",
+    ),
+    (
+        "Summary",
+        "/** A message in a list. */\n\
+         export interface Summary {\n  id: string;\n  accountId: string;\n  folder: Folder;\n  from?: Address | null;\n  to: Address[];\n  \
+         subject: string;\n  /** The start of the plain text. */\n  snippet: string;\n  /** When it was sent (ms since the epoch). */\n  date: number;\n  \
+         seen: boolean;\n  flagged: boolean;\n  hasAttachments: boolean;\n}",
+    ),
+    (
+        "Attachment",
+        "/** An attachment's metadata. */\n\
+         export interface Attachment {\n  /** Its position among the message's attachments. */\n  index: number;\n  filename?: string | null;\n  \
+         mimeType: string;\n  /** Bytes. */\n  size: number;\n  /** Shown inside the body rather than attached. */\n  inline: boolean;\n  \
+         contentId?: string | null;\n}",
+    ),
+    (
+        "Message",
+        "/** A whole message: a summary's fields and the rest. */\n\
+         export interface Message extends Summary {\n  cc: Address[];\n  replyTo: Address[];\n  messageId?: string | null;\n  \
+         inReplyTo?: string | null;\n  references: string[];\n  text?: string | null;\n  \
+         /** Sanitized; remote images have no `src`, their URLs are `remoteImages`, in order. */\n  html?: string | null;\n  \
+         remoteImages: string[];\n  attachments: Attachment[];\n}",
+    ),
+    (
+        "Flags",
+        "/** Flags to change; a field left out stays as it is. */\n\
+         export interface Flags {\n  seen?: boolean | null;\n  flagged?: boolean | null;\n}",
+    ),
+    (
+        "Draft",
+        "/** A message to send. */\n\
+         export interface Draft {\n  accountId: string;\n  to: Address[];\n  cc?: Address[];\n  bcc?: Address[];\n  subject: string;\n  \
+         text: string;\n  html?: string | null;\n  /** The `Message-ID` replied to. */\n  inReplyTo?: string | null;\n  \
+         /** The thread's `References`. */\n  references?: string[];\n}",
+    ),
+    (
+        "ListQuery",
+        "/** A page of a folder. */\n\
+         export interface ListQuery {\n  folder: Folder;\n  /** One account's id; every account's when left out (the unified view). */\n  \
+         account?: string | null;\n  /** The id of the previous page's last message: the next page. */\n  before?: string | null;\n  limit: number;\n}",
+    ),
+    (
+        "MailEvent",
+        "/** Something the mail engine reports to `Mail.on`'s listeners. */\n\
+         export type MailEvent =\n  | { type: \"newMail\"; summary: Summary }\n  \
+         | { type: \"changed\"; accountId: string; folder: Folder }\n  \
+         | { type: \"syncState\"; accountId: string; syncing: boolean; error: ErrorInfo | null }\n  \
+         | { type: \"error\"; accountId: string | null; error: ErrorInfo };",
+    ),
+];

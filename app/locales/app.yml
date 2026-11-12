@@ -494,6 +494,12 @@ errors.network:
 errors.invalid:
   en: "Check the details: %{detail}."
   zh-CN: 请检查填写的内容：%{detail}。
+errors.oauth:
+  en: "Sign-in didn't finish: %{detail}"
+  zh-CN: 登录未完成：%{detail}
+errors.secrets:
+  en: "No system keyring here: passwords are kept encrypted in this app's folder."
+  zh-CN: 未找到系统钥匙串：密码将加密保存在应用目录中。
 errors.generic:
   en: "Something went wrong: %{detail}"
   zh-CN: 出错了：%{detail}

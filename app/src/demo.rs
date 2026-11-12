@@ -1,16 +1,14 @@
-//! `DemoBackend`: three accounts and a few weeks of mail, kept in memory, so
-//! every screen works before the real backends land. Sending, flags, search
-//! and adding accounts behave as they will; refreshing delivers a new
+//! `DemoBackend`: three accounts and a few weeks of mail, kept in memory,
+//! for the UI tests (debug builds only). Sending, flags, search and adding
+//! accounts behave as the real backends do; refreshing delivers a new
 //! message, and so does a timer while the app runs.
 
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
+use mail_core::types::*;
 use nsh_core::{prelude::*, time::unix_ms};
 
-use crate::{
-    backend::{Backend, Events, MailError, MailFuture},
-    types::*,
-};
+use crate::backend::{Backend, Events, MailFuture, invalid};
 
 const MINUTE: f64 = 60_000.0;
 const HOUR: f64 = 60.0 * MINUTE;
@@ -39,20 +37,17 @@ impl Data {
         }
     }
 
-    fn account(&self, id: &str) -> Result<&Account, MailError> {
+    fn account(&self, id: &str) -> Result<&Account> {
         self.accounts
             .iter()
             .find(|a| a.id == id)
-            .ok_or_else(|| MailError::not_found("account"))
+            .ok_or_else(|| not_found("account"))
     }
 
-    fn add_account(&mut self, mut account: Account) -> Result<Account, MailError> {
+    fn add_account(&mut self, mut account: Account) -> Result<Account> {
         account.email = account.email.trim().to_lowercase();
         if self.accounts.iter().any(|a| a.email == account.email) {
-            return Err(MailError::invalid(format!(
-                "{} is already added",
-                account.email
-            )));
+            return Err(invalid(format!("{} is already added", account.email)));
         }
         account.id = format!("a-{}", account.email.replace(['@', '.'], "-"));
         self.accounts.push(account.clone());
@@ -65,7 +60,7 @@ impl Data {
         let m = message(
             id,
             &account,
-            Folder::Inbox,
+            FolderKind::Inbox,
             unix_ms(),
             ("nsh-mail", "hello@nsh-mail.app"),
             "Your account is connected",
@@ -83,8 +78,16 @@ impl Data {
         let account = self.accounts[self.arrivals % self.accounts.len()].clone();
         self.arrivals += 1;
         let id = self.id();
-        let m = message(id, &account, Folder::Inbox, unix_ms(), from, subject, text);
-        let summary = summary(&m);
+        let m = message(
+            id,
+            &account,
+            FolderKind::Inbox,
+            unix_ms(),
+            from,
+            subject,
+            text,
+        );
+        let summary = m.summary.clone();
         self.messages.push(m);
         Some(summary)
     }
@@ -92,7 +95,10 @@ impl Data {
     /// Newest first; equal dates by id, so a page boundary is stable.
     fn sorted(&self, keep: impl Fn(&Message) -> bool) -> Vec<&Message> {
         let mut found: Vec<&Message> = self.messages.iter().filter(|m| keep(m)).collect();
-        found.sort_by(|a, b| b.date.total_cmp(&a.date).then_with(|| b.id.cmp(&a.id)));
+        found.sort_by(|a, b| {
+            let (a, b) = (&a.summary, &b.summary);
+            b.date.cmp(&a.date).then_with(|| b.id.cmp(&a.id))
+        });
         found
     }
 }
@@ -110,7 +116,11 @@ impl Default for DemoBackend {
     }
 }
 
-fn ok<'a, T: 'a>(value: Result<T, MailError>) -> MailFuture<'a, T> {
+fn not_found(what: &str) -> Error {
+    Error::new(ErrorCode::NotFound, format!("{what} not found"))
+}
+
+fn ok<'a, T: 'a>(value: Result<T>) -> MailFuture<'a, T> {
     Box::pin(async move { value })
 }
 
@@ -128,10 +138,7 @@ fn endpoint(host: &str, port: u16, security: Security) -> Endpoint {
 }
 
 fn oauth(provider: OAuthProvider) -> Auth {
-    Auth {
-        kind: AuthKind::OAuth,
-        provider: Some(provider),
-    }
+    Auth::OAuth { provider }
 }
 
 impl Backend for DemoBackend {
@@ -146,9 +153,12 @@ impl Backend for DemoBackend {
                     let Some(data) = data.upgrade() else { return };
                     let mut data = data.borrow_mut();
                     if let Some(summary) = data.deliver() {
-                        let account = Some(summary.account_id.clone());
-                        data.emit(MailEvent::new_mail(summary));
-                        data.emit(MailEvent::changed(account, Some(Folder::Inbox)));
+                        let account_id = summary.account_id.clone();
+                        data.emit(MailEvent::NewMail { summary });
+                        data.emit(MailEvent::Changed {
+                            account_id,
+                            folder: FolderKind::Inbox,
+                        });
                     }
                 }
             })
@@ -171,7 +181,7 @@ impl Backend for DemoBackend {
             let email = email.trim().to_lowercase();
             let domain = email.rsplit_once('@').map(|(_, d)| d.to_owned());
             let Some(domain) = domain.filter(|d| d.contains('.')) else {
-                return Err(MailError::invalid("enter an email address"));
+                return Err(invalid("enter an email address"));
             };
             Ok(preset(&domain).map(|s| ServerSettings {
                 username: email,
@@ -183,16 +193,16 @@ impl Backend for DemoBackend {
     fn add_imap(&self, input: ImapInput) -> MailFuture<'_, Account> {
         Box::pin(async move {
             if parse_address(&input.email).is_none() {
-                return Err(MailError::invalid("enter an email address"));
+                return Err(invalid("enter an email address"));
             }
             if input.imap.host.trim().is_empty() || input.smtp.host.trim().is_empty() {
-                return Err(MailError::invalid("enter the IMAP and SMTP servers"));
+                return Err(invalid("enter the IMAP and SMTP servers"));
             }
             if input.imap.port == 0 || input.smtp.port == 0 {
-                return Err(MailError::invalid("enter the IMAP and SMTP ports"));
+                return Err(invalid("enter the IMAP and SMTP ports"));
             }
             if input.password.is_empty() {
-                return Err(MailError::invalid("enter the app password"));
+                return Err(invalid("enter the app password"));
             }
             latency(700).await;
             let username = input
@@ -205,10 +215,10 @@ impl Backend for DemoBackend {
                 name: input.name.filter(|n| !n.trim().is_empty()),
                 provider: input.provider,
                 username,
-                auth: Auth::default(),
+                auth: Auth::Password,
                 imap: input.imap,
                 smtp: input.smtp,
-                ..Account::default()
+                id: String::new(),
             })
         })
     }
@@ -220,9 +230,10 @@ impl Backend for DemoBackend {
                 OAuthProvider::Google => ("demo.reader@gmail.com", "gmail"),
                 OAuthProvider::Microsoft => ("demo.reader@outlook.com", "outlook"),
             };
-            let settings =
-                preset(email.rsplit_once('@').map_or("", |(_, d)| d)).unwrap_or_default();
+            let settings = preset(email.rsplit_once('@').map_or("", |(_, d)| d))
+                .ok_or_else(|| not_found("preset"))?;
             self.data.borrow_mut().add_account(Account {
+                id: String::new(),
                 email: email.to_owned(),
                 name: Some("Demo Reader".to_owned()),
                 provider: Some(id.to_owned()),
@@ -230,7 +241,6 @@ impl Backend for DemoBackend {
                 auth: oauth(provider),
                 imap: settings.imap,
                 smtp: settings.smtp,
-                ..Account::default()
             })
         })
     }
@@ -240,7 +250,7 @@ impl Backend for DemoBackend {
         let result = data.account(&id).map(|_| ());
         if result.is_ok() {
             data.accounts.retain(|a| a.id != id);
-            data.messages.retain(|m| m.account_id != id);
+            data.messages.retain(|m| m.summary.account_id != id);
         }
         ok(result)
     }
@@ -250,13 +260,16 @@ impl Backend for DemoBackend {
             latency(120).await;
             let data = self.data.borrow();
             let found = data.sorted(|m| {
-                m.folder == query.folder
-                    && query.account.as_ref().is_none_or(|a| &m.account_id == a)
+                m.summary.folder == query.folder
+                    && query
+                        .account
+                        .as_ref()
+                        .is_none_or(|a| &m.summary.account_id == a)
             });
             let start = match &query.before {
                 Some(before) => found
                     .iter()
-                    .position(|m| &m.id == before)
+                    .position(|m| &m.summary.id == before)
                     .map_or(found.len(), |at| at + 1),
                 None => 0,
             };
@@ -264,7 +277,7 @@ impl Backend for DemoBackend {
                 .into_iter()
                 .skip(start)
                 .take(query.limit.max(1) as usize)
-                .map(summary)
+                .map(|m| m.summary.clone())
                 .collect())
         })
     }
@@ -275,23 +288,25 @@ impl Backend for DemoBackend {
             let data = self.data.borrow();
             data.messages
                 .iter()
-                .find(|m| m.id == id)
+                .find(|m| m.summary.id == id)
                 .cloned()
-                .ok_or_else(|| MailError::not_found("message"))
+                .ok_or_else(|| not_found("message"))
         })
     }
 
     fn set_flags(&self, id: String, flags: Flags) -> MailFuture<'_, ()> {
         let mut data = self.data.borrow_mut();
-        let result = match data.messages.iter_mut().find(|m| m.id == id) {
-            Some(m) => {
+        let result = match data.messages.iter_mut().find(|m| m.summary.id == id) {
+            Some(Message { summary: m, .. }) => {
                 m.seen = flags.seen.unwrap_or(m.seen);
                 m.flagged = flags.flagged.unwrap_or(m.flagged);
-                Ok(())
+                Ok((m.account_id.clone(), m.folder))
             }
-            None => Err(MailError::not_found("message")),
+            None => Err(not_found("message")),
         };
-        ok(result)
+        ok(result.map(|(account_id, folder)| {
+            data.emit(MailEvent::Changed { account_id, folder });
+        }))
     }
 
     fn send(&self, draft: Draft) -> MailFuture<'_, ()> {
@@ -299,16 +314,13 @@ impl Backend for DemoBackend {
             let recipients: Vec<&Address> =
                 draft.to.iter().chain(&draft.cc).chain(&draft.bcc).collect();
             if draft.to.is_empty() {
-                return Err(MailError::invalid("add a recipient"));
+                return Err(invalid("add a recipient"));
             }
             if let Some(bad) = recipients
                 .iter()
                 .find(|r| parse_address(&r.email).is_none())
             {
-                return Err(MailError::invalid(format!(
-                    "{} is not an email address",
-                    bad.email
-                )));
+                return Err(invalid(format!("{} is not an email address", bad.email)));
             }
             latency(600).await;
             let mut data = self.data.borrow_mut();
@@ -321,15 +333,15 @@ impl Backend for DemoBackend {
             let mut sent = message(
                 id,
                 &from,
-                Folder::Sent,
+                FolderKind::Sent,
                 unix_ms(),
                 sender,
                 &draft.subject,
                 &draft.text,
             );
-            sent.to = draft.to.clone();
+            sent.summary.to = draft.to.clone();
             sent.cc = draft.cc.clone();
-            sent.seen = true;
+            sent.summary.seen = true;
             sent.in_reply_to = draft.in_reply_to.clone();
             sent.references = draft.references.clone();
             data.messages.push(sent.clone());
@@ -346,13 +358,13 @@ impl Backend for DemoBackend {
                 .collect();
             for account in own {
                 let mut copy = sent.clone();
-                copy.id = data.id();
-                copy.account_id = account.id.clone();
-                copy.folder = Folder::Inbox;
-                copy.seen = false;
-                let s = summary(&copy);
+                copy.summary.id = data.id();
+                copy.summary.account_id = account.id.clone();
+                copy.summary.folder = FolderKind::Inbox;
+                copy.summary.seen = false;
+                let summary = copy.summary.clone();
                 data.messages.push(copy);
-                data.emit(MailEvent::new_mail(s));
+                data.emit(MailEvent::NewMail { summary });
             }
             Ok(())
         })
@@ -366,42 +378,63 @@ impl Backend for DemoBackend {
                 return Ok(Vec::new());
             }
             let data = self.data.borrow();
-            let found = data.sorted(|m| {
-                let from = m
-                    .from
-                    .as_ref()
-                    .map(|a| format!("{} {}", a.name.as_deref().unwrap_or(""), a.email))
-                    .unwrap_or_default();
-                let to: Vec<&str> = m.to.iter().map(|a| a.email.as_str()).collect();
-                let hay = format!(
-                    "{} {from} {} {}",
-                    m.subject,
-                    to.join(" "),
-                    m.text.as_deref().unwrap_or("")
-                )
-                .to_lowercase();
-                words.iter().all(|w| hay.contains(w))
-            });
+            let found = data.sorted(
+                |Message {
+                     summary: s, text, ..
+                 }| {
+                    let from = s
+                        .from
+                        .as_ref()
+                        .map(|a| format!("{} {}", a.name.as_deref().unwrap_or(""), a.email))
+                        .unwrap_or_default();
+                    let to: Vec<&str> = s.to.iter().map(|a| a.email.as_str()).collect();
+                    let hay = format!(
+                        "{} {from} {} {}",
+                        s.subject,
+                        to.join(" "),
+                        text.as_deref().unwrap_or("")
+                    )
+                    .to_lowercase();
+                    words.iter().all(|w| hay.contains(w))
+                },
+            );
             Ok(found
                 .into_iter()
                 .take(limit.max(1) as usize)
-                .map(summary)
+                .map(|m| m.summary.clone())
                 .collect())
         })
     }
 
     fn refresh(&self) -> MailFuture<'_, ()> {
         Box::pin(async move {
-            self.data
+            let ids: Vec<String> = self
+                .data
                 .borrow()
-                .emit(MailEvent::sync_state(None, true, None));
+                .accounts
+                .iter()
+                .map(|a| a.id.clone())
+                .collect();
+            let state = |account_id: &String, syncing| MailEvent::SyncState {
+                account_id: account_id.clone(),
+                syncing,
+                error: None,
+            };
+            for id in &ids {
+                self.data.borrow().emit(state(id, true));
+            }
             latency(800).await;
             let mut data = self.data.borrow_mut();
             if let Some(summary) = data.deliver() {
-                data.emit(MailEvent::new_mail(summary));
+                data.emit(MailEvent::NewMail { summary });
             }
-            data.emit(MailEvent::sync_state(None, false, None));
-            data.emit(MailEvent::changed(None, Some(Folder::Inbox)));
+            for id in ids {
+                data.emit(state(&id, false));
+                data.emit(MailEvent::Changed {
+                    account_id: id,
+                    folder: FolderKind::Inbox,
+                });
+            }
             Ok(())
         })
     }
@@ -426,26 +459,10 @@ fn parse_address(raw: &str) -> Option<Address> {
     })
 }
 
-fn summary(m: &Message) -> Summary {
-    Summary {
-        id: m.id.clone(),
-        account_id: m.account_id.clone(),
-        folder: m.folder,
-        from: m.from.clone(),
-        to: m.to.clone(),
-        subject: m.subject.clone(),
-        snippet: m.snippet.clone(),
-        date: m.date,
-        seen: m.seen,
-        flagged: m.flagged,
-        has_attachments: m.has_attachments,
-    }
-}
-
 fn message(
     id: String,
     account: &Account,
-    folder: Folder,
+    folder: FolderKind,
     date: f64,
     from: (&str, &str),
     subject: &str,
@@ -460,22 +477,33 @@ fn message(
         .collect();
     Message {
         message_id: Some(format!("<{id}@demo.nsh-mail>")),
-        id,
-        account_id: account.id.clone(),
-        folder,
-        from: Some(Address {
-            name: Some(from.0.to_owned()),
-            email: from.1.to_owned(),
-        }),
-        to: vec![Address {
-            name: account.name.clone(),
-            email: account.email.clone(),
-        }],
-        subject: subject.to_owned(),
-        snippet,
-        date,
+        summary: Summary {
+            id,
+            account_id: account.id.clone(),
+            folder,
+            from: Some(Address {
+                name: Some(from.0.to_owned()),
+                email: from.1.to_owned(),
+            }),
+            to: vec![Address {
+                name: account.name.clone(),
+                email: account.email.clone(),
+            }],
+            subject: subject.to_owned(),
+            snippet,
+            date: date as i64,
+            seen: false,
+            flagged: false,
+            has_attachments: false,
+        },
+        cc: Vec::new(),
+        reply_to: Vec::new(),
+        in_reply_to: None,
+        references: Vec::new(),
         text: Some(text.to_owned()),
-        ..Message::default()
+        html: None,
+        remote_images: Vec::new(),
+        attachments: Vec::new(),
     }
 }
 
@@ -486,7 +514,7 @@ fn preset(domain: &str) -> Option<ServerSettings> {
         username: String::new(),
         imap: endpoint(imap, 993, Security::Tls),
         smtp: endpoint(smtp, 465, Security::Tls),
-        auth: Auth::default(),
+        auth: Auth::Password,
         app_password: true,
         help_url: help.map(str::to_owned),
     };
@@ -578,7 +606,7 @@ const ARRIVALS: &[((&str, &str), &str, &str)] = &[
 
 struct Seed {
     account: usize,
-    folder: Folder,
+    folder: FolderKind,
     ago: f64,
     from: (&'static str, &'static str),
     subject: &'static str,
@@ -599,7 +627,7 @@ const fn seed_msg(
 ) -> Seed {
     Seed {
         account,
-        folder: Folder::Inbox,
+        folder: FolderKind::Inbox,
         ago,
         from,
         subject,
@@ -937,7 +965,7 @@ const SEEDS: &[Seed] = &[
     ),
     // Other folders.
     Seed {
-        folder: Folder::Sent,
+        folder: FolderKind::Sent,
         ..seed_msg(
             WORK,
             3.0 * HOUR,
@@ -947,7 +975,7 @@ const SEEDS: &[Seed] = &[
         )
     },
     Seed {
-        folder: Folder::Sent,
+        folder: FolderKind::Sent,
         ..seed_msg(
             GMAIL,
             1.5 * DAY,
@@ -957,7 +985,7 @@ const SEEDS: &[Seed] = &[
         )
     },
     Seed {
-        folder: Folder::Drafts,
+        folder: FolderKind::Drafts,
         ..seed_msg(
             WORK,
             4.0 * HOUR,
@@ -967,7 +995,7 @@ const SEEDS: &[Seed] = &[
         )
     },
     Seed {
-        folder: Folder::Archive,
+        folder: FolderKind::Archive,
         ..seed_msg(
             WORK,
             30.0 * DAY,
@@ -977,7 +1005,7 @@ const SEEDS: &[Seed] = &[
         )
     },
     Seed {
-        folder: Folder::Archive,
+        folder: FolderKind::Archive,
         ..seed_msg(
             GMAIL,
             40.0 * DAY,
@@ -987,7 +1015,7 @@ const SEEDS: &[Seed] = &[
         )
     },
     Seed {
-        folder: Folder::Trash,
+        folder: FolderKind::Trash,
         ..seed_msg(
             OUTLOOK,
             6.0 * DAY,
@@ -1021,7 +1049,7 @@ fn seed(now: f64) -> Data {
             "lin.chen@northwind.dev",
             "Lin Chen",
             "fastmail",
-            Auth::default(),
+            Auth::Password,
             "imap.fastmail.com",
             ("smtp.fastmail.com", 465, Security::Tls),
         ),
@@ -1060,16 +1088,16 @@ fn seed(now: f64) -> Data {
             s.subject,
             s.text,
         );
-        if matches!(s.folder, Folder::Sent | Folder::Drafts) {
-            m.to = vec![Address {
+        if matches!(s.folder, FolderKind::Sent | FolderKind::Drafts) {
+            m.summary.to = vec![Address {
                 name: None,
                 email: "team@northwind.dev".into(),
             }];
         }
         m.html = s.html.map(str::to_owned);
         m.remote_images = s.remote_images.iter().map(|u| (*u).to_owned()).collect();
-        m.seen = s.seen;
-        m.flagged = s.flagged;
+        m.summary.seen = s.seen;
+        m.summary.flagged = s.flagged;
         m.attachments = s
             .attachments
             .iter()
@@ -1078,11 +1106,12 @@ fn seed(now: f64) -> Data {
                 index: index as u32,
                 filename: Some((*name).into()),
                 mime_type: (*mime).into(),
-                size: *size,
-                ..Attachment::default()
+                size: *size as u64,
+                inline: false,
+                content_id: None,
             })
             .collect();
-        m.has_attachments = !m.attachments.is_empty();
+        m.summary.has_attachments = !m.attachments.is_empty();
         data.messages.push(m);
     }
     data

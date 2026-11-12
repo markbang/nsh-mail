@@ -1,20 +1,12 @@
-// The main flows against the demo backend, as a user takes them.
+// The main flows against the in-memory demo backend (debug builds), as a user
+// takes them. Local mode against real servers: tests/greenmail.rs.
 import { expect, open, test } from "nsh/test";
 
 const desktop = { platform: "linux", width: 1280, height: 820, locale: "en-US" } as const;
-const local = { storage: { "nshmail.mode": "local" } };
-
-test("onboarding: keeping mail on this device opens the unified inbox", async () => {
-  const app = await open("./App.tsx", desktop);
-  await app.waitFor("id:onboarding");
-  await app.press("id:onboarding-go");
-  await app.waitFor("text:Design review notes: unified inbox");
-  await app.waitFor("text:周五聚餐改到七点");
-  expect(app.storage()["nshmail.mode"]).toBe("local");
-});
+const demo = { storage: { "nshmail.mode": "demo" } };
 
 test("adds an IMAP account with the detected servers", async () => {
-  const app = await open("./App.tsx", { ...desktop, ...local });
+  const app = await open("./App.tsx", { ...desktop, ...demo });
   await app.waitFor("id:open-settings");
   await app.press("id:open-settings");
   await app.press("id:add-account");
@@ -35,7 +27,7 @@ test("adds an IMAP account with the detected servers", async () => {
 });
 
 test("opens a message, replies with it quoted, and finds the reply in Sent", async () => {
-  const app = await open("./App.tsx", { ...desktop, ...local });
+  const app = await open("./App.tsx", { ...desktop, ...demo });
   await app.waitFor("text:Q4 roadmap draft");
   await app.press("text:Q4 roadmap draft");
   await app.waitFor("id:reader >> text:Q4-roadmap.pdf");
@@ -51,7 +43,7 @@ test("opens a message, replies with it quoted, and finds the reply in Sent", asy
 });
 
 test("search finds mail across accounts and folders", async () => {
-  const app = await open("./App.tsx", { ...desktop, ...local });
+  const app = await open("./App.tsx", { ...desktop, ...demo });
   await app.waitFor("id:search");
   await app.type("id:search", "roadmap");
   await app.waitFor("id:results >> text:Q4 roadmap draft");
@@ -62,7 +54,7 @@ test("search finds mail across accounts and folders", async () => {
 });
 
 test("phones: the inbox, a message and back", async () => {
-  const app = await open("./App.tsx", { platform: "android", width: 390, height: 844, locale: "en-US", ...local });
+  const app = await open("./App.tsx", { platform: "android", width: 390, height: 844, locale: "en-US", ...demo });
   await app.waitFor("text:Photos from the weekend");
   await app.press("text:Photos from the weekend");
   await app.waitFor("id:reader >> text:Daniel Okafor");
@@ -71,14 +63,14 @@ test("phones: the inbox, a message and back", async () => {
 });
 
 test("desktops: closing the window keeps nsh-mail running in the tray", async () => {
-  const app = await open("./App.tsx", { ...desktop, ...local });
+  const app = await open("./App.tsx", { ...desktop, ...demo });
   await app.waitFor("text:Q4 roadmap draft");
   await app.window("main").pressClose();
   expect(app.window("main").state()).toMatchObject({ visible: false });
 });
 
 test("keys: j opens the next message, r replies to it", async () => {
-  const app = await open("./App.tsx", { ...desktop, ...local });
+  const app = await open("./App.tsx", { ...desktop, ...demo });
   await app.waitFor("text:Q4 roadmap draft");
   await app.keyboard.press("j");
   await app.waitFor("id:reader >> text:Design review notes: unified inbox");
@@ -90,7 +82,7 @@ test("keys: j opens the next message, r replies to it", async () => {
 });
 
 test("new mail arrives on its own, also while the window is hidden", async () => {
-  const app = await open("./App.tsx", { ...desktop, ...local, clock: {} });
+  const app = await open("./App.tsx", { ...desktop, ...demo, clock: {} });
   await app.clock!.runFor(1000);
   await app.waitFor("text:Q4 roadmap draft");
   await app.clock!.runFor(91_000);
@@ -102,7 +94,7 @@ test("new mail arrives on its own, also while the window is hidden", async () =>
 });
 
 test("remote images stay blocked until the reader loads them", async () => {
-  const app = await open("./App.tsx", { ...desktop, ...local });
+  const app = await open("./App.tsx", { ...desktop, ...demo });
   await app.waitFor("text:Design review notes: unified inbox");
   await app.press("text:Design review notes: unified inbox");
   await app.waitFor("id:reader >> text:Inbox mockup");
@@ -111,7 +103,7 @@ test("remote images stay blocked until the reader loads them", async () => {
 });
 
 test("scrolling to the end loads older mail", async () => {
-  const app = await open("./App.tsx", { ...desktop, ...local });
+  const app = await open("./App.tsx", { ...desktop, ...demo });
   await app.waitFor("text:Q4 roadmap draft");
   expect(app.shows("text:Laptop setup")).toBe(false);
   for (let i = 0; i < 6 && !app.shows("text:Laptop setup"); i++) await app.scroll("id:messages", 2000);

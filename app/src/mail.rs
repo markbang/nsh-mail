@@ -1,26 +1,49 @@
 //! `Mail`, the one interface TSX uses (docs/design.md §3). It owns the
 //! session: which backend runs, its status, and the listeners of its events.
 
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
+use mail_core::types::*;
 use nsh_core::{prelude::*, storage::Storage};
 
 use crate::{
-    backend::{Backend, MailError},
-    demo::DemoBackend,
-    types::*,
+    backend::{Backend, invalid, js},
+    types::Js,
 };
 
 const MODE_KEY: &str = "nshmail.mode";
 const SERVER_KEY: &str = "nshmail.server";
 
-#[derive(Default)]
 struct Session {
     backend: Option<Rc<dyn Backend>>,
     status: Status,
-    listeners: Vec<(u64, Callback<MailEvent>)>,
+    /// The accounts whose sync runs.
+    syncing: HashSet<String>,
+    listeners: Vec<(u64, Callback<Js<MailEvent>>)>,
     next_listener: u64,
     started: bool,
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        Self {
+            backend: None,
+            status: no_session(),
+            syncing: HashSet::new(),
+            listeners: Vec::new(),
+            next_listener: 0,
+            started: false,
+        }
+    }
+}
+
+fn no_session() -> Status {
+    Status {
+        mode: Mode::None,
+        server: None,
+        syncing: false,
+        error: None,
+    }
 }
 
 thread_local! {
@@ -32,19 +55,30 @@ fn with<R>(f: impl FnOnce(&mut Session) -> R) -> R {
     SESSION.with(|s| f(&mut s.borrow_mut()))
 }
 
-fn backend() -> Result<Rc<dyn Backend>, MailError> {
-    with(|s| s.backend.clone())
-        .ok_or_else(|| MailError::new(MailError::NO_SESSION, "choose local or cloud mode first"))
+fn backend() -> Result<Rc<dyn Backend>, JsError> {
+    with(|s| s.backend.clone()).ok_or_else(|| js(invalid("choose local or cloud mode first")))
 }
 
 fn emit(event: MailEvent) {
     let listeners = with(|s| {
-        match event.r#type {
-            MailEventType::SyncState => {
-                s.status.syncing = event.syncing.unwrap_or(false);
-                s.status.error = event.error.clone();
+        match &event {
+            MailEvent::SyncState {
+                account_id,
+                syncing,
+                error,
+            } => {
+                if *syncing {
+                    s.syncing.insert(account_id.clone());
+                } else {
+                    s.syncing.remove(account_id);
+                }
+                s.status.syncing = !s.syncing.is_empty();
+                s.status.error = error.clone();
             }
-            MailEventType::Error => s.status.error = event.error.clone(),
+            MailEvent::Error {
+                account_id: Some(_),
+                error,
+            } => s.status.error = Some(error.clone()),
             _ => {}
         }
         s.listeners
@@ -53,16 +87,39 @@ fn emit(event: MailEvent) {
             .collect::<Vec<_>>()
     });
     for listener in listeners {
-        listener.post(event.clone());
+        listener.post(Js(event.clone()));
     }
 }
 
-/// Opens a session for `mode`; the backend is the demo until the real
-/// ones land (docs/design.md §3).
-async fn open(mode: Mode, server: Option<String>) -> Result<(), MailError> {
-    let backend: Rc<dyn Backend> = Rc::new(DemoBackend::default());
+fn changed(account_id: String, folder: FolderKind) {
+    emit(MailEvent::Changed { account_id, folder });
+}
+
+/// The backend of `mode`. The in-memory demo backs the UI tests
+/// (`nshmail.mode` = `demo`) and cloud mode until `CloudBackend` lands;
+/// release builds have no demo.
+fn backend_for(mode: Mode, demo: bool) -> Result<Rc<dyn Backend>, Error> {
+    #[cfg(debug_assertions)]
+    if demo || mode == Mode::Cloud {
+        return Ok(Rc::new(crate::demo::DemoBackend::default()));
+    }
+    let _ = demo;
+    match mode {
+        #[cfg(not(target_arch = "wasm32"))]
+        Mode::Local => Ok(Rc::new(crate::local::LocalBackend::default())),
+        _ => Err(Error::new(
+            ErrorCode::Unsupported,
+            "this mode is not available in this build",
+        )),
+    }
+}
+
+/// Opens a session for `mode`, ending the last one.
+async fn open(mode: Mode, server: Option<String>, demo: bool) -> Result<(), JsError> {
+    let backend = backend_for(mode, demo).map_err(js)?;
     with(|s| {
         s.backend = Some(backend.clone());
+        s.syncing.clear();
         s.status = Status {
             mode,
             server,
@@ -70,20 +127,21 @@ async fn open(mode: Mode, server: Option<String>) -> Result<(), MailError> {
             error: None,
         };
     });
-    backend.start(Rc::new(emit)).await?;
-    emit(MailEvent::changed(None, None));
+    if let Err(e) = backend.start(Rc::new(emit)).await {
+        with(|s| {
+            s.backend = None;
+            s.status = no_session();
+        });
+        return Err(js(e));
+    }
     Ok(())
 }
 
-fn remember(mode: Mode, server: Option<&str>) {
-    let mode = match mode {
-        Mode::Local => "local",
-        Mode::Cloud => "cloud",
-        Mode::None => {
-            Storage::remove_item(MODE_KEY);
-            Storage::remove_item(SERVER_KEY);
-            return;
-        }
+fn remember(mode: Option<&str>, server: Option<&str>) {
+    let Some(mode) = mode else {
+        Storage::remove_item(MODE_KEY);
+        Storage::remove_item(SERVER_KEY);
+        return;
     };
     // A full storage only costs the remembered mode: onboarding shows again.
     let _ = Storage::set_item(MODE_KEY, mode);
@@ -93,13 +151,11 @@ fn remember(mode: Mode, server: Option<&str>) {
     }
 }
 
-fn valid_server(server: &str) -> Result<String, MailError> {
+fn valid_server(server: &str) -> Result<String, JsError> {
     let server = server.trim().trim_end_matches('/');
     let local = server.starts_with("http://localhost") || server.starts_with("http://127.0.0.1");
     if !(server.starts_with("https://") || local) || server.len() < "https://x".len() {
-        return Err(MailError::invalid(
-            "the server address starts with https://",
-        ));
+        return Err(js(invalid("the server address starts with https://")));
     }
     Ok(server.to_owned())
 }
@@ -112,38 +168,38 @@ pub struct Mail;
 impl Mail {
     /// Restores the last session (if any) and starts syncing; resolves with
     /// the status. Calling it again returns the current status.
-    pub async fn init() -> Result<Status, JsError> {
+    pub async fn init() -> Result<Js<Status>, JsError> {
         if with(|s| std::mem::replace(&mut s.started, true)) {
             return Ok(Mail::status());
         }
-        let mode = match Storage::get_item(MODE_KEY).as_deref() {
-            Some("local") if cfg!(not(target_arch = "wasm32")) => Mode::Local,
-            Some("cloud") => Mode::Cloud,
-            _ => Mode::None,
-        };
-        if mode != Mode::None {
-            open(mode, Storage::get_item(SERVER_KEY)).await?;
+        let server = Storage::get_item(SERVER_KEY);
+        match Storage::get_item(MODE_KEY).as_deref() {
+            Some("local") if cfg!(not(target_arch = "wasm32")) => {
+                open(Mode::Local, None, false).await?
+            }
+            Some("demo") if cfg!(debug_assertions) => open(Mode::Local, None, true).await?,
+            Some("cloud") => open(Mode::Cloud, server, false).await?,
+            _ => {}
         }
         Ok(Mail::status())
     }
 
     /// The current status.
-    pub fn status() -> Status {
-        with(|s| s.status.clone())
+    pub fn status() -> Js<Status> {
+        Js(with(|s| s.status.clone()))
     }
 
     /// Keeps mail on this device. Rejects with `ERR_UNSUPPORTED` on the web,
     /// which cannot reach mail servers.
     pub async fn use_local() -> Result<(), JsError> {
         if cfg!(target_arch = "wasm32") {
-            return Err(MailError::new(
-                MailError::UNSUPPORTED,
+            return Err(js(Error::new(
+                ErrorCode::Unsupported,
                 "a browser cannot connect to mail servers: use an nsh-mail server",
-            )
-            .into());
+            )));
         }
-        open(Mode::Local, None).await?;
-        remember(Mode::Local, None);
+        open(Mode::Local, None, false).await?;
+        remember(Some("local"), None);
         Ok(())
     }
 
@@ -157,96 +213,96 @@ impl Mail {
     ) -> Result<(), JsError> {
         let server = valid_server(&server)?;
         if !email.contains('@') {
-            return Err(MailError::invalid("enter an email address").into());
+            return Err(js(invalid("enter an email address")));
         }
         if password.is_empty() || (sign_up && password.chars().count() < 8) {
-            return Err(MailError::invalid("a password has at least 8 characters").into());
+            return Err(js(invalid("a password has at least 8 characters")));
         }
-        timer(std::time::Duration::from_millis(400)).await;
-        open(Mode::Cloud, Some(server.clone())).await?;
-        remember(Mode::Cloud, Some(&server));
+        open(Mode::Cloud, Some(server.clone()), false).await?;
+        remember(Some("cloud"), Some(&server));
         Ok(())
     }
 
     /// Ends the session: back to onboarding.
     pub async fn sign_out() -> Result<(), JsError> {
         if let Some(backend) = with(|s| s.backend.take()) {
-            backend.sign_out().await?;
+            backend.sign_out().await.map_err(js)?;
         }
-        with(|s| s.status = Status::default());
-        remember(Mode::None, None);
-        emit(MailEvent::changed(None, None));
+        with(|s| {
+            s.status = no_session();
+            s.syncing.clear();
+        });
+        remember(None, None);
         Ok(())
     }
 
     /// The accounts, in the order they were added.
-    pub async fn accounts() -> Result<Vec<Account>, JsError> {
-        Ok(backend()?.accounts().await?)
+    pub async fn accounts() -> Result<Js<Vec<Account>>, JsError> {
+        backend()?.accounts().await.map(Js).map_err(js)
     }
 
     /// The servers of `email`'s provider, `null` when unknown.
-    pub async fn detect(email: String) -> Result<Option<ServerSettings>, JsError> {
-        Ok(backend()?.detect(email).await?)
+    pub async fn detect(email: String) -> Result<Js<Option<ServerSettings>>, JsError> {
+        backend()?.detect(email).await.map(Js).map_err(js)
     }
 
     /// Adds an IMAP account after connecting to its IMAP and SMTP servers.
-    pub async fn add_imap(input: ImapInput) -> Result<Account, JsError> {
-        let account = backend()?.add_imap(input).await?;
-        emit(MailEvent::changed(None, None));
-        Ok(account)
+    pub async fn add_imap(input: Js<ImapInput>) -> Result<Js<Account>, JsError> {
+        let account = backend()?.add_imap(input.0).await.map_err(js)?;
+        changed(account.id.clone(), FolderKind::Inbox);
+        Ok(Js(account))
     }
 
     /// Adds a Gmail or Outlook account through the provider's sign-in page.
-    pub async fn add_o_auth(provider: OAuthProvider) -> Result<Account, JsError> {
-        let account = backend()?.add_oauth(provider).await?;
-        emit(MailEvent::changed(None, None));
-        Ok(account)
+    pub async fn add_o_auth(provider: Js<OAuthProvider>) -> Result<Js<Account>, JsError> {
+        let account = backend()?.add_oauth(provider.0).await.map_err(js)?;
+        changed(account.id.clone(), FolderKind::Inbox);
+        Ok(Js(account))
     }
 
     /// Removes an account and its mail from this app.
     pub async fn remove_account(id: String) -> Result<(), JsError> {
-        backend()?.remove_account(id).await?;
-        emit(MailEvent::changed(None, None));
+        backend()?.remove_account(id.clone()).await.map_err(js)?;
+        changed(id, FolderKind::Inbox);
         Ok(())
     }
 
     /// A page of a folder, newest first.
-    pub async fn list(query: ListQuery) -> Result<Vec<Summary>, JsError> {
-        Ok(backend()?.list(query).await?)
+    pub async fn list(query: Js<ListQuery>) -> Result<Js<Vec<Summary>>, JsError> {
+        backend()?.list(query.0).await.map(Js).map_err(js)
     }
 
     /// A whole message.
-    pub async fn get(id: String) -> Result<Message, JsError> {
-        Ok(backend()?.get(id).await?)
+    pub async fn get(id: String) -> Result<Js<Message>, JsError> {
+        backend()?.get(id).await.map(Js).map_err(js)
     }
 
     /// Marks a message read or unread, flagged or not.
-    pub async fn set_flags(id: String, flags: Flags) -> Result<(), JsError> {
-        backend()?.set_flags(id, flags).await?;
-        emit(MailEvent::changed(None, None));
-        Ok(())
+    pub async fn set_flags(id: String, flags: Js<Flags>) -> Result<(), JsError> {
+        backend()?.set_flags(id, flags.0).await.map_err(js)
     }
 
     /// Sends a message.
-    pub async fn send(draft: Draft) -> Result<(), JsError> {
-        backend()?.send(draft).await?;
-        emit(MailEvent::changed(None, None));
+    pub async fn send(draft: Js<Draft>) -> Result<(), JsError> {
+        let account = draft.0.account_id.clone();
+        backend()?.send(draft.0).await.map_err(js)?;
+        changed(account, FolderKind::Sent);
         Ok(())
     }
 
     /// Messages matching `text` in any folder, newest first.
-    pub async fn search(text: String, limit: u32) -> Result<Vec<Summary>, JsError> {
-        Ok(backend()?.search(text, limit).await?)
+    pub async fn search(text: String, limit: u32) -> Result<Js<Vec<Summary>>, JsError> {
+        backend()?.search(text, limit).await.map(Js).map_err(js)
     }
 
     /// Syncs now.
     pub async fn refresh() -> Result<(), JsError> {
-        Ok(backend()?.refresh().await?)
+        backend()?.refresh().await.map_err(js)
     }
 
     /// Calls `listener` with each event: `newMail`, `changed`, `syncState`,
     /// `error`. Returns a function that stops listening.
-    pub fn on(#[args(event)] listener: Callback<MailEvent>) -> Stop {
+    pub fn on(#[args(event)] listener: Callback<Js<MailEvent>>) -> Stop {
         let id = with(|s| {
             s.next_listener += 1;
             s.listeners.push((s.next_listener, listener));
