@@ -75,6 +75,11 @@ test("cloud mode: sign up, add a mailbox, read, get new mail live, reply, sign o
 
   const alices = await signUp(alice);
 
+  // Android's Gradle host hands over its FCM token; cloud mode registers it.
+  await alices.host.send("push.token", { kind: "fcm", token: `fcm-${run}` });
+  await alices.waitUntil(() => alices.requests().some((r) => r.method === "POST" && r.url === `${server}/v1/devices`));
+  expect(alices.requests().find((r) => r.url === `${server}/v1/devices`)?.body).toBe(`{"kind":"fcm","token":"fcm-${run}"}`);
+
   // A provider's sign-in opens the server's start page and comes back on
   // nshmail://oauth-done, here with the error of a server without Google.
   await openAddAccount(alices);

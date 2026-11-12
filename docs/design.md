@@ -65,7 +65,7 @@ Mail.send(draft: Draft): Promise<void>             // 回复时带 inReplyTo / r
 Mail.search(text, limit): Promise<Summary[]>
 Mail.refresh(): Promise<void>
 Mail.on(listener: (e: MailEvent) => void): () => void   // newMail / changed / syncState / error
-Push.setToken(token): void                         // Android 宿主的 FCM token（§5），云端模式登记到服务端
+Push.setToken(token): Promise<void>                // Android 宿主的 FCM token（§5），云端模式登记到服务端
 ```
 
 消息 id 是本地库的稳定字符串 id；云端模式下是服务端 id。统一收件箱 = 所有账号 INBOX 按日期倒序合并。

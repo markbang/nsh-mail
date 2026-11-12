@@ -7,6 +7,6 @@ import { Push } from "nsh-mail/native";
 export function listenForPushToken() {
   host.on("push.token", (payload) => {
     const token = (payload as { token?: unknown } | null)?.token;
-    if (typeof token === "string" && token) Push.setToken(token);
+    if (typeof token === "string" && token) void Push.setToken(token);
   });
 }

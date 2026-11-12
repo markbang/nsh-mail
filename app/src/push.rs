@@ -40,7 +40,8 @@ pub struct Push;
 #[module]
 impl Push {
     /// Keeps `token` and hands it to cloud mode, at once when signed in.
-    pub fn set_token(token: String) {
+    // Async: registering runs a task, which needs the engine's runtime.
+    pub async fn set_token(token: String) {
         let sink = STATE.with(|s| {
             let mut s = s.borrow_mut();
             if s.token.as_deref() == Some(token.as_str()) {

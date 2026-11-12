@@ -11,7 +11,7 @@ use std::{
     cell::RefCell,
     future::{Future, poll_fn},
     pin::pin,
-    rc::Rc,
+    rc::{Rc, Weak},
     task::Poll,
     time::Duration,
 };
@@ -209,6 +209,33 @@ impl Inner {
             old.cancel();
         }
     }
+
+    /// This device's push registration on the server: listening as it, the
+    /// server pushes to it only while its event stream is closed.
+    fn registered(&self, device: String) {
+        *self.device.borrow_mut() = Some(device);
+        self.listen();
+    }
+}
+
+/// Registers Android's FCM token (`push.rs`, from the Gradle host) with the server.
+fn register_fcm(inner: Weak<Inner>) -> crate::push::TokenSink {
+    Rc::new(move |token: &str| {
+        let (inner, token) = (inner.clone(), token.to_owned());
+        Owner::detached().run(|| {
+            spawn(async move {
+                let Some(this) = inner.upgrade() else { return };
+                let body = json!({ "kind": "fcm", "token": token });
+                match this.api.call::<Value>("POST", "/devices", Some(body)).await {
+                    Ok(device) => match device["id"].as_str() {
+                        Some(id) => this.registered(id.to_owned()),
+                        None => log::warn!("the server registered no FCM device"),
+                    },
+                    Err(e) => log::warn!("cannot register for push: {}", e.message),
+                }
+            })
+        });
+    })
 }
 
 impl Drop for Inner {
@@ -371,6 +398,7 @@ impl Backend for CloudBackend {
     fn start(&self, events: Events) -> MailFuture<'_, ()> {
         *self.0.emit.borrow_mut() = Some(events);
         self.0.listen();
+        crate::push::on_token(Some(register_fcm(Rc::downgrade(&self.0))));
         #[cfg(target_arch = "wasm32")]
         {
             let inner = Rc::downgrade(&self.0);
@@ -378,10 +406,7 @@ impl Backend for CloudBackend {
                 spawn(async move {
                     let Some(this) = inner.upgrade() else { return };
                     match web::subscribe_push(&this.api).await {
-                        Ok(Some(device)) => {
-                            *this.device.borrow_mut() = Some(device);
-                            this.listen();
-                        }
+                        Ok(Some(device)) => this.registered(device),
                         Ok(None) => {}
                         Err(e) => log::warn!("no Web Push on this browser: {}", e.message),
                     }
@@ -396,6 +421,7 @@ impl Backend for CloudBackend {
             if let Some(task) = self.0.listening.take() {
                 task.cancel();
             }
+            crate::push::on_token(None);
             #[cfg(target_arch = "wasm32")]
             web::unsubscribe_push().await;
             let device = self.0.device.borrow_mut().take();
