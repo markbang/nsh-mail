@@ -50,8 +50,8 @@ impl LocalBackend {
         T: Send + 'static,
         F: Future<Output = Result<T>> + Send + 'static,
     {
-        let engine = self.engine();
-        Box::pin(async move { run(f(engine?)).await })
+        let work = self.engine().map(f);
+        Box::pin(async move { run(work?).await })
     }
 }
 
