@@ -6,7 +6,11 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use mail_core::{Engine, secrets::MemoryStore, types::*};
-use nsh_core::element::{Environment, Idiom, Locale, Os, Registry};
+use nsh_core::{
+    element::Registry,
+    geometry::{Points, Size},
+    platform::{Environment, Idiom, Locale, Os},
+};
 use nsh_engine::EngineConfig;
 use nsh_testing::Headless;
 
@@ -91,10 +95,7 @@ fn local_mode_reads_replies_and_searches_real_mail() {
         },
         ..EngineConfig::new(bundle)
     };
-    config.viewport = nsh_core::element::size(
-        nsh_core::element::Points(1280.0),
-        nsh_core::element::Points(820.0),
-    );
+    config.viewport = Size::new(Points(1280.0), Points(820.0));
     let mut app = Headless::start(config).expect("the engine starts");
 
     // Onboarding: keep mail on this device.
