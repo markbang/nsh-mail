@@ -86,7 +86,7 @@ TSX ──Mail.*──▶ Rust LocalBackend ──tokio/rustls──▶ IMAP (99
 1. 添加账号：`detect` 填好服务器 → 连通测试 → 凭据进钥匙串，账号元数据进 SQLite。
 2. 首次同步：每个文件夹取最近 500 封。不超过 32 KB 的整封下载（离线可读、全文索引）；更大的只取信头和第一个文本部分做摘要（按 `BODYSTRUCTURE` 定位，不用部分 FETCH），正文打开时按需下载并缓存。
 3. 增量：按 `UIDVALIDITY`/`UIDNEXT` 取新信，支持 `CONDSTORE` 时用 `HIGHESTMODSEQ` 同步标记；UIDVALIDITY 变了就重建该文件夹。
-4. 实时：INBOX 上 `IDLE`（29 分钟续约），不支持 IDLE 的服务器每 2 分钟轮询。新信写库后发 `newMail` 事件，并在应用不在前台时发系统通知。
+4. 实时：INBOX 上 `IDLE`（29 分钟续约），不支持 IDLE 的服务器每 2 分钟轮询。连接或同步出错时记日志（带账户 id），按 5 秒到 5 分钟退避重连并全量同步。新信写库后发 `newMail` 事件，并在应用不在前台时发系统通知。
 5. 发送：lettre 经 SMTP 发出，成功后 `APPEND` 到"已发送"（Gmail 自动保存的除外）。
 6. 搜索：本地 FTS5（主题、发件人、收件人、正文）；本地没有的旧信，后续版本再补 IMAP `SEARCH`。
 
