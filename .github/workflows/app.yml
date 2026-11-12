@@ -33,17 +33,19 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
         working-directory: .
       - uses: dtolnay/rust-toolchain@stable
-      - &cache
-        uses: actions/cache@v6
+      # Restored everywhere, saved only from main so pull requests do not evict main's caches.
+      - &restore-cache
+        id: cache
+        uses: actions/cache/restore@v6
         with:
-          path: |
+          path: &cache-path |
             ~/.nsh
             ~/AppData/Local/nsh
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             app/target
-          key: ${{ github.job }}-${{ runner.os }}-${{ env.NSH_VERSION }}-${{ hashFiles('app/Cargo.lock') }}
+          key: &cache-key ${{ github.job }}-${{ runner.os }}-${{ env.NSH_VERSION }}-${{ hashFiles('app/Cargo.lock') }}
           restore-keys: ${{ github.job }}-${{ runner.os }}-${{ env.NSH_VERSION }}-
       - &install-nsh
         name: Install nsh
@@ -52,6 +54,12 @@ jobs:
           echo "$HOME/.nsh/bin" >> "$GITHUB_PATH"
       - run: nsh check
       - run: nsh test
+      - &save-cache
+        if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: *cache-path
+          key: *cache-key
 
   linux:
     runs-on: ubuntu-24.04
@@ -61,7 +69,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libwebkitgtk-6.0-dev
         working-directory: .
       - uses: dtolnay/rust-toolchain@stable
-      - *cache
+      - *restore-cache
       - *install-nsh
       - run: nsh package App.tsx --target linux
       - uses: actions/upload-artifact@v7
@@ -69,6 +77,7 @@ jobs:
           name: linux
           path: app/.nsh/out/*.tar.gz
           if-no-files-found: error
+      - *save-cache
 
   windows:
     runs-on: windows-latest
@@ -80,7 +89,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - *cache
+      - *restore-cache
       - name: Install nsh
         shell: pwsh
         run: |
@@ -98,6 +107,7 @@ jobs:
             app/.nsh/out/*.zip
             app/.nsh/out/*-setup.exe
           if-no-files-found: error
+      - *save-cache
 
   android:
     runs-on: ubuntu-24.04
@@ -111,7 +121,7 @@ jobs:
       # The image has the SDK, its build tools, a JDK and NDKs; `nsh` builds the crate's libnsh.so with the newest NDK.
       - name: Install the Android platform
         run: (yes || :) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" > /dev/null
-      - *cache
+      - *restore-cache
       - *install-nsh
       - run: nsh package App.tsx --target android
       - uses: actions/upload-artifact@v7
@@ -119,6 +129,7 @@ jobs:
           name: android
           path: app/.nsh/out/*.apk
           if-no-files-found: error
+      - *save-cache
 
   web:
     runs-on: ubuntu-24.04
@@ -130,7 +141,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - *cache
+      - *restore-cache
       - *install-nsh
       - run: nsh package App.tsx --target web -o "$RUNNER_TEMP/web"
       - uses: actions/upload-artifact@v7
@@ -138,3 +149,4 @@ jobs:
           name: web
           path: ${{ runner.temp }}/web
           if-no-files-found: error
+      - *save-cache
