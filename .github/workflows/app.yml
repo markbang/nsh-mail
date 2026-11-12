@@ -1,0 +1,152 @@
+name: App
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  NSH_VERSION: v0.5.0
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
+    working-directory: app
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      # The test runner and `describe` link the crate with the Linux backend (GTK 4, GStreamer); QuickJS' bindgen needs libclang.
+      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+        working-directory: .
+      - uses: dtolnay/rust-toolchain@stable
+      # Restored everywhere, saved only from main so pull requests do not evict main's caches.
+      - &restore-cache
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: &cache-path |
+            ~/.nsh
+            ~/AppData/Local/nsh
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            app/target
+          key: &cache-key ${{ github.job }}-${{ runner.os }}-${{ env.NSH_VERSION }}-${{ hashFiles('app/Cargo.lock') }}
+          restore-keys: ${{ github.job }}-${{ runner.os }}-${{ env.NSH_VERSION }}-
+      - &install-nsh
+        name: Install nsh
+        run: |
+          [ -x ~/.nsh/bin/nsh ] || curl -fsSL https://nsh.dev/install.sh | sh
+          echo "$HOME/.nsh/bin" >> "$GITHUB_PATH"
+      - run: nsh check
+      - run: nsh test
+      - &save-cache
+        if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: *cache-path
+          key: *cache-key
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      # The release runner also links WebKitGTK for web views.
+      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libwebkitgtk-6.0-dev
+        working-directory: .
+      - uses: dtolnay/rust-toolchain@stable
+      - *restore-cache
+      - *install-nsh
+      - run: nsh package App.tsx --target linux
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux
+          path: app/.nsh/out/*.tar.gz
+          if-no-files-found: error
+      - *save-cache
+
+  windows:
+    runs-on: windows-latest
+    env:
+      # QuickJS is C: bindgen needs libclang, which the image's LLVM has.
+      LIBCLANG_PATH: C:\Program Files\LLVM\bin
+      # rustc can overflow its default stack on the `windows` crate's bindings.
+      RUST_MIN_STACK: "268435456"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - *restore-cache
+      - name: Install nsh
+        shell: pwsh
+        run: |
+          $nsh = "$env:LOCALAPPDATA\nsh\bin"
+          if (-not (Test-Path "$nsh\nsh.exe")) { irm https://nsh.dev/install.ps1 | iex }
+          "$nsh" >> $env:GITHUB_PATH
+      # `nsh package` compiles the installer when Inno Setup 6 is installed.
+      - name: Install Inno Setup
+        run: compgen -G "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" || choco install innosetup -y --no-progress
+      - run: nsh package App.tsx --target windows
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: |
+            app/.nsh/out/*.zip
+            app/.nsh/out/*-setup.exe
+          if-no-files-found: error
+      - *save-cache
+
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+        working-directory: .
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi
+      # The image has the SDK, its build tools, a JDK and NDKs; `nsh` builds the crate's libnsh.so with the newest NDK.
+      - name: Install the Android platform
+        run: (yes || :) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" > /dev/null
+      - *restore-cache
+      - *install-nsh
+      - run: nsh package App.tsx --target android
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android
+          path: app/.nsh/out/*.apk
+          if-no-files-found: error
+      - *save-cache
+
+  web:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      # The web runtime's C code compiles with clang and llvm-ar.
+      - run: sudo apt-get update && sudo apt-get install -y clang llvm libclang-dev
+        working-directory: .
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - *restore-cache
+      - *install-nsh
+      - run: nsh package App.tsx --target web -o "$RUNNER_TEMP/web"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web
+          path: ${{ runner.temp }}/web
+          if-no-files-found: error
+      - *save-cache
