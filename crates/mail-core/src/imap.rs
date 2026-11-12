@@ -2,14 +2,16 @@
 //! flag store, append.
 
 use std::collections::HashSet;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll, ready};
 use std::time::Duration;
 
 use async_imap::imap_proto::{BodyStructure, ContentEncoding, SectionPath};
 use async_imap::types::{Fetch, Flag, NameAttribute};
 use base64::Engine as _;
 use futures::TryStreamExt;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf};
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 
@@ -17,7 +19,49 @@ use crate::error::err;
 use crate::store::{FolderRow, Store};
 use crate::types::*;
 
-pub(crate) type Session = async_imap::Session<TlsStream<TcpStream>>;
+pub(crate) type Session = async_imap::Session<Stream>;
+
+/// async-imap ends a response stream at EOF without an error, so a command on a connection the
+/// server closed "succeeds" with an empty answer (a SELECT with no messages and no UIDVALIDITY,
+/// which made sync clear the folder). Every command expects a tagged reply, so EOF is an error.
+#[derive(Debug)]
+pub(crate) struct Stream(TlsStream<TcpStream>);
+
+impl AsyncRead for Stream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let before = buf.filled().len();
+        ready!(Pin::new(&mut self.0).poll_read(cx, buf))?;
+        if buf.filled().len() == before && buf.remaining() > 0 {
+            return Poll::Ready(Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "the server closed the connection",
+            )));
+        }
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl AsyncWrite for Stream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.0).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_shutdown(cx)
+    }
+}
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// Newest messages fetched per folder on first sync (and after a long gap).
@@ -61,12 +105,12 @@ pub(crate) async fn connect(ep: &Endpoint, login: Login<'_>) -> Result<Conn> {
     })?;
     let client = match ep.security {
         Security::Tls => {
-            let mut c = async_imap::Client::new(tls_wrap(tcp, &ep.host).await?);
+            let mut c = async_imap::Client::new(Stream(tls_wrap(tcp, &ep.host).await?));
             greeting(&mut c).await?;
             c
         }
         Security::StartTls => {
-            async_imap::Client::new(tls_wrap(starttls(tcp).await?, &ep.host).await?)
+            async_imap::Client::new(Stream(tls_wrap(starttls(tcp).await?, &ep.host).await?))
         }
     };
     let session = match login {
@@ -126,7 +170,7 @@ async fn tls_wrap(tcp: TcpStream, host: &str) -> Result<TlsStream<TcpStream>> {
     })
 }
 
-async fn greeting(c: &mut async_imap::Client<TlsStream<TcpStream>>) -> Result<()> {
+async fn greeting(c: &mut async_imap::Client<Stream>) -> Result<()> {
     match tokio::time::timeout(CONNECT_TIMEOUT, c.read_response()).await?? {
         Some(_) => Ok(()),
         None => Err(err(

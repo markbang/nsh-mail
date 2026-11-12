@@ -344,3 +344,105 @@ async fn large_message_is_fetched_on_open() {
     assert_eq!(m.attachments[0].filename.as_deref(), Some("report.bin"));
     assert_eq!(m.attachments[0].size, 64 * 1024);
 }
+
+async fn smtp() -> lettre::transport::smtp::client::AsyncSmtpConnection {
+    use lettre::transport::smtp::client::{AsyncSmtpConnection, TlsParameters};
+    let tls = TlsParameters::builder(host())
+        .dangerous_accept_invalid_certs(true)
+        .dangerous_accept_invalid_hostnames(true)
+        .build_rustls()
+        .unwrap();
+    AsyncSmtpConnection::connect_tokio1((host(), 3465), None, &Default::default(), Some(tls), None)
+        .await
+        .unwrap()
+}
+
+async fn deliver(
+    smtp: &mut lettre::transport::smtp::client::AsyncSmtpConnection,
+    to: &str,
+    subject: &str,
+) {
+    let m = lettre::Message::builder()
+        .from("carol@test.local".parse().unwrap())
+        .to(to.parse().unwrap())
+        .subject(subject)
+        .body("x".to_string())
+        .unwrap();
+    smtp.send(m.envelope(), &m.formatted()).await.unwrap();
+}
+
+async fn inbox_shows(engine: &Engine, account: &Account, subjects: &[&str]) -> bool {
+    for _ in 0..150 {
+        let inbox = engine
+            .list(query(FolderKind::Inbox, account, None, 10))
+            .await
+            .unwrap();
+        if subjects
+            .iter()
+            .all(|want| inbox.iter().any(|s| s.subject == *want))
+        {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    false
+}
+
+async fn idling(rx: &mut broadcast::Receiver<MailEvent>, account: &Account) {
+    // The loop's full sync, then the INBOX sync right before it sends IDLE.
+    for _ in 0..2 {
+        next_event(rx, |e| {
+            matches!(e, MailEvent::SyncState { account_id, syncing: false, .. } if *account_id == account.id)
+        })
+        .await;
+    }
+}
+
+/// Mail delivered between the sync before IDLE and the server's `+ idling`: GreenMail reports it
+/// before the continuation, and async-imap's `Handle::init` puts that EXISTS in the session's
+/// unsolicited channel instead of the IDLE stream. Several accounts at once widen the window.
+#[tokio::test(flavor = "multi_thread")]
+async fn mail_arriving_as_idle_starts_is_synced() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    engine.run().await.unwrap();
+    let mut trials = Vec::new();
+    for _ in 0..20 {
+        let engine = engine.clone();
+        trials.push(tokio::spawn(async move {
+            let mut smtp = smtp().await;
+            let email = unique("gap");
+            deliver(&mut smtp, &email, "before").await;
+            let mut rx = engine.subscribe();
+            let account = engine.add_imap_account(input(&email)).await.unwrap();
+            idling(&mut rx, &account).await;
+            deliver(&mut smtp, &email, "gap").await;
+            inbox_shows(&engine, &account, &["before", "gap"]).await
+        }));
+    }
+    let mut missing = 0;
+    for t in trials {
+        missing += usize::from(!t.await.unwrap());
+    }
+    assert_eq!(missing, 0, "mail missing in {missing} of 20 accounts");
+    engine.stop();
+}
+
+/// GreenMail closes a connection that sent nothing for about 30 s. async-imap ends a
+/// response stream at EOF without an error, so the sync after the next IDLE wake-up got an empty
+/// SELECT on the pooled connection, cleared INBOX, fetched nothing, and kept that connection.
+#[tokio::test(flavor = "multi_thread")]
+async fn mail_after_the_server_closed_the_pooled_connection_is_synced() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let email = unique("quiet");
+    deliver(&mut smtp().await, &email, "first").await;
+    let mut rx = engine.subscribe();
+    engine.run().await.unwrap();
+    let account = engine.add_imap_account(input(&email)).await.unwrap();
+    idling(&mut rx, &account).await;
+    tokio::time::sleep(Duration::from_secs(35)).await;
+    deliver(&mut smtp().await, &email, "second").await;
+    assert!(inbox_shows(&engine, &account, &["first", "second"]).await);
+    engine.stop();
+}

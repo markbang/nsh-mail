@@ -24,6 +24,7 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2 * 60);
 const OP_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// A pooled connection unused for longer than this is checked with NOOP before reuse.
 const STALE_AFTER: Duration = Duration::from_secs(60);
+const MIN_BACKOFF: Duration = Duration::from_secs(5);
 const MAX_BACKOFF: Duration = Duration::from_secs(5 * 60);
 
 pub struct EngineOptions {
@@ -683,89 +684,117 @@ fn smtp_auth(account: &Account, cred: &Credential) -> SmtpAuth {
     }
 }
 
+fn upgrade(inner: &Weak<Inner>) -> Option<Engine> {
+    inner.upgrade().map(|inner| Engine { inner })
+}
+
 /// Holds only a weak reference while waiting, so dropping the last `Engine` ends the loop.
 async fn account_loop(inner: Weak<Inner>, account_id: AccountId) {
-    let mut backoff = Duration::from_secs(5);
+    let mut backoff = MIN_BACKOFF;
     loop {
-        let Some(engine) = inner.upgrade().map(|inner| Engine { inner }) else {
-            return;
+        let started = Instant::now();
+        let e = match watch(&inner, &account_id).await {
+            Ok(()) => return,
+            Err(e) => e,
         };
-        let account = match engine.account(&account_id).await {
-            Ok(a) => a,
-            Err(_) => return,
-        };
-        let idle = match engine.sync_folders(&account, None).await {
-            Ok(()) => engine.connect(&account).await,
-            Err(e) => Err(e),
-        };
-        let conn = match idle {
-            Ok(c) => {
-                backoff = Duration::from_secs(5);
-                c
-            }
-            Err(e) => {
-                tracing::warn!(account = %account_id, code = ?e.code, "sync failed: {}", e.message);
-                if e.code == ErrorCode::Auth {
-                    // A wrong password will not fix itself; retry rarely.
-                    backoff = MAX_BACKOFF;
-                }
-                drop(engine);
-                tokio::time::sleep(backoff).await;
-                backoff = (backoff * 2).min(MAX_BACKOFF);
-                continue;
-            }
-        };
-        drop(engine);
-        if !conn.idle {
-            drop(conn);
-            tokio::time::sleep(POLL_INTERVAL).await;
-            continue;
+        // A session that stayed up this long was healthy: start the backoff over.
+        if started.elapsed() > MAX_BACKOFF {
+            backoff = MIN_BACKOFF;
         }
-        if let Err(e) = idle_loop(&inner, &account, conn).await {
-            tracing::info!(account = %account_id, "IDLE ended, reconnecting: {}", e.message);
-            tokio::time::sleep(Duration::from_secs(2)).await;
+        if e.code == ErrorCode::Auth {
+            // A wrong password will not fix itself; retry rarely.
+            backoff = MAX_BACKOFF;
         }
+        tracing::warn!(
+            account = %account_id,
+            code = ?e.code,
+            "sync stopped, reconnecting in {}s: {}",
+            backoff.as_secs(),
+            e.message
+        );
+        tokio::time::sleep(backoff).await;
+        backoff = (backoff * 2).min(MAX_BACKOFF);
+    }
+}
+
+/// One session: a full sync, then IDLE on INBOX, or polling without IDLE, until something fails.
+/// `Ok` means the engine or the account is gone.
+async fn watch(inner: &Weak<Inner>, account_id: &str) -> Result<()> {
+    let (account, conn) = {
+        let Some(engine) = upgrade(inner) else {
+            return Ok(());
+        };
+        let account = match engine.account(account_id).await {
+            Err(e) if e.code == ErrorCode::NotFound => return Ok(()),
+            a => a?,
+        };
+        engine.sync_folders(&account, None).await?;
+        let conn = engine.connect(&account).await?;
+        (account, conn)
+    };
+    if conn.idle {
+        return idle_loop(inner, &account, conn).await;
+    }
+    drop(conn);
+    loop {
+        tokio::time::sleep(POLL_INTERVAL).await;
+        let Some(engine) = upgrade(inner) else {
+            return Ok(());
+        };
+        engine.sync_folders(&account, None).await?;
+    }
+}
+
+/// Servers may repeat EXISTS; only a changed count means mail arrived or left.
+fn changed(r: async_imap::types::UnsolicitedResponse, exists: &mut u32) -> bool {
+    use async_imap::types::UnsolicitedResponse;
+    match r {
+        UnsolicitedResponse::Exists(n) => std::mem::replace(exists, n) != n,
+        UnsolicitedResponse::Expunge(_) => {
+            *exists = exists.saturating_sub(1);
+            true
+        }
+        _ => false,
     }
 }
 
 async fn idle_loop(inner: &Weak<Inner>, account: &Account, conn: Conn) -> Result<()> {
     use async_imap::extensions::idle::IdleResponse;
-    use async_imap::types::UnsolicitedResponse;
 
     let mut session = conn.session;
-    session.select("INBOX").await?;
+    let mut exists = tokio::time::timeout(OP_TIMEOUT, session.select("INBOX"))
+        .await??
+        .exists;
+    // Untagged responses outside a command's own replies land here, including what the server
+    // reports while IDLE starts (before `+ idling`), which `Handle::wait` never sees.
+    let unsolicited = session.unsolicited_responses.clone();
     let mut only = Some(FolderKind::Inbox);
     loop {
+        // The sync below covers everything reported so far.
+        while let Ok(r) = unsolicited.try_recv() {
+            changed(r, &mut exists);
+        }
         {
-            let Some(engine) = inner.upgrade().map(|inner| Engine { inner }) else {
+            let Some(engine) = upgrade(inner) else {
                 return Ok(());
             };
-            // Errors are already reported as SyncState events; IDLE itself keeps going.
-            let _ = engine.sync_folders(account, only).await;
-        }
-        // Mail that arrived while the other connection synced shows up here as EXISTS; catch it
-        // before idling instead of waiting for the next wake-up.
-        session.noop().await?;
-        let mut arrived = false;
-        while let Ok(r) = session.unsolicited_responses.try_recv() {
-            arrived |= matches!(
-                r,
-                UnsolicitedResponse::Exists(_) | UnsolicitedResponse::Expunge(_)
-            );
-        }
-        if arrived {
-            only = Some(FolderKind::Inbox);
-            continue;
+            engine.sync_folders(account, only).await?;
         }
         let mut handle = session.idle();
-        handle.init().await?;
-        let response = {
+        tokio::time::timeout(OP_TIMEOUT, handle.init()).await??;
+        let mut arrived = false;
+        while let Ok(r) = unsolicited.try_recv() {
+            arrived |= changed(r, &mut exists);
+        }
+        let response = if arrived {
+            None
+        } else {
             let (wait, _stop) = handle.wait_with_timeout(IDLE_RENEW);
-            wait.await?
+            Some(wait.await?)
         };
-        session = handle.done().await?;
+        session = tokio::time::timeout(OP_TIMEOUT, handle.done()).await??;
         only = match response {
-            IdleResponse::Timeout => None,
+            Some(IdleResponse::Timeout) => None,
             _ => Some(FolderKind::Inbox),
         };
     }
