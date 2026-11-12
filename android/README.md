@@ -10,6 +10,7 @@ Needs nsh, JDK 17, the Android SDK (`platforms;android-35`, build tools, an NDK)
 
 ```sh
 android/prepare.sh                         # nsh.aar + libnsh.so with the app's crate, and the bundle
+                                           # NSH_ABIS=x86_64 for an emulator (default arm64-v8a,armeabi-v7a)
 cd android && ./gradlew assembleDebug      # app/build/outputs/apk/debug/app-debug.apk
 ```
 

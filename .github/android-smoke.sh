@@ -18,6 +18,19 @@ for variant in stock ours; do
   echo "pid after press: $(adb shell pidof $pkg)"
   adb logcat -d > "$out/$variant.log"
   grep -E " (nsh|nsh-mail|AndroidRuntime) *:" "$out/$variant.log" | tail -40
-  adb uninstall "$pkg"
   echo "::endgroup::"
 done
+
+echo "::group::ours, local mode: a press opens its message"
+adb shell am force-stop "$pkg"
+adb shell "printf '%s' '{\"nshmail.mode\":\"local\"}' | run-as $pkg sh -c 'mkdir -p files/nsh/$pkg && cat > files/nsh/$pkg/storage.json'"
+adb shell am start -W -n "$pkg/.MainActivity"
+sleep 15
+adb exec-out screencap -p > "$out/inbox.png"
+adb logcat -c
+adb shell am start -W -n "$pkg/.MainActivity" --es com.longbridge.nsh.NOTIFICATION message:m1
+sleep 8
+adb exec-out screencap -p > "$out/pressed.png"
+adb logcat -d > "$out/pressed.log"
+grep -E " (nsh|nsh-mail|AndroidRuntime) *:" "$out/pressed.log" | tail -20
+echo "::endgroup::"
