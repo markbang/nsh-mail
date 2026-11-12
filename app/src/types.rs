@@ -126,10 +126,10 @@ const DECLARATIONS: &[(&str, &str)] = &[
         "ServerSettings",
         "/** What `detect(email)` found: what the add-account form starts with. */\n\
          export interface ServerSettings {\n  /** The preset's id (`gmail`, `qq`, ...); null when it came from autoconfig. */\n  \
-         provider: string | null;\n  /** The provider's name (\"QQ Mail\"). */\n  displayName: string | null;\n  username: string;\n  \
+         provider?: string | null;\n  /** The provider's name (\"QQ Mail\"). */\n  displayName?: string | null;\n  username: string;\n  \
          imap: Endpoint;\n  smtp: Endpoint;\n  /** `oauth`: the provider works only through `addOAuth`. */\n  auth: Auth;\n  \
          /** The provider wants an app password (授权码) rather than the login password. */\n  appPassword: boolean;\n  \
-         /** Where the provider explains app passwords. */\n  helpUrl: string | null;\n}",
+         /** Where the provider explains app passwords. */\n  helpUrl?: string | null;\n}",
     ),
     (
         "ImapInput",
@@ -141,8 +141,8 @@ const DECLARATIONS: &[(&str, &str)] = &[
     (
         "Account",
         "/** A mail account. */\n\
-         export interface Account {\n  id: string;\n  email: string;\n  name: string | null;\n  \
-         /** The preset's id (`gmail`, `outlook`, `qq`, ...), when known. */\n  provider: string | null;\n  username: string;\n  \
+         export interface Account {\n  id: string;\n  email: string;\n  name?: string | null;\n  \
+         /** The preset's id (`gmail`, `outlook`, `qq`, ...), when known. */\n  provider?: string | null;\n  username: string;\n  \
          auth: Auth;\n  imap: Endpoint;\n  smtp: Endpoint;\n}",
     ),
     (
@@ -153,23 +153,23 @@ const DECLARATIONS: &[(&str, &str)] = &[
     (
         "Summary",
         "/** A message in a list. */\n\
-         export interface Summary {\n  id: string;\n  accountId: string;\n  folder: Folder;\n  from: Address | null;\n  to: Address[];\n  \
+         export interface Summary {\n  id: string;\n  accountId: string;\n  folder: Folder;\n  from?: Address | null;\n  to: Address[];\n  \
          subject: string;\n  /** The start of the plain text. */\n  snippet: string;\n  /** When it was sent (ms since the epoch). */\n  date: number;\n  \
          seen: boolean;\n  flagged: boolean;\n  hasAttachments: boolean;\n}",
     ),
     (
         "Attachment",
         "/** An attachment's metadata. */\n\
-         export interface Attachment {\n  /** Its position among the message's attachments. */\n  index: number;\n  filename: string | null;\n  \
+         export interface Attachment {\n  /** Its position among the message's attachments. */\n  index: number;\n  filename?: string | null;\n  \
          mimeType: string;\n  /** Bytes. */\n  size: number;\n  /** Shown inside the body rather than attached. */\n  inline: boolean;\n  \
-         contentId: string | null;\n}",
+         contentId?: string | null;\n}",
     ),
     (
         "Message",
         "/** A whole message: a summary's fields and the rest. */\n\
-         export interface Message extends Summary {\n  cc: Address[];\n  replyTo: Address[];\n  messageId: string | null;\n  \
-         inReplyTo: string | null;\n  references: string[];\n  text: string | null;\n  \
-         /** Sanitized; remote images have no `src`, their URLs are `remoteImages`, in order. */\n  html: string | null;\n  \
+         export interface Message extends Summary {\n  cc: Address[];\n  replyTo: Address[];\n  messageId?: string | null;\n  \
+         inReplyTo?: string | null;\n  references: string[];\n  text?: string | null;\n  \
+         /** Sanitized; remote images have no `src`, their URLs are `remoteImages`, in order. */\n  html?: string | null;\n  \
          remoteImages: string[];\n  attachments: Attachment[];\n}",
     ),
     (
