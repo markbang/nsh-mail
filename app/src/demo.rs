@@ -8,7 +8,7 @@ use std::{cell::RefCell, rc::Rc, time::Duration};
 use mail_core::types::*;
 use nsh_core::{prelude::*, time::unix_ms};
 
-use crate::backend::{Backend, Events, MailFuture, invalid, not_found};
+use crate::backend::{Backend, Events, MailFuture, invalid};
 
 const MINUTE: f64 = 60_000.0;
 const HOUR: f64 = 60.0 * MINUTE;
@@ -114,6 +114,10 @@ impl Default for DemoBackend {
             data: Rc::new(RefCell::new(seed(unix_ms()))),
         }
     }
+}
+
+fn not_found(what: &str) -> Error {
+    Error::new(ErrorCode::NotFound, format!("{what} not found"))
 }
 
 fn ok<'a, T: 'a>(value: Result<T>) -> MailFuture<'a, T> {

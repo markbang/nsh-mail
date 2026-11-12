@@ -35,10 +35,6 @@ pub fn invalid(message: impl Into<String>) -> Error {
     Error::new(ErrorCode::InvalidInput, message)
 }
 
-pub fn not_found(what: &str) -> Error {
-    Error::new(ErrorCode::NotFound, format!("{what} not found"))
-}
-
 /// The rejection TSX gets: an `Error` whose `code` is the error's (`ERR_AUTH`, ...).
 pub fn js(e: Error) -> JsError {
     let code = serde_json::to_value(e.code)
