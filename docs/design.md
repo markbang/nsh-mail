@@ -65,6 +65,7 @@ Mail.send(draft: Draft): Promise<void>             // 回复时带 inReplyTo / r
 Mail.search(text, limit): Promise<Summary[]>
 Mail.refresh(): Promise<void>
 Mail.on(listener: (e: MailEvent) => void): () => void   // newMail / changed / syncState / error
+Push.setToken(token): void                         // Android 宿主的 FCM token（§5），云端模式登记到服务端
 ```
 
 消息 id 是本地库的稳定字符串 id；云端模式下是服务端 id。统一收件箱 = 所有账号 INBOX 按日期倒序合并。
@@ -127,7 +128,7 @@ GET  /                   Web 客户端静态文件         GET /healthz
 
 | 平台 | 应用不在前台时 | 实现 |
 |---|---|---|
-| Android | FCM data 消息 → `FirebaseMessagingService` 弹通知，点击带消息 id 打开 | `android/` Gradle 工程：依赖 nsh.aar 的 Java 运行时，`libnsh.so` 换成 nsh 用本 crate 构建的那份，加 `firebase-messaging`；FCM token 经 host 通道（`host.call("push.token")`）交给应用，再 `POST /v1/devices` |
+| Android | FCM data 消息 → `FirebaseMessagingService` 弹通知，点击打开该信 | `android/` Gradle 工程（见下） |
 | Web | Web Push → Service Worker `push` 事件 → `showNotification` | `nsh package --target web` 产物里加入 `sw.js`；Rust 侧经 wasm-bindgen 调 `PushManager.subscribe`（VAPID 公钥来自服务端） |
 | Linux / Windows | 常驻进程（托盘）挂 WebSocket，收到 `newMail` 调 `Notifications.show` | NSH 自带，无需额外服务 |
 
@@ -135,7 +136,12 @@ GET  /                   Web 客户端静态文件         GET /healthz
 
 隐私：Web Push 内容端到端加密；FCM 载荷经过 Google，只带发件人名和主题，设置里可选"通知不显示内容"（只发消息 id，客户端自取）。
 
-如果 Gradle 宿主路线验证不通，Android 退回 `nsh package` 直出 APK，云端模式在前台时用 WebSocket，后台推送等 NSH 支持后再加；这一点在 PR 里给出证据再定。
+Android 宿主（`android/`，用法见其 README）：
+
+- **运行时**：`prepare.sh` 取与 CLI 同版本的 `nsh.aar`（Java 运行时，校验 sha256），其中的 `libnsh.so` 换成 `nsh package --target android` 用本 crate 构建的那份（`.nsh/rust/android-release/lib`，含 `nsh-mail/native`），bundle 用 `nsh build --release` 放进 assets。`MainActivity` 照 nsh 的 `AppActivity` 写：`NshView.loadAssetBundle`、通知与 URL intent、返回键、沉浸式系统栏。
+- **token**：宿主把 FCM token 作为 host 事件 `push.token` `{kind: "fcm", token}` 发给应用，`app/push.ts` 交给 `Push.setToken`，云端模式登录后经 `on_token` 拿到并 `POST /v1/devices`。用事件而不是 `host.call`：事件不需要授权，而 `host.call` 要声明 `capabilities.host`，声明任何 capabilities 都会让没列出的能力（网络、通知……）全部被拒。
+- **通知**：data 消息按应用自己的通知的样子显示（nsh 的通知渠道、标签 `message:<id>`、启动 extra），点击后 `handleNotificationIntent` 交给应用已有的 `Notifications` 监听（`app/resident.ts`）打开该信，无需新的 TSX。
+- 没有 `google-services.json` 时照常构建运行，只是不推送；CI 有 secret `GOOGLE_SERVICES_JSON` 时写入。
 
 ## 6. 云端服务技术选型
 
@@ -163,7 +169,7 @@ GitHub Actions，每个 PR 跑：
 | core + server | ubuntu-24.04 | `cargo test`、`clippy`；服务端 Docker 镜像（main 上推 ghcr） |
 | linux | ubuntu-24.04（GTK 4.14） | `nsh package --target linux` → `.tar.gz` |
 | windows | windows-latest | `nsh package --target windows` → `.zip` + 安装器 |
-| android | ubuntu-24.04 + SDK/NDK | `.apk`（调试签名） |
+| android | ubuntu-24.04 + SDK/NDK | `nsh package` 的 `.apk`，以及 Gradle 宿主（FCM）的 `.apk`（都是调试签名） |
 | web | ubuntu-24.04 + wasm32 | 静态站点 `.zip` |
 
 ## 9. 第一版范围
