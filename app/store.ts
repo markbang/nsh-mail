@@ -1,0 +1,282 @@
+// The app's state on the TSX side: mirrors of what Rust owns (status,
+// accounts, the loaded page of messages) and what the screens choose
+// (mailbox, selection, search). Signals stay private; pages call these.
+import { batch, resource, signal, Storage } from "nsh";
+import { t } from "nsh/i18n";
+import { Mail, type Account, type Flags, type Folder, type MailEvent, type Status, type Summary } from "nsh-mail/native";
+
+const PAGE = 30;
+const NOTIFY_KEY = "nshmail.notify";
+
+export interface Mailbox {
+  /** One account's id; null is every account (the unified view). */
+  account: string | null;
+  folder: Folder;
+}
+
+const status = signal<Status>(Mail.status());
+const started = signal(false);
+const accountList = signal<Account[]>([]);
+const box = signal<Mailbox>({ account: null, folder: "inbox" });
+const items = signal<Summary[]>([]);
+const listState = signal<"idle" | "loading" | "refreshing" | "more" | "error">("idle");
+const more = signal(true);
+const selected = signal<string | null>(null);
+const query = signal("");
+const results = signal<Summary[] | null>(null);
+const toastMessage = signal<{ id: number; text: string; tone: "neutral" | "error" } | null>(null);
+const notifyOn = signal(true);
+
+/** The engine's status (mode, sync). */
+export const mailStatus = () => status();
+/** Whether `start` finished, so the shell knows which screen to show. */
+export const isStarted = () => started();
+export const accounts = () => accountList();
+/** The position of an account, which picks its color. */
+export const accountIndex = (id: string) => accountList().findIndex((a) => a.id === id);
+export const accountById = (id: string | null | undefined) => accountList().find((a) => a.id === id);
+export const mailbox = () => box();
+export const messages = () => items();
+export const listStatus = () => listState();
+export const hasMore = () => more();
+export const selectedId = () => selected();
+export const searchQuery = () => query();
+export const searchResults = () => results();
+export const toast = () => toastMessage();
+export const notificationsEnabled = () => notifyOn();
+
+/** The open message, loaded whole. */
+export const current = resource(selected, (id) => Mail.get(id));
+
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
+let toastId = 0;
+export function showToast(text: string, tone: "neutral" | "error" = "neutral") {
+  clearTimeout(toastTimer);
+  toastMessage.set({ id: ++toastId, text, tone });
+  toastTimer = setTimeout(() => toastMessage.set(null), 3200);
+}
+
+/** A failure as people read it: by its code, with the engine's detail. */
+export function errorText(e: unknown): string {
+  const code = (e as { code?: string })?.code;
+  const message = e instanceof Error ? e.message : String(e);
+  switch (code) {
+    case "ERR_UNSUPPORTED":
+      return t("errors.unsupported");
+    case "ERR_AUTH":
+      return t("errors.auth");
+    case "ERR_NETWORK":
+      return t("errors.network");
+    case "ERR_INVALID_INPUT":
+      return t("errors.invalid", { detail: message });
+    default:
+      return t("errors.generic", { detail: message });
+  }
+}
+
+let newMailListener: ((s: Summary) => void) | undefined;
+/** Who hears new mail (the shell, for system notifications). */
+export function onNewMail(listener: (s: Summary) => void) {
+  newMailListener = listener;
+}
+
+function heard(e: MailEvent) {
+  if (e.type === "syncState" || e.type === "error") {
+    status.set(Mail.status());
+    return;
+  }
+  if (e.type === "newMail" && e.summary) newMailListener?.(e.summary);
+  if (e.type === "changed" || e.type === "newMail") {
+    status.set(Mail.status());
+    if (status().mode === "none") return;
+    void loadAccounts();
+    void reload();
+    if (query().trim()) void runSearch(query());
+  }
+}
+
+// The listener lives with the module: a hot update stops and adds it again.
+Mail.on(heard);
+
+/** Opens the engine and loads the first page. */
+export async function start() {
+  const saved = await Storage.getItem(NOTIFY_KEY);
+  notifyOn.set(saved !== "off");
+  try {
+    status.set(await Mail.init());
+  } catch (e) {
+    showToast(errorText(e), "error");
+  }
+  if (status().mode !== "none") {
+    await loadAccounts();
+    await reload();
+  }
+  started.set(true);
+}
+
+async function loadAccounts() {
+  try {
+    accountList.set(await Mail.accounts());
+  } catch (e) {
+    showToast(errorText(e), "error");
+  }
+}
+
+// Only the latest load of the list counts.
+let loadToken = 0;
+
+/** Loads the mailbox again, keeping as many messages as are shown. */
+export async function reload(state: "loading" | "refreshing" = "loading") {
+  const token = ++loadToken;
+  const { account, folder } = box();
+  listState.set(state);
+  try {
+    const page = await Mail.list({ folder, account, limit: Math.max(PAGE, items().length) });
+    if (token !== loadToken) return;
+    batch(() => {
+      items.set(page);
+      more.set(page.length >= Math.max(PAGE, items().length));
+      listState.set("idle");
+    });
+  } catch (e) {
+    if (token !== loadToken) return;
+    listState.set("error");
+    showToast(errorText(e), "error");
+  }
+}
+
+export async function loadMore() {
+  const last = items()[items().length - 1];
+  if (!last || !more() || listState() !== "idle") return;
+  const token = ++loadToken;
+  const { account, folder } = box();
+  listState.set("more");
+  try {
+    const page = await Mail.list({ folder, account, before: last.id, limit: PAGE });
+    if (token !== loadToken) return;
+    batch(() => {
+      items.update((list) => [...list, ...page.filter((m) => !list.some((l) => l.id === m.id))]);
+      more.set(page.length >= PAGE);
+      listState.set("idle");
+    });
+  } catch (e) {
+    if (token !== loadToken) return;
+    listState.set("idle");
+    showToast(errorText(e), "error");
+  }
+}
+
+/** Syncs now (pull to refresh, the toolbar's Refresh). */
+export async function refresh() {
+  listState.set("refreshing");
+  try {
+    await Mail.refresh();
+  } catch (e) {
+    showToast(errorText(e), "error");
+  }
+  await reload("refreshing");
+}
+
+export function openMailbox(next: Mailbox) {
+  batch(() => {
+    box.set(next);
+    items.set([]);
+    more.set(true);
+    selected.set(null);
+  });
+  void reload();
+}
+
+function patch(id: string, flags: Flags) {
+  const apply = <T extends { id: string; seen: boolean; flagged: boolean }>(m: T): T =>
+    m.id === id ? { ...m, seen: flags.seen ?? m.seen, flagged: flags.flagged ?? m.flagged } : m;
+  batch(() => {
+    items.update((list) => list.map(apply));
+    results.update((list) => list && list.map(apply));
+    const open = current();
+    if (open?.id === id) current.mutate(apply(open));
+  });
+}
+
+/** Changes flags at once on screen, and puts them back if the engine refuses. */
+export async function setFlags(id: string, flags: Flags) {
+  const before = [...items(), ...(results() ?? [])].find((m) => m.id === id) ?? current();
+  patch(id, flags);
+  try {
+    await Mail.setFlags(id, flags);
+  } catch (e) {
+    if (before) patch(id, { seen: before.seen, flagged: before.flagged });
+    showToast(errorText(e), "error");
+  }
+}
+
+/** Shows a message, marking it read. */
+export function openMessage(id: string | null) {
+  selected.set(id);
+  const m = id && [...items(), ...(results() ?? [])].find((s) => s.id === id);
+  if (m && !m.seen) void setFlags(id, { seen: true });
+}
+
+/** The message `step` rows away from the open one (j / k). */
+export function stepMessage(step: number) {
+  const list = results() ?? items();
+  if (!list.length) return;
+  const at = list.findIndex((m) => m.id === selected());
+  const next = at < 0 ? 0 : Math.min(list.length - 1, Math.max(0, at + step));
+  openMessage(list[next].id);
+}
+
+let searchToken = 0;
+export async function runSearch(text: string) {
+  query.set(text);
+  const token = ++searchToken;
+  if (!text.trim()) {
+    results.set(null);
+    return;
+  }
+  try {
+    const found = await Mail.search(text, 50);
+    if (token === searchToken) results.set(found);
+  } catch (e) {
+    if (token === searchToken) showToast(errorText(e), "error");
+  }
+}
+
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+/** The user typed in a search field: the field follows at once, the search after a pause. */
+export function typeSearch(text: string) {
+  query.set(text);
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => void runSearch(text), 200);
+}
+
+export function clearSearch() {
+  clearTimeout(searchTimer);
+  searchToken++;
+  batch(() => {
+    query.set("");
+    results.set(null);
+  });
+}
+
+export async function setNotificationsEnabled(on: boolean) {
+  notifyOn.set(on);
+  await Storage.setItem(NOTIFY_KEY, on ? "on" : "off");
+}
+
+/** After onboarding or signing out: the engine's new session. */
+export async function sessionChanged() {
+  batch(() => {
+    status.set(Mail.status());
+    items.set([]);
+    accountList.set([]);
+    selected.set(null);
+    results.set(null);
+    query.set("");
+    box.set({ account: null, folder: "inbox" });
+  });
+  if (status().mode !== "none") {
+    await loadAccounts();
+    await reload();
+  }
+}
