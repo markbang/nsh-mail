@@ -7,6 +7,7 @@ mod demo;
 #[cfg(not(target_arch = "wasm32"))]
 mod local;
 mod mail;
+mod push;
 mod types;
 
 use nsh_core::prelude::*;
@@ -14,6 +15,7 @@ use nsh_core::prelude::*;
 pub use crate::{
     backend::{Backend, Events, MailFuture},
     mail::Mail,
+    push::{Push, TokenSink, on_token},
     types::Js,
 };
 
@@ -21,4 +23,5 @@ pub use crate::{
 #[native_module("nsh-mail/native")]
 fn native(registry: &mut Registry) {
     registry.module::<Mail>();
+    registry.module::<Push>();
 }

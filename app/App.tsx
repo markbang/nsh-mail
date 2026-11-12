@@ -14,6 +14,7 @@ import { MessagePage } from "./pages/MessagePage";
 import { Onboarding } from "./pages/Onboarding";
 import { SearchPage } from "./pages/SearchPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { listenForPushToken } from "./push";
 import { stayResident } from "./resident";
 import { current, isStarted, mailStatus, openMessage, selectedId, start, stepMessage, toast } from "./store";
 import type { ComposeMode } from "./lib/format";
@@ -111,4 +112,5 @@ function App() {
   );
 }
 
+listenForPushToken();
 mount(App);

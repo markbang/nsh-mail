@@ -122,6 +122,8 @@ jobs:
 
   android:
     runs-on: ubuntu-24.04
+    env:
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
     steps:
       - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
@@ -134,11 +136,25 @@ jobs:
         run: (yes || :) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" > /dev/null
       - *restore-cache
       - *install-nsh
-      - run: nsh package App.tsx --target android
+      # Runs `nsh package --target android`, then readies the Gradle host (android/): nsh.aar with that libnsh.so, and the bundle.
+      - run: android/prepare.sh
+        working-directory: .
       - uses: actions/upload-artifact@v7
         with:
           name: android
           path: app/.nsh/out/*.apk
+          if-no-files-found: error
+      # Without the secret the host builds with push off.
+      - name: Add the Firebase config
+        if: env.GOOGLE_SERVICES_JSON != ''
+        run: printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+        working-directory: android
+      - run: ./gradlew --no-daemon assembleDebug
+        working-directory: android
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-fcm
+          path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
       - *save-cache
 

@@ -1,0 +1,6 @@
+.gradle/
+build/
+local.properties
+app/libs/
+app/src/main/assets/nsh/
+app/google-services.json
