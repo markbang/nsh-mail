@@ -10,10 +10,11 @@ use axum::{
 use serde::Deserialize;
 use tokio::sync::broadcast::error::RecvError;
 
+use mail_core::types::MailEvent;
+
 use crate::{
     AppState,
     api::{ApiResult, AuthUser},
-    types::MailEvent,
 };
 
 #[derive(Deserialize)]

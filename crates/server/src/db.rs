@@ -30,12 +30,6 @@ CREATE TABLE IF NOT EXISTS devices (
     created_at INTEGER NOT NULL,
     UNIQUE (user_id, token)
 );
-CREATE TABLE IF NOT EXISTS secrets (
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    key TEXT NOT NULL,
-    value BLOB NOT NULL,
-    PRIMARY KEY (user_id, key)
-);
 CREATE TABLE IF NOT EXISTS oauth_states (
     state_hash BLOB PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -53,7 +47,7 @@ pub fn now() -> i64 {
         .unwrap_or(0)
 }
 
-/// server.sqlite: users, sessions, devices, encrypted secrets, pending OAuth states.
+/// server.sqlite: users, sessions, devices, pending OAuth states.
 /// Queries are short, so a single connection behind a mutex is enough for one instance.
 #[derive(Clone)]
 pub struct Db(Arc<Mutex<Connection>>);
@@ -225,46 +219,6 @@ impl Db {
                 params![user_id, id],
             )
             .map(|n| n > 0)
-        })
-    }
-
-    pub fn get_secret(&self, user_id: i64, key: &str) -> Result<Option<Vec<u8>>> {
-        self.with(|c| {
-            c.query_row(
-                "SELECT value FROM secrets WHERE user_id = ?1 AND key = ?2",
-                params![user_id, key],
-                |r| r.get(0),
-            )
-            .optional()
-        })
-    }
-
-    pub fn set_secret(&self, user_id: i64, key: &str, value: &[u8]) -> Result<()> {
-        self.with(|c| {
-            c.execute(
-                "INSERT INTO secrets (user_id, key, value) VALUES (?1, ?2, ?3)
-                 ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value",
-                params![user_id, key, value],
-            )
-            .map(drop)
-        })
-    }
-
-    pub fn delete_secret(&self, user_id: i64, key: &str) -> Result<()> {
-        self.with(|c| {
-            c.execute(
-                "DELETE FROM secrets WHERE user_id = ?1 AND key = ?2",
-                params![user_id, key],
-            )
-            .map(drop)
-        })
-    }
-
-    /// Users whose mail must be synced at boot.
-    pub fn users_with_secrets(&self) -> Result<Vec<i64>> {
-        self.with(|c| {
-            let mut stmt = c.prepare("SELECT DISTINCT user_id FROM secrets")?;
-            stmt.query_map([], |r| r.get(0))?.collect()
         })
     }
 

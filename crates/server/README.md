@@ -23,7 +23,7 @@ Back up `data/` and the master key together; without the key the stored mail cre
 |---|---|---|
 | `NSHMAIL_MASTER_KEY` | required / 必填 | Base64 of 32 random bytes; encrypts mail credentials (AES-256-GCM). Never change it after accounts exist. 32 字节随机数的 base64，加密邮箱凭据；有账号后不能更换。 |
 | `NSHMAIL_BIND` | `0.0.0.0:8080` | Listen address. 监听地址。 |
-| `NSHMAIL_DATA_DIR` | `data` (`/data` in Docker) | `server.sqlite`, `users/<id>.sqlite`, generated VAPID key. 数据目录。 |
+| `NSHMAIL_DATA_DIR` | `data` (`/data` in Docker) | `server.sqlite`, per user `users/<id>.sqlite` (mail) and `users/<id>.secrets.json` (encrypted credentials), generated VAPID key. 数据目录。 |
 | `NSHMAIL_PUBLIC_URL` | `http://localhost:8080` | External URL; OAuth redirect URIs and the web return page are built from it. 对外地址，OAuth 回调和 Web 返回页由它生成。 |
 | `NSHMAIL_WEB_DIR` | unset / 不托管 | Web client build to serve at `/` (`sw.js` gets `Service-Worker-Allowed: /`). Web 客户端目录。 |
 | `NSHMAIL_CORS_ORIGINS` | empty (same origin only) | Comma-separated origins allowed cross-origin, for development. 开发用跨域白名单，逗号分隔。 |

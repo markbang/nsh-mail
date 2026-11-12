@@ -10,12 +10,12 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::{
-    AppState, crypto,
-    mail::UserMail,
-    push::parse_subscription_keys,
+use mail_core::{
+    Engine,
     types::{Draft, Error, ErrorCode, Flags, FolderKind, ImapInput, ListQuery},
 };
+
+use crate::{AppState, crypto, push::parse_subscription_keys};
 
 /// Error bodies are `mail_core::types::Error` JSON (`{code, message}`), so clients share one decoder.
 pub struct ApiError(StatusCode, Error);
@@ -235,7 +235,7 @@ pub async fn update_me(
     me(State(state), user).await
 }
 
-async fn mail(state: &AppState, user: &AuthUser) -> ApiResult<Arc<dyn UserMail>> {
+async fn mail(state: &AppState, user: &AuthUser) -> ApiResult<Engine> {
     Ok(state.mailboxes.get(user.id).await?)
 }
 
@@ -253,7 +253,7 @@ pub async fn add_account(
 ) -> ApiResult<impl IntoResponse> {
     Ok((
         StatusCode::CREATED,
-        Json(mail(&s, &u).await?.add_imap(input).await?),
+        Json(mail(&s, &u).await?.add_imap_account(input).await?),
     ))
 }
 
@@ -359,7 +359,7 @@ pub async fn add_device(
     u: AuthUser,
     Json(d): Json<NewDevice>,
 ) -> ApiResult<impl IntoResponse> {
-    let new_id = hex(&crypto::random::<16>());
+    let new_id = mail_core::oauth::random_token(16);
     let id = match d {
         NewDevice::Fcm { token } => {
             if token.trim().is_empty() {
@@ -409,8 +409,4 @@ pub async fn health(State(s): State<Arc<AppState>>) -> ApiResult<Json<Value>> {
     Ok(Json(
         json!({ "ok": true, "version": env!("CARGO_PKG_VERSION") }),
     ))
-}
-
-pub fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }

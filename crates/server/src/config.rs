@@ -2,12 +2,7 @@ use std::{env, net::SocketAddr, path::PathBuf};
 
 use anyhow::{Context, Result, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-
-#[derive(Clone)]
-pub struct OAuthClient {
-    pub id: String,
-    pub secret: String,
-}
+use mail_core::{OAuthApp, OAuthApps};
 
 #[derive(Clone)]
 pub struct Config {
@@ -18,8 +13,8 @@ pub struct Config {
     pub web_dir: Option<PathBuf>,
     pub cors_origins: Vec<String>,
     pub allow_signup: bool,
-    pub google: Option<OAuthClient>,
-    pub microsoft: Option<OAuthClient>,
+    /// Confidential web clients; mail-core also uses them to refresh tokens.
+    pub oauth: OAuthApps,
     pub fcm_service_account: Option<PathBuf>,
     /// Overridable so tests can point FCM at a local mock.
     pub fcm_base_url: String,
@@ -43,9 +38,12 @@ pub fn parse_master_key(value: &str) -> Result<[u8; 32]> {
     })
 }
 
-fn oauth_client(id: &str, secret: &str) -> Result<Option<OAuthClient>> {
+fn oauth_app(id: &str, secret: &str) -> Result<Option<OAuthApp>> {
     match (var(id), var(secret)) {
-        (Some(id), Some(secret)) => Ok(Some(OAuthClient { id, secret })),
+        (Some(client_id), Some(secret)) => Ok(Some(OAuthApp {
+            client_id,
+            client_secret: Some(secret),
+        })),
         (None, None) => Ok(None),
         _ => bail!("set both {id} and {secret}, or neither"),
     }
@@ -89,8 +87,10 @@ impl Config {
                 })
                 .unwrap_or_default(),
             allow_signup,
-            google: oauth_client("NSHMAIL_GOOGLE_CLIENT_ID", "NSHMAIL_GOOGLE_CLIENT_SECRET")?,
-            microsoft: oauth_client("NSHMAIL_MS_CLIENT_ID", "NSHMAIL_MS_CLIENT_SECRET")?,
+            oauth: OAuthApps {
+                google: oauth_app("NSHMAIL_GOOGLE_CLIENT_ID", "NSHMAIL_GOOGLE_CLIENT_SECRET")?,
+                microsoft: oauth_app("NSHMAIL_MS_CLIENT_ID", "NSHMAIL_MS_CLIENT_SECRET")?,
+            },
             fcm_service_account: var("NSHMAIL_FCM_SERVICE_ACCOUNT").map(PathBuf::from),
             fcm_base_url: "https://fcm.googleapis.com".into(),
             vapid_private_key: var("NSHMAIL_VAPID_PRIVATE_KEY"),

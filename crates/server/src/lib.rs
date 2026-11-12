@@ -6,7 +6,6 @@ pub mod events;
 pub mod mail;
 pub mod oauth;
 pub mod push;
-pub mod types;
 
 use std::{sync::Arc, time::Instant};
 
@@ -27,9 +26,8 @@ use tower_http::{
 
 pub use config::Config;
 use db::Db;
-use mail::{MailBackend, Mailboxes};
+use mail::Mailboxes;
 use push::{Fcm, Push};
-use types::MailEvent;
 
 pub struct AppState {
     pub config: Config,
@@ -40,13 +38,12 @@ pub struct AppState {
     pub vapid_public_key: String,
 }
 
-/// Opens storage, loads push credentials and wires mail events to WebSocket clients and push.
-pub async fn build(config: Config, backend: Arc<dyn MailBackend>) -> Result<Arc<AppState>> {
+/// Opens storage, loads push credentials and starts mail sync for every user with a mail store.
+pub async fn build(config: Config) -> Result<Arc<AppState>> {
     let users_dir = config.data_dir.join("users");
     std::fs::create_dir_all(&users_dir)
         .with_context(|| format!("cannot create data directory {}", users_dir.display()))?;
     let db = Db::open(&config.data_dir.join("server.sqlite"))?;
-    let cipher = crypto::Cipher::new(&config.master_key);
     let http = reqwest::Client::builder()
         .user_agent(concat!("nsh-mail-server/", env!("CARGO_PKG_VERSION")))
         .timeout(std::time::Duration::from_secs(30))
@@ -65,25 +62,12 @@ pub async fn build(config: Config, backend: Arc<dyn MailBackend>) -> Result<Arc<
         fcm,
         presence: Default::default(),
     });
-    let mailboxes = Mailboxes::new(backend, db.clone(), cipher, users_dir);
-    let push_for_events = push.clone();
-    mailboxes.on_open(Box::new(move |user_id, mail| {
-        let push = push_for_events.clone();
-        let mut rx = mail.subscribe();
-        tokio::spawn(async move {
-            use tokio::sync::broadcast::error::RecvError;
-            loop {
-                match rx.recv().await {
-                    Ok(MailEvent::NewMail { summary }) => {
-                        let push = push.clone();
-                        tokio::spawn(async move { push.new_mail(user_id, &summary).await });
-                    }
-                    Ok(_) | Err(RecvError::Lagged(_)) => {}
-                    Err(RecvError::Closed) => break,
-                }
-            }
-        });
-    }));
+    let mailboxes = Mailboxes::new(
+        users_dir,
+        config.master_key,
+        config.oauth.clone(),
+        push.clone(),
+    );
     let state = Arc::new(AppState {
         vapid_public_key,
         config,
@@ -92,9 +76,9 @@ pub async fn build(config: Config, backend: Arc<dyn MailBackend>) -> Result<Arc<
         push,
         http,
     });
-    for user_id in state.db.users_with_secrets()? {
+    for user_id in state.mailboxes.existing_users()? {
         if let Err(e) = state.mailboxes.get(user_id).await {
-            tracing::error!(user_id, "cannot open mail store: {e:#}");
+            tracing::error!(user_id, "cannot open mail store: {}", e.message);
         }
     }
     Ok(state)
