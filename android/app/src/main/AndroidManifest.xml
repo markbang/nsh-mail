@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Mirrors what `nsh package --target android` writes for the app; keep it in step with app/nsh.json. -->
+<!-- Mirrors the manifest nsh package writes for Android; keep it in step with app/nsh.json. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 

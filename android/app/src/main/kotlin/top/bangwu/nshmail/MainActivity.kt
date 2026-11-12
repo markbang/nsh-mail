@@ -41,6 +41,7 @@ class MainActivity : Activity() {
 
     /** Android 8 hands back presses to the activity first. */
     @Deprecated("Android 12 and older")
+    @Suppress("DEPRECATION")
     override fun onBackPressed() {
         if (!nsh.handleBack()) super.onBackPressed()
     }
