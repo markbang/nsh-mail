@@ -140,7 +140,7 @@ GET  /                   Web 客户端静态文件         GET /healthz
 - **Rust + axum + tokio**：与 mail-core 同语言，同步逻辑一份代码。
 - **存储**：每个用户一份 SQLite（与客户端同一套表和 FTS5），外加一个 `server.sqlite` 存用户、会话、设备。好处是复用和隔离；代价是单机。v1 单实例足够，以后横向扩展按用户分片。
 - **密码**：Argon2id；会话 token 随机 32 字节，库里只存 SHA-256。
-- **邮箱凭据**：AES-256-GCM 加密存储，主密钥来自环境变量 `NSHMAIL_MASTER_KEY`，不落库。
+- **邮箱凭据**：AES-256-GCM 加密存储在每个用户的 `data/users/<id>.secrets.json`（mail-core 的 `EncryptedFileStore`），主密钥来自环境变量 `NSHMAIL_MASTER_KEY`，不落盘。
 - **部署**：CI 构建 Docker 镜像推到 ghcr.io；`docker compose` 一键自托管。正式上线的主机和域名需要另行确认（付费、对外）。
 
 ## 7. 安全

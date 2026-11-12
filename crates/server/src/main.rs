@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use nsh_mail_server::{Config, build, mail::fake::FakeBackend, router};
+use nsh_mail_server::{Config, build, router};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -19,10 +17,7 @@ async fn main() {
 async fn run() -> anyhow::Result<()> {
     let config = Config::from_env()?;
     let bind = config.bind;
-    tracing::warn!(
-        "mail-core is not wired yet: accounts and messages live in memory and are lost on restart"
-    );
-    let state = build(config, Arc::new(FakeBackend::default())).await?;
+    let state = build(config).await?;
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .map_err(|e| anyhow::anyhow!("cannot listen on {bind}: {e}"))?;

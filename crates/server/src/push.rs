@@ -20,10 +20,9 @@ use web_push_native::{
     p256::PublicKey,
 };
 
-use crate::{
-    db::{Db, Device},
-    types::Summary,
-};
+use mail_core::types::Summary;
+
+use crate::db::{Db, Device};
 
 /// Loads the VAPID key from env, or from `<data>/vapid_private_key`, generating it on first start.
 pub fn load_vapid(env_key: Option<&str>, data_dir: &Path) -> Result<ES256KeyPair> {

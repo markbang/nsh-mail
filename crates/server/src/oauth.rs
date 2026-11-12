@@ -7,52 +7,25 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Redirect, Response},
 };
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use mail_core::{
+    OAuthApp,
+    oauth::{Pkce, authorize_url, exchange},
+    types::{ErrorCode, OAuthProvider},
+};
 use reqwest::Url;
 use serde::Deserialize;
 
 use crate::{
     AppState,
     api::{ApiError, ApiResult, AuthUser},
-    config::OAuthClient,
     crypto,
-    db::{OAuthState, now},
-    mail::OAuthTokens,
-    types::{ErrorCode, OAuthProvider},
+    db::OAuthState,
 };
 
-struct ProviderInfo {
-    provider: OAuthProvider,
-    auth_url: &'static str,
-    token_url: &'static str,
-    scope: &'static str,
-    extra: &'static [(&'static str, &'static str)],
-    env: &'static str,
-}
-
-const GOOGLE: ProviderInfo = ProviderInfo {
-    provider: OAuthProvider::Google,
-    auth_url: "https://accounts.google.com/o/oauth2/v2/auth",
-    token_url: "https://oauth2.googleapis.com/token",
-    scope: "openid email https://mail.google.com/",
-    // Without prompt=consent Google omits the refresh token on repeat grants.
-    extra: &[("access_type", "offline"), ("prompt", "consent")],
-    env: "NSHMAIL_GOOGLE_CLIENT_ID / NSHMAIL_GOOGLE_CLIENT_SECRET",
-};
-
-const MICROSOFT: ProviderInfo = ProviderInfo {
-    provider: OAuthProvider::Microsoft,
-    auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-    token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-    scope: "openid email offline_access https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send",
-    extra: &[("prompt", "select_account")],
-    env: "NSHMAIL_MS_CLIENT_ID / NSHMAIL_MS_CLIENT_SECRET",
-};
-
-fn provider(name: &str) -> ApiResult<&'static ProviderInfo> {
+fn provider(name: &str) -> ApiResult<OAuthProvider> {
     match name {
-        "google" => Ok(&GOOGLE),
-        "microsoft" => Ok(&MICROSOFT),
+        "google" => Ok(OAuthProvider::Google),
+        "microsoft" => Ok(OAuthProvider::Microsoft),
         _ => Err(ApiError::new(
             StatusCode::NOT_FOUND,
             ErrorCode::NotFound,
@@ -61,10 +34,17 @@ fn provider(name: &str) -> ApiResult<&'static ProviderInfo> {
     }
 }
 
-fn client<'a>(state: &'a AppState, p: &ProviderInfo) -> Option<&'a OAuthClient> {
-    match p.provider {
-        OAuthProvider::Google => state.config.google.as_ref(),
-        OAuthProvider::Microsoft => state.config.microsoft.as_ref(),
+fn app(state: &AppState, p: OAuthProvider) -> Option<&OAuthApp> {
+    match p {
+        OAuthProvider::Google => state.config.oauth.google.as_ref(),
+        OAuthProvider::Microsoft => state.config.oauth.microsoft.as_ref(),
+    }
+}
+
+fn env_vars(p: OAuthProvider) -> &'static str {
+    match p {
+        OAuthProvider::Google => "NSHMAIL_GOOGLE_CLIENT_ID / NSHMAIL_GOOGLE_CLIENT_SECRET",
+        OAuthProvider::Microsoft => "NSHMAIL_MS_CLIENT_ID / NSHMAIL_MS_CLIENT_SECRET",
     }
 }
 
@@ -103,41 +83,30 @@ pub async fn start(
 ) -> ApiResult<Response> {
     let p = provider(&name)?;
     let return_to = q.return_to.unwrap_or_else(|| "web".into());
-    let Some(client) = client(&state, p) else {
+    let Some(app) = app(&state, p) else {
         return Ok(finish(
             &state,
             &return_to,
             Err(format!(
                 "{name} sign-in is not configured on this server ({})",
-                p.env
+                env_vars(p)
             )),
         ));
     };
     let st = crypto::new_token();
-    let verifier = crypto::new_token();
-    let challenge = URL_SAFE_NO_PAD.encode(crypto::sha256(verifier.as_bytes()));
+    let pkce = Pkce::new();
     state.db.put_oauth_state(
         &crypto::sha256(st.as_bytes()),
         &OAuthState {
             user_id: user.id,
             provider: name.clone(),
-            verifier,
+            verifier: pkce.verifier,
             return_to,
         },
     )?;
     let redirect = redirect_uri(&state, &name);
-    let mut params = vec![
-        ("client_id", client.id.as_str()),
-        ("redirect_uri", redirect.as_str()),
-        ("response_type", "code"),
-        ("scope", p.scope),
-        ("state", st.as_str()),
-        ("code_challenge", challenge.as_str()),
-        ("code_challenge_method", "S256"),
-    ];
-    params.extend_from_slice(p.extra);
-    let url = Url::parse_with_params(p.auth_url, &params).map_err(anyhow::Error::from)?;
-    Ok(Redirect::to(url.as_str()).into_response())
+    let url = authorize_url(p, app, &redirect, &st, &pkce.challenge, None);
+    Ok(Redirect::to(&url).into_response())
 }
 
 #[derive(Deserialize)]
@@ -174,7 +143,7 @@ pub async fn callback(
 
 async fn complete(
     state: &AppState,
-    p: &ProviderInfo,
+    p: OAuthProvider,
     name: &str,
     pending: &OAuthState,
     q: CallbackParams,
@@ -185,70 +154,16 @@ async fn complete(
     let code = q
         .code
         .ok_or("the provider returned no authorization code")?;
-    let client = client(state, p).ok_or("OAuth is no longer configured on this server")?;
+    let app = app(state, p).ok_or("OAuth is no longer configured on this server")?;
     let redirect = redirect_uri(state, name);
-    let res = state
-        .http
-        .post(p.token_url)
-        .form(&[
-            ("grant_type", "authorization_code"),
-            ("code", code.as_str()),
-            ("redirect_uri", redirect.as_str()),
-            ("client_id", client.id.as_str()),
-            ("client_secret", client.secret.as_str()),
-            ("code_verifier", pending.verifier.as_str()),
-        ])
-        .send()
+    let grant = exchange(&state.http, p, app, &redirect, &code, &pending.verifier)
         .await
-        .map_err(|e| format!("cannot reach {name}: {e}"))?;
-    if !res.status().is_success() {
-        let status = res.status();
-        let body = res.text().await.unwrap_or_default();
-        return Err(format!("{name} rejected the sign-in ({status}): {body}"));
-    }
-    #[derive(Deserialize)]
-    struct TokenResponse {
-        access_token: String,
-        refresh_token: Option<String>,
-        expires_in: Option<i64>,
-        id_token: Option<String>,
-    }
-    let t: TokenResponse = res
-        .json()
-        .await
-        .map_err(|e| format!("unexpected token response: {e}"))?;
-    let email = t
-        .id_token
-        .as_deref()
-        .and_then(id_token_email)
-        .ok_or("the provider did not return an email address")?;
-    let tokens = OAuthTokens {
-        access_token: t.access_token,
-        refresh_token: t.refresh_token,
-        expires_at: t.expires_in.map(|s| now() + s),
-    };
+        .map_err(|e| e.message)?;
     let mail = state
         .mailboxes
         .get(pending.user_id)
         .await
-        .map_err(|e| format!("{e:#}"))?;
-    let account = mail
-        .add_oauth(p.provider, email, tokens)
-        .await
         .map_err(|e| e.message)?;
+    let account = mail.add_oauth_account(grant).await.map_err(|e| e.message)?;
     Ok(account.id)
-}
-
-/// The id_token came straight from the provider's token endpoint over TLS, so its claims are
-/// trusted without signature verification (OIDC Core §3.1.3.7).
-fn id_token_email(jwt: &str) -> Option<String> {
-    let payload = URL_SAFE_NO_PAD.decode(jwt.split('.').nth(1)?).ok()?;
-    let claims: serde_json::Value = serde_json::from_slice(&payload).ok()?;
-    ["email", "preferred_username"].iter().find_map(|k| {
-        claims
-            .get(*k)?
-            .as_str()
-            .filter(|s| s.contains('@'))
-            .map(str::to_lowercase)
-    })
 }
