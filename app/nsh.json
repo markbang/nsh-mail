@@ -1,7 +1,14 @@
 {
   "name": "nsh-mail",
   "id": "top.bangwu.nshmail",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "build": 1,
-  "rust": "."
+  "rust": ".",
+  "theme": "theme.json",
+  "window": {
+    "title": "nsh-mail",
+    "defaultSize": { "width": 1180, "height": 760 },
+    "minSize": { "width": 380, "height": 520 },
+    "closeOnPress": false
+  }
 }

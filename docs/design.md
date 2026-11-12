@@ -69,6 +69,8 @@ Mail.on(listener: (e: MailEvent) => void): () => void   // newMail / changed / s
 
 消息 id 是本地库的稳定字符串 id；云端模式下是服务端 id。统一收件箱 = 所有账号 INBOX 按日期倒序合并。
 
+各类型的字段与 `mail_core::types` 一一对应，JSON 形状相同（serde 的 tag 成为 `type`/`kind` 字段，`Message` 平铺 `Summary` 的字段）；`list` 的 `before` 是上一页最后一封的 id；`MailEvent` 以 `type` 区分。`app/src/types.rs` 是 TSX 侧的镜像（`#[derive(JsObject)]`），后端之间换用只需逐字段转换。
+
 ## 4. 数据流
 
 ### 本地模式（Linux、Windows、Android）

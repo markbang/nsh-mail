@@ -1,0 +1,510 @@
+_version: 2
+
+common.back:
+  en: Back
+  zh-CN: 返回
+common.close:
+  en: Close
+  zh-CN: 关闭
+common.cancel:
+  en: Cancel
+  zh-CN: 取消
+
+date.yesterday:
+  en: Yesterday
+  zh-CN: 昨天
+
+onboarding.title:
+  en: All your mail in one inbox
+  zh-CN: 所有邮箱，一个收件箱
+onboarding.subtitle:
+  en: Choose where nsh-mail keeps your mail. You can change it later in Settings.
+  zh-CN: 选择 nsh-mail 在哪里保存你的邮件，之后可以在设置里更改。
+onboarding.subtitleWeb:
+  en: Sign in to your nsh-mail server to read all your accounts in one place.
+  zh-CN: 登录你的 nsh-mail 服务器，在一个地方阅读所有邮箱。
+onboarding.local:
+  en: On this device
+  zh-CN: 仅本机
+onboarding.localDetail:
+  en: Passwords and mail stay here. nsh-mail connects to your mail servers directly.
+  zh-CN: 密码和邮件只保存在本机，nsh-mail 直接连接你的邮件服务器。
+onboarding.cloud:
+  en: Through an nsh-mail server
+  zh-CN: 通过 nsh-mail 服务器
+onboarding.cloudDetail:
+  en: The server syncs your accounts and pushes new mail to every device, also when the app is closed.
+  zh-CN: 服务器代为同步账号，并把新邮件推送到每台设备，应用关闭时也能收到。
+onboarding.webOnlyCloud:
+  en: Browsers can't connect to mail servers, so the web app works through an nsh-mail server, the official one or your own.
+  zh-CN: 浏览器无法直接连接邮件服务器，所以网页版需要通过 nsh-mail 服务器使用，可以是官方的，也可以是你自己部署的。
+onboarding.signIn:
+  en: Sign in
+  zh-CN: 登录
+onboarding.signUp:
+  en: Create account
+  zh-CN: 注册
+onboarding.createAccount:
+  en: Create account
+  zh-CN: 注册并登录
+onboarding.server:
+  en: Server
+  zh-CN: 服务器地址
+onboarding.serverHint:
+  en: The address of your nsh-mail server, starting with https://
+  zh-CN: 你的 nsh-mail 服务器地址，以 https:// 开头
+onboarding.email:
+  en: Email
+  zh-CN: 邮箱
+onboarding.password:
+  en: Password
+  zh-CN: 密码
+onboarding.passwordHint:
+  en: At least 8 characters.
+  zh-CN: 至少 8 个字符。
+onboarding.useLocal:
+  en: Continue
+  zh-CN: 继续
+
+mode.none:
+  en: Not set up
+  zh-CN: 未设置
+mode.local:
+  en: On this device
+  zh-CN: 仅本机
+mode.cloud:
+  en: Through server
+  zh-CN: 通过服务器
+
+mailbox.allInboxes:
+  en: All inboxes
+  zh-CN: 全部收件箱
+mailbox.folders:
+  en: Folders
+  zh-CN: 文件夹
+mailbox.choose:
+  en: Mailboxes
+  zh-CN: 邮箱列表
+
+folder.inbox:
+  en: Inbox
+  zh-CN: 收件箱
+folder.sent:
+  en: Sent
+  zh-CN: 已发送
+folder.drafts:
+  en: Drafts
+  zh-CN: 草稿
+folder.archive:
+  en: Archive
+  zh-CN: 归档
+folder.trash:
+  en: Trash
+  zh-CN: 废纸篓
+
+provider.gmail:
+  en: Gmail
+  zh-CN: Gmail
+provider.outlook:
+  en: Outlook
+  zh-CN: Outlook
+provider.icloud:
+  en: iCloud Mail
+  zh-CN: iCloud 邮件
+provider.yahoo:
+  en: Yahoo Mail
+  zh-CN: Yahoo 邮箱
+provider.fastmail:
+  en: Fastmail
+  zh-CN: Fastmail
+provider.qq:
+  en: QQ Mail
+  zh-CN: QQ 邮箱
+provider.163:
+  en: NetEase 163
+  zh-CN: 网易 163 邮箱
+provider.126:
+  en: NetEase 126
+  zh-CN: 网易 126 邮箱
+provider.imap:
+  en: IMAP
+  zh-CN: IMAP
+
+sync.running:
+  en: Checking for mail…
+  zh-CN: 正在收取邮件…
+sync.failed:
+  en: Couldn't check for mail
+  zh-CN: 收取邮件失败
+
+actions.compose:
+  en: New message
+  zh-CN: 写邮件
+actions.refresh:
+  en: Check for mail
+  zh-CN: 收取邮件
+actions.reply:
+  en: Reply
+  zh-CN: 回复
+actions.replyAll:
+  en: Reply all
+  zh-CN: 全部回复
+actions.forward:
+  en: Forward
+  zh-CN: 转发
+actions.markUnread:
+  en: Mark as unread
+  zh-CN: 标为未读
+actions.markRead:
+  en: Mark as read
+  zh-CN: 标为已读
+actions.flag:
+  en: Flag
+  zh-CN: 旗标
+actions.unflag:
+  en: Remove flag
+  zh-CN: 取消旗标
+
+list.unread:
+  en: Unread
+  zh-CN: 未读
+list.flagged:
+  en: Flagged
+  zh-CN: 已加旗标
+list.loadingMore:
+  en: Loading more
+  zh-CN: 正在加载更多
+
+empty.mailbox:
+  en: No messages
+  zh-CN: 没有邮件
+empty.noAccounts:
+  en: No accounts yet
+  zh-CN: 还没有账号
+empty.noAccountsHint:
+  en: Add a mail account to see its messages here.
+  zh-CN: 添加一个邮箱账号，邮件会显示在这里。
+
+reader.none:
+  en: No message selected
+  zh-CN: 未选择邮件
+reader.noneHint:
+  en: Choose a message, or press J and K to move through the list.
+  zh-CN: 选择一封邮件，或按 J、K 在列表中移动。
+reader.loading:
+  en: Opening message
+  zh-CN: 正在打开邮件
+reader.failed:
+  en: Couldn't open this message
+  zh-CN: 无法打开这封邮件
+reader.noSubject:
+  en: (No subject)
+  zh-CN: （无主题）
+reader.toList:
+  en: "To: %{names}"
+  zh-CN: 收件人：%{names}
+reader.from:
+  en: From
+  zh-CN: 发件人
+reader.to:
+  en: To
+  zh-CN: 收件人
+reader.date:
+  en: Date
+  zh-CN: 日期
+reader.imagesBlocked:
+  en: Remote images are blocked to protect your privacy.
+  zh-CN: 为保护隐私，已阻止加载远程图片。
+reader.loadImages:
+  en: Load images
+  zh-CN: 加载图片
+reader.blockedImage:
+  en: Image not loaded
+  zh-CN: 图片未加载
+reader.unknownSender:
+  en: Unknown sender
+  zh-CN: 未知发件人
+reader.untitledAttachment:
+  en: Untitled attachment
+  zh-CN: 未命名附件
+reader.attachments:
+  en: Attachments
+  zh-CN: 附件
+
+compose.new:
+  en: New message
+  zh-CN: 新邮件
+compose.reply:
+  en: Reply
+  zh-CN: 回复
+compose.forward:
+  en: Forward
+  zh-CN: 转发
+compose.from:
+  en: From
+  zh-CN: 发件人
+compose.to:
+  en: To
+  zh-CN: 收件人
+compose.cc:
+  en: Cc
+  zh-CN: 抄送
+compose.bcc:
+  en: Bcc
+  zh-CN: 密送
+compose.ccBcc:
+  en: Cc/Bcc
+  zh-CN: 抄送/密送
+compose.subject:
+  en: Subject
+  zh-CN: 主题
+compose.body:
+  en: Message
+  zh-CN: 正文
+compose.send:
+  en: Send
+  zh-CN: 发送
+compose.sending:
+  en: Sending
+  zh-CN: 正在发送
+compose.sent:
+  en: Message sent
+  zh-CN: 邮件已发送
+compose.discard:
+  en: Discard
+  zh-CN: 放弃
+compose.sendHint:
+  en: "%{keys} to send"
+  zh-CN: 按 %{keys} 发送
+compose.noRecipients:
+  en: No recipients
+  zh-CN: 无收件人
+compose.noAccount:
+  en: Add an account before sending mail.
+  zh-CN: 请先添加一个邮箱账号再发送。
+compose.needRecipient:
+  en: Add at least one recipient.
+  zh-CN: 请至少添加一个收件人。
+compose.badAddress:
+  en: "“%{address}” isn't an email address."
+  zh-CN: “%{address}”不是有效的邮箱地址。
+compose.quoteHeader:
+  en: "On %{date}, %{name} wrote:"
+  zh-CN: 在 %{date}，%{name} 写道：
+compose.forwardHeader:
+  en: "---------- Forwarded message ----------"
+  zh-CN: "---------- 转发的邮件 ----------"
+
+search.label:
+  en: Search
+  zh-CN: 搜索
+search.placeholder:
+  en: Search all mail
+  zh-CN: 搜索全部邮件
+search.clear:
+  en: Clear search
+  zh-CN: 清除搜索
+search.hint:
+  en: Search by sender, subject or text.
+  zh-CN: 按发件人、主题或正文搜索。
+search.none:
+  en: Nothing found for “%{query}”
+  zh-CN: 没有找到“%{query}”
+
+settings.title:
+  en: Settings
+  zh-CN: 设置
+settings.accounts:
+  en: Accounts
+  zh-CN: 账号
+settings.sync:
+  en: Sync
+  zh-CN: 同步
+settings.localDetail:
+  en: Passwords and mail stay on this device.
+  zh-CN: 密码和邮件只保存在本机。
+settings.androidLocal:
+  en: On Android, this mode checks for mail only while the app is open. Use an nsh-mail server to get new mail pushed.
+  zh-CN: 在 Android 上，此模式只在应用打开时收取邮件。如需推送新邮件，请使用 nsh-mail 服务器。
+settings.signOut:
+  en: Sign out
+  zh-CN: 退出登录
+settings.signOutTitle:
+  en: Sign out of nsh-mail?
+  zh-CN: 退出 nsh-mail？
+settings.signOutLocal:
+  en: Your accounts and the mail kept on this device are removed from this app.
+  zh-CN: 本机保存的账号和邮件将从此应用中移除。
+settings.signOutCloud:
+  en: This device stops syncing. Your accounts stay on the server.
+  zh-CN: 此设备将停止同步，账号仍保留在服务器上。
+settings.notifications:
+  en: Notifications
+  zh-CN: 通知
+settings.newMailNotifications:
+  en: New mail
+  zh-CN: 新邮件通知
+settings.notificationsDetail:
+  en: Shown when nsh-mail isn't in front.
+  zh-CN: nsh-mail 不在前台时显示。
+settings.notificationsDenied:
+  en: Notifications are turned off for nsh-mail in your system settings.
+  zh-CN: 系统设置中已关闭 nsh-mail 的通知。
+settings.about:
+  en: nsh-mail 0.1
+  zh-CN: nsh-mail 0.1
+
+accounts.add:
+  en: Add account
+  zh-CN: 添加账号
+accounts.addTitle:
+  en: Add a mail account
+  zh-CN: 添加邮箱账号
+accounts.addHint:
+  en: Gmail and Outlook sign in on their own page. Other providers need an app password.
+  zh-CN: Gmail 和 Outlook 在官方页面登录，其他邮箱需要应用专用密码。
+accounts.google:
+  en: Continue with Google
+  zh-CN: 使用 Google 登录
+accounts.microsoft:
+  en: Continue with Microsoft
+  zh-CN: 使用 Microsoft 登录
+accounts.other:
+  en: Other IMAP account
+  zh-CN: 其他 IMAP 邮箱
+accounts.added:
+  en: Added %{email}
+  zh-CN: 已添加 %{email}
+accounts.actions:
+  en: Actions for %{email}
+  zh-CN: "%{email} 的操作"
+accounts.removeMenu:
+  en: Remove…
+  zh-CN: 移除…
+accounts.remove:
+  en: Remove
+  zh-CN: 移除
+accounts.removeTitle:
+  en: Remove %{email}?
+  zh-CN: 移除 %{email}？
+accounts.removeBody:
+  en: Its mail is removed from nsh-mail. Nothing is deleted on the mail server.
+  zh-CN: 它的邮件将从 nsh-mail 中移除，邮件服务器上的内容不会被删除。
+accounts.removed:
+  en: Removed %{email}
+  zh-CN: 已移除 %{email}
+
+imap.email:
+  en: Email
+  zh-CN: 邮箱地址
+imap.name:
+  en: Your name
+  zh-CN: 你的名字
+imap.nameHint:
+  en: Shown to the people you write to.
+  zh-CN: 收件人看到的发件人名称。
+imap.continue:
+  en: Continue
+  zh-CN: 继续
+imap.badEmail:
+  en: Enter an email address, like you@example.com.
+  zh-CN: 请输入邮箱地址，例如 you@example.com。
+imap.found:
+  en: Found the servers for %{provider}. Check them, then enter an app password.
+  zh-CN: 已找到 %{provider} 的服务器。请确认后输入应用专用密码。
+imap.notFound:
+  en: Couldn't find this provider's servers. Enter them as your provider lists them.
+  zh-CN: 没有找到这个邮箱的服务器，请按邮箱服务商提供的信息填写。
+imap.incoming:
+  en: Incoming (IMAP)
+  zh-CN: 收件服务器（IMAP）
+imap.outgoing:
+  en: Outgoing (SMTP)
+  zh-CN: 发件服务器（SMTP）
+imap.host:
+  en: Server
+  zh-CN: 服务器
+imap.port:
+  en: Port
+  zh-CN: 端口
+imap.security:
+  en: Encryption
+  zh-CN: 加密方式
+imap.imapHost:
+  en: IMAP server
+  zh-CN: IMAP 服务器
+imap.imapPort:
+  en: IMAP port
+  zh-CN: IMAP 端口
+imap.imapSecurity:
+  en: IMAP encryption
+  zh-CN: IMAP 加密方式
+imap.smtpHost:
+  en: SMTP server
+  zh-CN: SMTP 服务器
+imap.smtpPort:
+  en: SMTP port
+  zh-CN: SMTP 端口
+imap.smtpSecurity:
+  en: SMTP encryption
+  zh-CN: SMTP 加密方式
+imap.tls:
+  en: SSL/TLS
+  zh-CN: SSL/TLS
+imap.starttls:
+  en: STARTTLS
+  zh-CN: STARTTLS
+imap.username:
+  en: Username
+  zh-CN: 用户名
+imap.password:
+  en: App password
+  zh-CN: 应用专用密码
+imap.appPasswordHint:
+  en: Use an app password (or authorization code) made for nsh-mail in your provider's security settings, not your regular password.
+  zh-CN: 请在邮箱的安全设置中为 nsh-mail 生成应用专用密码（或授权码），不要使用登录密码。
+imap.appPasswordLink:
+  en: How to get one from %{provider}
+  zh-CN: 如何在 %{provider} 获取
+imap.useOAuth:
+  en: "%{provider} recommends signing in on its own page: go back and choose it above. An app password also works if your account has one."
+  zh-CN: "%{provider} 推荐在官方页面登录：返回上一步选择对应按钮。如果账号已开启应用专用密码，也可以继续填写。"
+imap.needServers:
+  en: Enter the IMAP and SMTP servers.
+  zh-CN: 请填写 IMAP 和 SMTP 服务器。
+imap.needPassword:
+  en: Enter the app password.
+  zh-CN: 请输入应用专用密码。
+imap.add:
+  en: Add account
+  zh-CN: 添加账号
+imap.connecting:
+  en: Connecting
+  zh-CN: 正在连接
+
+errors.unsupported:
+  en: This isn't available here. The web app works through an nsh-mail server.
+  zh-CN: 此处不支持该操作。网页版需要通过 nsh-mail 服务器使用。
+errors.auth:
+  en: The server didn't accept the sign-in. Check the email and password.
+  zh-CN: 服务器拒绝了登录，请检查邮箱和密码。
+errors.network:
+  en: Couldn't reach the server. Check your connection and try again.
+  zh-CN: 无法连接服务器，请检查网络后重试。
+errors.invalid:
+  en: "Check the details: %{detail}."
+  zh-CN: 请检查填写的内容：%{detail}。
+errors.generic:
+  en: "Something went wrong: %{detail}"
+  zh-CN: 出错了：%{detail}
+
+layout.resize:
+  en: Resize panes
+  zh-CN: 调整窗格大小
+
+tray.open:
+  en: Open nsh-mail
+  zh-CN: 打开 nsh-mail
+tray.quit:
+  en: Quit
+  zh-CN: 退出
