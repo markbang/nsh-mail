@@ -5,6 +5,7 @@
   "build": 1,
   "rust": ".",
   "theme": "theme.json",
+  "schemes": ["nshmail"],
   "window": {
     "title": "nsh-mail",
     "defaultSize": { "width": 1180, "height": 760 },

@@ -92,6 +92,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/me", get(api::me).patch(api::update_me))
         .route("/accounts", get(api::list_accounts).post(api::add_account))
         .route("/accounts/{id}", delete(api::delete_account))
+        .route("/detect", get(api::detect))
+        .route("/sync", post(api::sync))
         .route("/oauth/{provider}/start", get(oauth::start))
         .route("/oauth/{provider}/callback", get(oauth::callback))
         .route("/messages", get(api::list_messages))

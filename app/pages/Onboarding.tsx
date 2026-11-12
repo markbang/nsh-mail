@@ -1,12 +1,21 @@
 // The first screen: where mail comes from. A browser cannot reach mail
 // servers, so on the web only a server (cloud mode) is offered.
-import { Notifications, platform, Scroll, signal, Text, View } from "nsh";
+import { Notifications, platform, Scroll, signal, Text, UrlScheme, View } from "nsh";
 import { t } from "nsh/i18n";
 import { Mail } from "nsh-mail/native";
 import { Button, Field, Icon, Row, Segmented, TextField, touch, type IconName } from "../ui";
 import { errorText, sessionChanged } from "../store";
 
 const web = platform.os === "web";
+
+/** The web client is served by its server: the page's origin. */
+function pageOrigin() {
+  try {
+    return new URL(UrlScheme.url() ?? "").origin;
+  } catch {
+    return "";
+  }
+}
 
 function Choice(props: { icon: IconName; title: string; detail: string; selected: boolean; onPress: () => void; testID: string }) {
   return (
@@ -28,7 +37,7 @@ function Choice(props: { icon: IconName; title: string; detail: string; selected
 export function Onboarding() {
   const mode = signal<"local" | "cloud">(web ? "cloud" : "local");
   const signUp = signal(false);
-  const server = signal("");
+  const server = signal(web ? pageOrigin() : "");
   const email = signal("");
   const password = signal("");
   const busy = signal(false);
