@@ -108,16 +108,18 @@ TSX ──Mail.*──▶ Rust LocalBackend ──tokio/rustls──▶ IMAP (99
 
 ```
 POST /v1/auth/signup | /v1/auth/login        {email, password} → {token}
-POST /v1/auth/logout
+POST /v1/auth/logout      GET /v1/me    PATCH /v1/me  {hideContent}（通知不显示内容）
 GET  /v1/accounts        POST /v1/accounts (imap)        DELETE /v1/accounts/{id}
 GET  /v1/oauth/{google|microsoft}/start?token=…           GET /v1/oauth/{provider}/callback
 GET  /v1/messages?folder=&account=&before=&limit=         GET /v1/messages/{id}
 PATCH /v1/messages/{id}  {seen?, flagged?}
 POST /v1/send            GET /v1/search?q=&limit=
 POST /v1/devices         {kind: "fcm"|"webpush", token | subscription}     DELETE /v1/devices/{id}
-GET  /v1/push/vapid-key  GET /v1/events (WebSocket，Authorization 或 ?token=)
-GET  /                   Web 客户端静态文件
+GET  /v1/push/vapid-key  GET /v1/events (WebSocket，Authorization 或 ?token=；带 ?device=<id> 时该设备在线期间不发推送)
+GET  /                   Web 客户端静态文件         GET /healthz
 ```
+
+错误响应体是 `{code, message}`（即 mail-core 的 `Error`，`code` 如 `ERR_AUTH`），HTTP 状态码表示类别。OAuth 结束时跳到 `nshmail://oauth-done?account=<id>`（`start` 带 `return=native`）或 `<公开地址>/?oauth-done&account=<id>`，失败时带 `error=<说明>`。服务端配置见 `crates/server/README.md`。
 
 ## 5. 推送方案
 
