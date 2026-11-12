@@ -1,0 +1,46 @@
+# Temporary (removed before merge): runs the Gradle host on an emulator, with nsh's stock nsh.aar and with prepare.sh's.
+name: Android smoke
+
+on:
+  push:
+    branches: [feat/android-push]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android
+      - run: (yes || :) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" > /dev/null
+      - name: Install nsh
+        run: |
+          curl -fsSL https://nsh.dev/install.sh | NSH_VERSION=v0.5.0 sh
+          echo "$HOME/.nsh/bin" >> "$GITHUB_PATH"
+      - run: NSH_ABIS=x86_64 android/prepare.sh
+      - name: Build the host with prepare.sh's nsh-mail.aar, then with the stock nsh.aar
+        working-directory: android
+        run: |
+          ./gradlew --no-daemon -q assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/ours.apk"
+          cp build/nsh-embed-v0.5.0/nsh.aar app/libs/nsh-mail.aar
+          ./gradlew --no-daemon -q assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/stock.apk"
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          script: bash .github/android-smoke.sh
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-smoke
+          path: ${{ runner.temp }}/smoke

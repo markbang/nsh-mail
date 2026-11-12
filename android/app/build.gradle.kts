@@ -21,7 +21,6 @@ android {
         targetSdk = 35
         versionCode = (nsh["build"] as Number).toInt()
         versionName = nsh["version"] as String
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     compileOptions {
