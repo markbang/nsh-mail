@@ -24,7 +24,9 @@ jobs:
         run: |
           curl -fsSL https://nsh.dev/install.sh | NSH_VERSION=v0.5.0 sh
           echo "$HOME/.nsh/bin" >> "$GITHUB_PATH"
-      - run: NSH_ABIS=x86_64 android/prepare.sh
+      # Logs each press the app hears.
+      - run: sed -i 's|if (!id.startsWith(PREFIX)) return;|console.log(`notification press ${id}`); if (!id.startsWith(PREFIX)) return;|' app/resident.ts && grep -n "notification press" app/resident.ts
+      - run: NSH_ABIS=x86_64 android/prepare.sh && cp app/.nsh/out/nsh-mail.apk "$RUNNER_TEMP/nsh.apk"
       - name: Build the host with prepare.sh's nsh-mail.aar, then with the stock nsh.aar
         working-directory: android
         run: |
