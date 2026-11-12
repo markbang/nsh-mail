@@ -1,0 +1,68 @@
+[package]
+name = "mail-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Mail engine shared by the nsh-mail app (local mode) and server: IMAP sync, SMTP, MIME, SQLite store, OAuth, secrets."
+publish = false
+
+[features]
+default = ["engine"]
+engine = [
+    "dep:aes-gcm",
+    "dep:ammonia",
+    "dep:async-imap",
+    "dep:base64",
+    "dep:futures",
+    "dep:getrandom",
+    "dep:keyring",
+    "dep:lettre",
+    "dep:mail-parser",
+    "dep:reqwest",
+    "dep:roxmltree",
+    "dep:rusqlite",
+    "dep:rustls",
+    "dep:serde_json",
+    "dep:sha2",
+    "dep:tokio",
+    "dep:tokio-rustls",
+    "dep:tracing",
+    "dep:webpki-roots",
+]
+# Accept any TLS certificate (GreenMail's self-signed one). Tests only: refuses to build in release.
+insecure-test-tls = ["engine"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+aes-gcm = { version = "0.11", optional = true }
+ammonia = { version = "4", optional = true }
+async-imap = { version = "0.12", default-features = false, features = ["runtime-tokio"], optional = true }
+base64 = { version = "0.23", optional = true }
+futures = { version = "0.3", default-features = false, features = ["std"], optional = true }
+getrandom = { version = "0.4", optional = true }
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls", "ring", "webpki-roots"], optional = true }
+mail-parser = { version = "1", features = ["full_encoding"], optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "form", "json"], optional = true }
+roxmltree = { version = "0.21", optional = true }
+rusqlite = { version = "0.42", features = ["bundled"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"], optional = true }
+serde_json = { version = "1", optional = true }
+sha2 = { version = "0.11", optional = true }
+tokio = { version = "1", features = ["rt", "net", "sync", "time", "macros", "io-util"], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"], optional = true }
+tracing = { version = "0.1", optional = true }
+webpki-roots = { version = "1", optional = true }
+
+[target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
+keyring = { version = "4", optional = true }
+
+[dev-dependencies]
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls", "ring", "webpki-roots"] }
+serde_json = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[[test]]
+name = "greenmail"
+required-features = ["insecure-test-tls"]
