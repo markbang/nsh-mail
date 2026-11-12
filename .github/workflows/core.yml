@@ -1,0 +1,38 @@
+name: core
+
+on:
+  pull_request:
+    paths: ["crates/**", "Cargo.toml", "Cargo.lock", ".github/workflows/core.yml"]
+  push:
+    branches: [main]
+    paths: ["crates/**", "Cargo.toml", "Cargo.lock", ".github/workflows/core.yml"]
+
+concurrency:
+  group: core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    runs-on: ubuntu-24.04
+    services:
+      greenmail:
+        image: greenmail/standalone:2.1.15
+        ports:
+          - 3993:3993
+          - 3465:3465
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy -p mail-core --all-targets --features insecure-test-tls -- -D warnings
+      - name: types compile for the web client
+        run: cargo check -p mail-core --no-default-features --target wasm32-unknown-unknown
+      - name: wait for GreenMail
+        run: for i in $(seq 60); do (echo > /dev/tcp/127.0.0.1/3993) 2>/dev/null && exit 0; sleep 1; done; exit 1
+      - run: cargo test -p mail-core --features insecure-test-tls
