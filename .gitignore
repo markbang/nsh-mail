@@ -2,3 +2,4 @@ target/
 .nsh/
 *.sqlite
 .env
+/data/
