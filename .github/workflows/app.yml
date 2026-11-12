@@ -28,13 +28,13 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The test runner and `describe` link the crate with the Linux backend (GTK 4, GStreamer); QuickJS' bindgen needs libclang.
       - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
         working-directory: .
       - uses: dtolnay/rust-toolchain@stable
       - &cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.nsh
@@ -56,14 +56,15 @@ jobs:
   linux:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      - uses: actions/checkout@v7
+      # The release runner also links WebKitGTK for web views.
+      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libwebkitgtk-6.0-dev
         working-directory: .
       - uses: dtolnay/rust-toolchain@stable
       - *cache
       - *install-nsh
       - run: nsh package App.tsx --target linux
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: app/.nsh/out/*.tar.gz
@@ -77,7 +78,7 @@ jobs:
       # rustc can overflow its default stack on the `windows` crate's bindings.
       RUST_MIN_STACK: "268435456"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - *cache
       - name: Install nsh
@@ -90,7 +91,7 @@ jobs:
       - name: Install Inno Setup
         run: compgen -G "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" || choco install innosetup -y --no-progress
       - run: nsh package App.tsx --target windows
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: |
@@ -101,7 +102,7 @@ jobs:
   android:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
         working-directory: .
       - uses: dtolnay/rust-toolchain@stable
@@ -109,11 +110,11 @@ jobs:
           targets: aarch64-linux-android, armv7-linux-androideabi
       # The image has the SDK, its build tools, a JDK and NDKs; `nsh` builds the crate's libnsh.so with the newest NDK.
       - name: Install the Android platform
-        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" > /dev/null
+        run: (yes || :) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" > /dev/null
       - *cache
       - *install-nsh
       - run: nsh package App.tsx --target android
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android
           path: app/.nsh/out/*.apk
@@ -122,7 +123,7 @@ jobs:
   web:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The web runtime's C code compiles with clang and llvm-ar.
       - run: sudo apt-get update && sudo apt-get install -y clang llvm libclang-dev
         working-directory: .
@@ -132,7 +133,7 @@ jobs:
       - *cache
       - *install-nsh
       - run: nsh package App.tsx --target web -o "$RUNNER_TEMP/web"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: web
           path: ${{ runner.temp }}/web
