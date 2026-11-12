@@ -5,6 +5,10 @@ edition = "2024"
 license = "MIT"
 publish = false
 
+[features]
+# Accept GreenMail's self-signed certificate, for end-to-end tests of the app. Debug builds only.
+insecure-test-tls = ["mail-core/insecure-test-tls"]
+
 [dependencies]
 anyhow = "1"
 argon2 = "0.6"

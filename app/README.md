@@ -12,16 +12,23 @@ pages/           one NavPage each
 components/      what pages share (message list, reader, mailboxes)
 ui/              the styled layer over nsh/base
 locales/app.yml  en and zh-CN
-src/             the crate: Mail, the Backend trait, LocalBackend, DemoBackend (debug builds)
+src/             the crate: Mail, the Backend trait, LocalBackend, CloudBackend, DemoBackend (debug builds)
 tests/           local mode end to end against GreenMail
+web/sw.js        the Web Push service worker, copied next to the web build's index.html
+.e2e/            cloud mode end to end against nsh-mail-server and GreenMail (`nsh test` skips it)
 ```
 
 `Mail` runs on a `Backend` and speaks `mail_core::types` (as JSON, declared for TSX in `src/types.rs`).
 `LocalBackend` (Linux, Windows, Android) is mail-core on the device: `mail.sqlite` in the app's data directory,
-passwords in the OS keyring or, without one (and on Android), in an encrypted file beside it. `DemoBackend` keeps a few
-weeks of mail in memory for the UI tests (`nshmail.mode` = `demo` in `Storage`) and stands in for cloud mode until
-`CloudBackend` lands; release builds do not contain it. Gmail and Outlook sign-in need `NSHMAIL_GOOGLE_CLIENT_ID`
-(and `NSHMAIL_GOOGLE_CLIENT_SECRET`) and `NSHMAIL_MS_CLIENT_ID` at build time; without them, pressing one says so.
+passwords in the OS keyring or, without one (and on Android), in an encrypted file beside it. `CloudBackend` (every
+platform) talks to an nsh-mail server: REST through NSH's `fetch`, events over a WebSocket that reconnects with backoff
+(tokio-tungstenite natively, the browser's through NSH on the web), the session token in the same secret stores or, on
+the web, in the page's storage. A provider's sign-in opens the server's `/v1/oauth/{provider}/start` in the browser and
+comes back on `nshmail://oauth-done` (on the web, in a window that hands the result over a `BroadcastChannel`). On the
+web it subscribes to Web Push once notifications are allowed. It does not cache lists and bodies on the device yet.
+`DemoBackend` keeps a few weeks of mail in memory for the UI tests (`nshmail.mode` = `demo` in `Storage`); release
+builds do not contain it. Gmail and Outlook sign-in in local mode need `NSHMAIL_GOOGLE_CLIENT_ID` (and
+`NSHMAIL_GOOGLE_CLIENT_SECRET`) and `NSHMAIL_MS_CLIENT_ID` at build time; without them, pressing one says so.
 
 ```sh
 nsh check                   # cargo check, then tsc against the generated declarations
@@ -29,5 +36,10 @@ nsh test                    # cargo test, then App.test.tsx headless
                             # GREENMAIL_HOST=127.0.0.1 also runs tests/greenmail.rs against a GreenMail
                             # (java -Dgreenmail.setup.test.all -Dgreenmail.auth.disabled -jar greenmail-standalone.jar)
 nsh run                     # this machine; --target web needs wasm32-unknown-unknown, clang and llvm-ar
-nsh package --target web
+nsh package --target web    # needs wasm-bindgen-cli of the version Cargo.toml pins
+cp web/sw.js .nsh/out/nsh-mail/  # nsh ships no extra files; the server serves it as /sw.js
+GREENMAIL_JAR=… .e2e/run.sh # cloud mode end to end; or with GreenMail already on 3993 / 3465
 ```
+
+The web client is meant to be served by its server (`NSHMAIL_WEB_DIR`), so it signs in to the page's own origin by
+default and needs no CORS.

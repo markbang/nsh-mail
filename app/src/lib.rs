@@ -2,6 +2,7 @@
 //! `nsh-mail/native` (docs/design.md §3) and its backends.
 
 mod backend;
+mod cloud;
 #[cfg(debug_assertions)]
 mod demo;
 #[cfg(not(target_arch = "wasm32"))]

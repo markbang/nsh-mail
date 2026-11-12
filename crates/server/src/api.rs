@@ -267,6 +267,34 @@ pub async fn delete_account(
 }
 
 #[derive(Deserialize)]
+pub struct DetectParams {
+    email: String,
+}
+
+/// Provider presets and Mozilla autoconfig, for clients that cannot look them up (the web).
+pub async fn detect(
+    State(s): State<Arc<AppState>>,
+    u: AuthUser,
+    Query(p): Query<DetectParams>,
+) -> ApiResult<impl IntoResponse> {
+    match mail(&s, &u).await?.detect(p.email.trim()).await {
+        Ok(found) => Ok(Json(found)),
+        Err(e) if e.code == ErrorCode::InvalidInput => Err(e.into()),
+        // The user enters the servers instead.
+        Err(e) => {
+            tracing::info!("autoconfig lookup failed: {}", e.message);
+            Ok(Json(None))
+        }
+    }
+}
+
+/// Syncs every account now (pull to refresh).
+pub async fn sync(State(s): State<Arc<AppState>>, u: AuthUser) -> ApiResult<StatusCode> {
+    mail(&s, &u).await?.sync_all().await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
 pub struct ListParams {
     folder: Option<FolderKind>,
     account: Option<String>,

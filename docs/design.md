@@ -41,7 +41,7 @@ android/             Gradle 宿主工程：NshView + Firebase Messaging（§5）
 客户端内部只有一个 `Mail` 接口（Rust 导出给 TSX），背后两个实现：
 
 - `LocalBackend`（仅原生平台，`cfg(not(target_arch = "wasm32"))`）：mail-core 直连邮箱。
-- `CloudBackend`（全平台）：经 NSH `fetch` 调服务端 REST，WebSocket 收事件；原生平台把结果缓存进同一份 SQLite。
+- `CloudBackend`（全平台）：经 NSH `fetch` 调服务端 REST，WebSocket 收事件（原生用 tokio-tungstenite，Web 用 NSH 的浏览器 WebSocket 传输），断线按退避重连。原生平台缓存列表和正文留待后续：mail-core 没有写入服务端结果的公开接口。
 
 TSX 不知道当前是哪种模式，界面一套。状态归属：邮件、账号、同步状态在 Rust；当前选中、草稿、筛选在 TSX。
 
@@ -105,7 +105,7 @@ TSX ──Mail.*──▶ Rust LocalBackend ──tokio/rustls──▶ IMAP (99
 2. 添加账号：普通 IMAP 把应用专用密码交给服务端；OAuth 走服务端的 Web 流程（打开 `/v1/oauth/{provider}/start`，回调存 token，再跳回 `nshmail://oauth-done` 或 Web 页面）。
 3. 服务端为每个邮箱账号常驻一个 tokio 任务，复用 mail-core 的同步逻辑，数据写进该用户自己的 SQLite（`data/users/<id>.sqlite`）。
 4. 新信：写库 → 通过 WebSocket 发给在线客户端 → 给不在线的设备发推送：Android 用 FCM，Web 用 Web Push；桌面端是常驻进程，挂着 WebSocket，收到事件后自己弹系统通知。
-5. 读、搜、发都走 REST；原生客户端把列表和正文缓存在本地 SQLite，离线可读。
+5. 读、搜、发都走 REST。原生客户端在本地 SQLite 缓存列表和正文（离线可读）尚未实现，待 mail-core 提供写入接口。
 
 ### 服务端 API
 
@@ -113,6 +113,7 @@ TSX ──Mail.*──▶ Rust LocalBackend ──tokio/rustls──▶ IMAP (99
 POST /v1/auth/signup | /v1/auth/login        {email, password} → {token}
 POST /v1/auth/logout      GET /v1/me    PATCH /v1/me  {hideContent}（通知不显示内容）
 GET  /v1/accounts        POST /v1/accounts (imap)        DELETE /v1/accounts/{id}
+GET  /v1/detect?email=   POST /v1/sync（立即同步全部账号）
 GET  /v1/oauth/{google|microsoft}/start?token=…           GET /v1/oauth/{provider}/callback
 GET  /v1/messages?folder=&account=&before=&limit=         GET /v1/messages/{id}
 PATCH /v1/messages/{id}  {seen?, flagged?}
@@ -129,7 +130,7 @@ GET  /                   Web 客户端静态文件         GET /healthz
 | 平台 | 应用不在前台时 | 实现 |
 |---|---|---|
 | Android | FCM data 消息 → `FirebaseMessagingService` 弹通知，点击打开该信 | `android/` Gradle 工程（见下） |
-| Web | Web Push → Service Worker `push` 事件 → `showNotification` | `nsh package --target web` 产物里加入 `sw.js`；Rust 侧经 wasm-bindgen 调 `PushManager.subscribe`（VAPID 公钥来自服务端） |
+| Web | Web Push → Service Worker `push` 事件 → `showNotification` | NSH 打包不带额外文件，打包后把 `app/web/sw.js` 复制到 `index.html` 旁（CI 的 web job 已做）；Rust 侧经 wasm-bindgen 调 `PushManager.subscribe`（VAPID 公钥来自服务端），在用户允许通知后订阅 |
 | Linux / Windows | 常驻进程（托盘）挂 WebSocket，收到 `newMail` 调 `Notifications.show` | NSH 自带，无需额外服务 |
 
 服务端：FCM 用 HTTP v1 API + 服务账号 JWT；Web Push 用 `web-push` crate（aes128gcm 加密，VAPID 签名）。推送失效（404/410、`UNREGISTERED`）即删除该设备。

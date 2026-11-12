@@ -8,6 +8,7 @@ use nsh_core::{prelude::*, storage::Storage};
 
 use crate::{
     backend::{Backend, invalid, js},
+    cloud::CloudBackend,
     types::Js,
 };
 
@@ -95,28 +96,25 @@ fn changed(account_id: String, folder: FolderKind) {
     emit(MailEvent::Changed { account_id, folder });
 }
 
-/// The backend of `mode`. The in-memory demo backs the UI tests
-/// (`nshmail.mode` = `demo`) and cloud mode until `CloudBackend` lands;
-/// release builds have no demo.
-fn backend_for(mode: Mode, demo: bool) -> Result<Rc<dyn Backend>, Error> {
+/// The backend of local mode. The in-memory demo backs the UI tests
+/// (`nshmail.mode` = `demo`); release builds have no demo.
+fn local_backend(demo: bool) -> Result<Rc<dyn Backend>, JsError> {
     #[cfg(debug_assertions)]
-    if demo || mode == Mode::Cloud {
+    if demo {
         return Ok(Rc::new(crate::demo::DemoBackend::default()));
     }
     let _ = demo;
-    match mode {
-        #[cfg(not(target_arch = "wasm32"))]
-        Mode::Local => Ok(Rc::new(crate::local::LocalBackend::default())),
-        _ => Err(Error::new(
-            ErrorCode::Unsupported,
-            "this mode is not available in this build",
-        )),
-    }
+    #[cfg(not(target_arch = "wasm32"))]
+    return Ok(Rc::new(crate::local::LocalBackend::default()));
+    #[cfg(target_arch = "wasm32")]
+    Err(js(Error::new(
+        ErrorCode::Unsupported,
+        "this mode is not available in this build",
+    )))
 }
 
-/// Opens a session for `mode`, ending the last one.
-async fn open(mode: Mode, server: Option<String>, demo: bool) -> Result<(), JsError> {
-    let backend = backend_for(mode, demo).map_err(js)?;
+/// Opens a session for `mode` on `backend`, ending the last one.
+async fn open(mode: Mode, server: Option<String>, backend: Rc<dyn Backend>) -> Result<(), JsError> {
     with(|s| {
         s.backend = Some(backend.clone());
         s.syncing.clear();
@@ -153,6 +151,13 @@ fn remember(mode: Option<&str>, server: Option<&str>) {
 
 fn valid_server(server: &str) -> Result<String, JsError> {
     let server = server.trim().trim_end_matches('/');
+    // The web client is served by its server: the page's origin, by default.
+    #[cfg(target_arch = "wasm32")]
+    if let Some(origin) = crate::cloud::page_origin()
+        && (server.is_empty() || server == origin)
+    {
+        return Ok(origin);
+    }
     let local = server.starts_with("http://localhost") || server.starts_with("http://127.0.0.1");
     if !(server.starts_with("https://") || local) || server.len() < "https://x".len() {
         return Err(js(invalid("the server address starts with https://")));
@@ -168,17 +173,30 @@ pub struct Mail;
 impl Mail {
     /// Restores the last session (if any) and starts syncing; resolves with
     /// the status. Calling it again returns the current status.
-    pub async fn init() -> Result<Js<Status>, JsError> {
+    pub async fn init(sys: System) -> Result<Js<Status>, JsError> {
         if with(|s| std::mem::replace(&mut s.started, true)) {
             return Ok(Mail::status());
         }
+        #[cfg(target_arch = "wasm32")]
+        crate::cloud::finish_oauth();
         let server = Storage::get_item(SERVER_KEY);
-        match Storage::get_item(MODE_KEY).as_deref() {
-            Some("local") if cfg!(not(target_arch = "wasm32")) => {
-                open(Mode::Local, None, false).await?
+        match (Storage::get_item(MODE_KEY).as_deref(), server) {
+            (Some("local"), _) if cfg!(not(target_arch = "wasm32")) => {
+                open(Mode::Local, None, local_backend(false)?).await?
             }
-            Some("demo") if cfg!(debug_assertions) => open(Mode::Local, None, true).await?,
-            Some("cloud") => open(Mode::Cloud, server, false).await?,
+            (Some("demo"), _) if cfg!(debug_assertions) => {
+                open(Mode::Local, None, local_backend(true)?).await?
+            }
+            (Some("cloud"), Some(server)) => {
+                match CloudBackend::restore(server.clone(), sys)
+                    .await
+                    .map_err(js)?
+                {
+                    Some(backend) => open(Mode::Cloud, Some(server), Rc::new(backend)).await?,
+                    // Signed out elsewhere, or the keyring lost the session: sign in again.
+                    None => remember(None, None),
+                }
+            }
             _ => {}
         }
         Ok(Mail::status())
@@ -198,18 +216,20 @@ impl Mail {
                 "a browser cannot connect to mail servers: use an nsh-mail server",
             )));
         }
-        open(Mode::Local, None, false).await?;
+        open(Mode::Local, None, local_backend(false)?).await?;
         remember(Some("local"), None);
         Ok(())
     }
 
     /// Signs in to (or, with `sign_up`, creates an account on) the nsh-mail
-    /// server at `server`, and syncs through it.
+    /// server at `server`, and syncs through it. On the web an empty
+    /// `server` is the page's own.
     pub async fn sign_in(
         server: String,
         email: String,
         password: String,
         sign_up: bool,
+        sys: System,
     ) -> Result<(), JsError> {
         let server = valid_server(&server)?;
         if !email.contains('@') {
@@ -218,7 +238,10 @@ impl Mail {
         if password.is_empty() || (sign_up && password.chars().count() < 8) {
             return Err(js(invalid("a password has at least 8 characters")));
         }
-        open(Mode::Cloud, Some(server.clone()), false).await?;
+        let backend = CloudBackend::sign_in(server.clone(), email, password, sign_up, sys)
+            .await
+            .map_err(js)?;
+        open(Mode::Cloud, Some(server.clone()), Rc::new(backend)).await?;
         remember(Some("cloud"), Some(&server));
         Ok(())
     }

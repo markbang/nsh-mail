@@ -15,6 +15,11 @@ async fn main() {
 }
 
 async fn run() -> anyhow::Result<()> {
+    #[cfg(feature = "insecure-test-tls")]
+    {
+        tracing::warn!("insecure-test-tls: mail server certificates are not checked");
+        mail_core::accept_invalid_certs_for_tests();
+    }
     let config = Config::from_env()?;
     let bind = config.bind;
     let state = build(config).await?;

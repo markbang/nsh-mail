@@ -25,7 +25,7 @@ Back up `data/` and the master key together; without the key the stored mail cre
 | `NSHMAIL_BIND` | `0.0.0.0:8080` | Listen address. 监听地址。 |
 | `NSHMAIL_DATA_DIR` | `data` (`/data` in Docker) | `server.sqlite`, per user `users/<id>.sqlite` (mail) and `users/<id>.secrets.json` (encrypted credentials), generated VAPID key. 数据目录。 |
 | `NSHMAIL_PUBLIC_URL` | `http://localhost:8080` | External URL; OAuth redirect URIs and the web return page are built from it. 对外地址，OAuth 回调和 Web 返回页由它生成。 |
-| `NSHMAIL_WEB_DIR` | unset / 不托管 | Web client build to serve at `/` (`sw.js` gets `Service-Worker-Allowed: /`). Web 客户端目录。 |
+| `NSHMAIL_WEB_DIR` | unset / 不托管 | Web client build to serve at `/`, with `app/web/sw.js` copied next to its `index.html` (served with `Service-Worker-Allowed: /`; Web Push needs it). Web 客户端目录，需把 `app/web/sw.js` 复制到 `index.html` 旁边（Web Push 需要）。 |
 | `NSHMAIL_CORS_ORIGINS` | empty (same origin only) | Comma-separated origins allowed cross-origin, for development. 开发用跨域白名单，逗号分隔。 |
 | `NSHMAIL_ALLOW_SIGNUP` | `true` | `false` closes sign-up. 关闭注册。 |
 | `NSHMAIL_GOOGLE_CLIENT_ID` / `_SECRET` | unset | Google OAuth web client; redirect URI `<PUBLIC_URL>/v1/oauth/google/callback`. |
@@ -38,6 +38,8 @@ Back up `data/` and the master key together; without the key the stored mail cre
 ## API additions / 补充接口
 
 - `GET /v1/me`, `PATCH /v1/me {hideContent}` — notification privacy: when on, pushes carry only account and message ids. 通知隐私：开启后推送只带 id。
+- `GET /v1/detect?email=` — provider presets and Mozilla autoconfig for the add-account form (`null` when unknown). 添加账号时的服务器探测。
+- `POST /v1/sync` — sync every account now (pull to refresh). 立即同步全部账号。
 - `GET /v1/events?device=<id>` — while this socket is open, that device gets no push. 连接期间该设备不再收推送。
 - `GET /v1/oauth/{provider}/start?token=…&return=native|web` — ends at `nshmail://oauth-done?account=<id>` or `<PUBLIC_URL>/?oauth-done&account=<id>`; failures carry `error=<message>`. 失败时带 `error`。
 - Push data / 推送数据: `{type:"newMail", account, id, from?, subject?}`.

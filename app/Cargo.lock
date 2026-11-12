@@ -3057,6 +3057,11 @@ dependencies = [
 name = "nsh-app-nsh-mail"
 version = "0.1.0"
 dependencies = [
+ "futures-channel",
+ "futures-core",
+ "futures-util",
+ "js-sys",
+ "log",
  "mail-core",
  "nsh-base",
  "nsh-core",
@@ -3065,6 +3070,11 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tokio-tungstenite",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
