@@ -27,6 +27,15 @@ defaults:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    # Local mode end to end (app/tests/greenmail.rs).
+    services:
+      greenmail:
+        image: greenmail/standalone:2.1.15
+        ports:
+          - 3993:3993
+          - 3465:3465
+    env:
+      GREENMAIL_HOST: 127.0.0.1
     steps:
       - uses: actions/checkout@v7
       # The test runner and `describe` link the crate with the Linux backend (GTK 4, GStreamer); QuickJS' bindgen needs libclang.
@@ -53,6 +62,8 @@ jobs:
           [ -x ~/.nsh/bin/nsh ] || curl -fsSL https://nsh.dev/install.sh | sh
           echo "$HOME/.nsh/bin" >> "$GITHUB_PATH"
       - run: nsh check
+      - name: Wait for GreenMail
+        run: for i in $(seq 60); do (echo > /dev/tcp/127.0.0.1/3993) 2>/dev/null && exit 0; sleep 1; done; exit 1
       - run: nsh test
       - &save-cache
         if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'

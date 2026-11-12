@@ -1,15 +1,13 @@
 //! What `Mail` asks of a mail source. `LocalBackend` (mail-core, native
-//! only) and `CloudBackend` (the server's REST API) implement it; until they
-//! land, `DemoBackend` stands in for both.
+//! only) and `CloudBackend` (the server's REST API) implement it.
 
-use std::{fmt, future::Future, pin::Pin, rc::Rc};
+use std::{future::Future, pin::Pin, rc::Rc};
 
+use mail_core::types::*;
 use nsh_core::prelude::JsError;
 
-use crate::types::*;
-
 /// A backend call: it runs on the engine thread, so it need not be `Send`.
-pub type MailFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, MailError>> + 'a>>;
+pub type MailFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + 'a>>;
 
 /// Where a backend reports what changes on its own (new mail, sync state).
 pub type Events = Rc<dyn Fn(MailEvent)>;
@@ -33,54 +31,19 @@ pub trait Backend {
     fn refresh(&self) -> MailFuture<'_, ()>;
 }
 
-/// A failure TSX can branch on: `code` is stable, `message` is for people.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MailError {
-    pub code: &'static str,
-    pub message: String,
+pub fn invalid(message: impl Into<String>) -> Error {
+    Error::new(ErrorCode::InvalidInput, message)
 }
 
-impl MailError {
-    pub const UNSUPPORTED: &'static str = "ERR_UNSUPPORTED";
-    pub const NO_SESSION: &'static str = "ERR_NO_SESSION";
-    pub const INVALID: &'static str = "ERR_INVALID_INPUT";
-    pub const AUTH: &'static str = "ERR_AUTH";
-    pub const NETWORK: &'static str = "ERR_NETWORK";
-    pub const NOT_FOUND: &'static str = "ERR_NOT_FOUND";
-
-    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: message.into(),
-        }
-    }
-
-    pub fn invalid(message: impl Into<String>) -> Self {
-        Self::new(Self::INVALID, message)
-    }
-
-    pub fn not_found(what: &str) -> Self {
-        Self::new(Self::NOT_FOUND, format!("{what} not found"))
-    }
+pub fn not_found(what: &str) -> Error {
+    Error::new(ErrorCode::NotFound, format!("{what} not found"))
 }
 
-impl fmt::Display for MailError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.code, self.message)
-    }
-}
-
-impl From<MailError> for ErrorInfo {
-    fn from(e: MailError) -> Self {
-        ErrorInfo {
-            code: e.code.to_owned(),
-            message: e.message,
-        }
-    }
-}
-
-impl From<MailError> for JsError {
-    fn from(e: MailError) -> Self {
-        JsError::Error(e.message).with_code(e.code)
-    }
+/// The rejection TSX gets: an `Error` whose `code` is the error's (`ERR_AUTH`, ...).
+pub fn js(e: Error) -> JsError {
+    let code = serde_json::to_value(e.code)
+        .ok()
+        .and_then(|c| c.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "ERR_INTERNAL".into());
+    JsError::Error(e.message).with_code(&code)
 }

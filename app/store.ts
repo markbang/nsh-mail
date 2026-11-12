@@ -69,6 +69,8 @@ export function errorText(e: unknown): string {
       return t("errors.network");
     case "ERR_INVALID_INPUT":
       return t("errors.invalid", { detail: message });
+    case "ERR_OAUTH":
+      return t("errors.oauth", { detail: message });
     default:
       return t("errors.generic", { detail: message });
   }
@@ -81,11 +83,15 @@ export function onNewMail(listener: (s: Summary) => void) {
 }
 
 function heard(e: MailEvent) {
+  if (e.type === "error" && !e.accountId) {
+    if (e.error.code === "ERR_SECRETS") showToast(t("errors.secrets"));
+    else showToast(t("errors.generic", { detail: e.error.message }), "error");
+  }
   if (e.type === "syncState" || e.type === "error") {
     status.set(Mail.status());
     return;
   }
-  if (e.type === "newMail" && e.summary) newMailListener?.(e.summary);
+  if (e.type === "newMail") newMailListener?.(e.summary);
   if (e.type === "changed" || e.type === "newMail") {
     status.set(Mail.status());
     if (status().mode === "none") return;
