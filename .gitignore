@@ -1,0 +1,4 @@
+target/
+.nsh/
+*.sqlite
+.env
