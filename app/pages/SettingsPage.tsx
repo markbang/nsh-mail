@@ -3,7 +3,7 @@ import { Notifications, platform, Text, View } from "nsh";
 import { AlertDialog } from "nsh/base";
 import { t } from "nsh/i18n";
 import { Mail, type Account } from "nsh-mail/native";
-import { AccountMark, Button, Card, Divider, Icon, IconButton, Menu, Page, SectionLabel, Switch, systemHeader, touch } from "../ui";
+import { AccountMark, AppBar, Button, Card, Divider, Icon, IconButton, Menu, Page, SectionLabel, Switch, systemHeader, touch } from "../ui";
 import { PageHeader, PageScroll } from "../components/PageHeader";
 import { NavContext } from "../nav";
 import { providerName as named } from "../lib/format";
@@ -63,7 +63,7 @@ export function SettingsPage() {
   const text = touch ? "text-medium" : "text-small";
   const note = touch ? "text-small" : "text-tiny";
   return (
-    <Page title={t("settings.title")} header={<PageHeader title={t("settings.title")} />} root={systemHeader}>
+    <Page title={t("settings.title")} header={<PageHeader title={t("settings.title")} />} root={systemHeader} appBar={<AppBar title={t("settings.title")} />}>
       <PageScroll contentClass={touch ? "gap-6 p-4" : "gap-6 p-5"} testID="settings">
         <View class="gap-1">
           <SectionLabel label={t("settings.accounts")} class="px-0" />

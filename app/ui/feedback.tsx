@@ -6,6 +6,8 @@ import { tip } from "./tooltip";
 import { Icon, type IconName } from "./icon";
 import { press } from "./motion";
 import { touch } from "./density";
+import { material } from "./material";
+import { LoadingIndicator } from "./m3";
 import { focusRing, rounded, shadow, type Color, type Radius, type Size, type Variant } from "./tokens";
 import { look } from "./variants";
 
@@ -235,6 +237,9 @@ export function Spinner(props: { label: string; size?: Size; color?: Color | "cu
     reduceMotion()
       ? undefined
       : ({ animationName: "spin", animationDuration: 800, animationIterationCount: "infinite", animationTimingFunction: easing } as const);
+  // Android: Material's loading indicator, where it has room (not inside a small button).
+  if (material && props.size !== "sm" && !props.class && (props.color ?? "primary") === "primary")
+    return <LoadingIndicator label={props.label} size={props.size === "lg" ? 56 : 48} />;
   return (
     <View accessibilityLabel={props.label} role="progressbar" class="items-center gap-2">
       <View class={`relative ${spinnerBox[props.size ?? "md"].split(" ")[0]}`}>
@@ -258,7 +263,9 @@ export function Toast(props: { text: string; tone?: "neutral" | "error"; action?
       role="alert"
       android={{ elevation: 3 }}
       class={
-        touch
+        material
+          ? "min-h-12 w-full max-w-[560px] flex-row items-center gap-3 rounded-shape-xs bg-md-inverse-surface py-1.5 ps-4 pe-2"
+          : touch
           ? "min-h-12 w-full max-w-[560px] flex-row items-center gap-3 rounded-small bg-foreground-800 py-1.5 ps-4 pe-2"
           : `max-w-[440px] flex-row items-center gap-3 rounded-large border border-default-200 bg-content1 px-4 py-3 ${shadow.sm}`
       }
@@ -267,7 +274,7 @@ export function Toast(props: { text: string; tone?: "neutral" | "error"; action?
       <If when={props.tone === "error" && !touch}>
         <Icon name="close" size="sm" tone="danger" />
       </If>
-      <Text class={`flex-1 py-2 text-small ${touch ? "text-background" : "text-content1-foreground"}`}>{props.text}</Text>
+      <Text class={`flex-1 py-2 text-small ${material ? "text-md-inverse-on-surface" : touch ? "text-background" : "text-content1-foreground"}`}>{props.text}</Text>
       <If when={props.action}>
         {(action) => (
           <BaseButton
@@ -275,7 +282,7 @@ export function Toast(props: { text: string; tone?: "neutral" | "error"; action?
             class={`min-h-10 items-center justify-center rounded-full px-3 active:bg-primary-300/20 ${focusRing}`}
             testID="toast-action"
           >
-            <Text class={`text-small font-medium ${touch ? "text-primary-300" : "text-primary"}`}>{action().label}</Text>
+            <Text class={`text-small font-medium ${material ? "text-md-inverse-primary" : touch ? "text-primary-300" : "text-primary"}`}>{action().label}</Text>
           </BaseButton>
         )}
       </If>

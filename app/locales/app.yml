@@ -176,6 +176,9 @@ actions.deletedOne:
 actions.deleted:
   en: "%{count} moved to Trash"
   zh-CN: 已将 %{count} 封移到废纸篓
+actions.newMenu:
+  en: New
+  zh-CN: 新建
 actions.undo:
   en: Undo
   zh-CN: 撤销
@@ -207,6 +210,9 @@ list.unread:
 list.flagged:
   en: Flagged
   zh-CN: 已加旗标
+list.refreshing:
+  en: Checking for mail
+  zh-CN: 正在检查新邮件
 list.loadingMore:
   en: Loading more
   zh-CN: 正在加载更多
@@ -260,6 +266,9 @@ reader.unknownSender:
 reader.untitledAttachment:
   en: Untitled attachment
   zh-CN: 未命名附件
+reader.actions:
+  en: Message actions
+  zh-CN: 邮件操作
 reader.attachments:
   en: Attachments
   zh-CN: 附件
@@ -599,6 +608,9 @@ tray.quit:
   en: Quit
   zh-CN: 退出
 
+tabs.label:
+  en: Sections
+  zh-CN: 分区
 tabs.mail:
   en: Mail
   zh-CN: 邮件

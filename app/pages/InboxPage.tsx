@@ -2,10 +2,10 @@
 // the mailboxes and compose from the tab bar and its button, and turn the top
 // bar into the selection's actions while rows are selected; a narrow browser
 // has search and compose in the header, the mailbox list in a sheet.
-import { signal, View } from "nsh";
+import { signal, Text, View } from "nsh";
 import { BackHandler } from "nsh/mobile";
 import { t } from "nsh/i18n";
-import { IconButton, Menu, Page, Sheet, systemHeader } from "../ui";
+import { AppBar, IconButton, Menu, Page, Sheet, systemHeader } from "../ui";
 import { MailboxList, mailboxTitle } from "../components/Mailbox";
 import { Mailboxes } from "../components/Mailboxes";
 import { PageHeader } from "../components/PageHeader";
@@ -43,23 +43,18 @@ export function InboxPage() {
     for (const m of picked()) void setFlags(m.id, { seen: unread });
     clearPicked();
   };
-  const barActions = () => (
-    <If
-      when={picking()}
-      else={
-        <>
-          <IconButton icon="search" label={t("search.label")} onPress={() => selectTab(1)} testID="open-search" />
-          <Menu
-            label={t("actions.more")}
-            trigger={<IconButton icon="more" label={t("actions.more")} testID="inbox-more" />}
-            actions={[
-              { id: "refresh", label: t("actions.refresh"), icon: "refresh", onSelect: () => void refresh() },
-              { id: "settings", label: t("settings.title"), icon: "settings", onSelect: () => selectTab(3) },
-            ]}
-          />
-        </>
-      }
-    >
+  const more = () => (
+    <Menu
+      label={t("actions.more")}
+      trigger={<IconButton icon="more" label={t("actions.more")} testID="inbox-more" />}
+      actions={[
+        { id: "refresh", label: t("actions.refresh"), icon: "refresh", onSelect: () => void refresh() },
+        { id: "settings", label: t("settings.title"), icon: "settings", onSelect: () => selectTab(3) },
+      ]}
+    />
+  );
+  const pickedActions = () => (
+    <>
       <If when={mailbox().folder !== "archive" && mailbox().folder !== "trash"}>
         <IconButton icon="archive" label={t("actions.archive")} onPress={() => move("archive")} testID="picked-archive" />
       </If>
@@ -72,14 +67,46 @@ export function InboxPage() {
         onPress={mark}
         testID="picked-seen"
       />
+    </>
+  );
+  const barActions = () => (
+    <If
+      when={picking()}
+      else={
+        <>
+          <IconButton icon="search" label={t("search.label")} onPress={() => selectTab(1)} testID="open-search" />
+          {more()}
+        </>
+      }
+    >
+      {pickedActions()}
+    </If>
+  );
+  const endSelection = () => <IconButton icon="close" label={t("actions.endSelection")} onPress={clearPicked} testID="end-selection" />;
+  // Android: the search bar over an emphasized headline; while rows are selected, the selection's bar.
+  const appBar = () => (
+    <If
+      when={picking()}
+      else={<AppBar title={mailboxTitle()} search={{ label: t("search.placeholder"), onPress: () => selectTab(1), end: more() }} testID="app-bar" />}
+    >
+      <View class="bg-md-surface-container pt-[env(safe-area-inset-top)]">
+        <View class="h-16 flex-row items-center gap-1 px-2">
+          {endSelection()}
+          <Text class="flex-1 px-2 text-title-l font-medium text-md-on-surface" testID="selection-count">
+            {t("actions.selected", { count: pickedIds().length })}
+          </Text>
+          {pickedActions()}
+        </View>
+      </View>
     </If>
   );
   return (
     <Page
       title={picking() ? t("actions.selected", { count: pickedIds().length }) : mailboxTitle()}
       header={<PageHeader title={mailboxTitle()} leading={menu()} actions={actions()} />}
-      headerLeft={picking() ? <IconButton icon="close" label={t("actions.endSelection")} onPress={clearPicked} testID="end-selection" /> : undefined}
+      headerLeft={picking() ? endSelection() : undefined}
       headerRight={barActions()}
+      appBar={appBar()}
       root
     >
       <View class="flex-1 bg-background">

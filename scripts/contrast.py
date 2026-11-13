@@ -48,10 +48,22 @@ def check(mode, label, fg, bg, need):
     ok = r >= need
     failed += not ok
     if not ok or "-v" in sys.argv:
-        print(f"{'ok  ' if ok else 'FAIL'} {mode:5} {label:48} {r:5.2f} (needs {need})")
+        print(f"{'ok  ' if ok else 'FAIL'} {mode:13} {label:48} {r:5.2f} (needs {need})")
 
-for mode in ("light", "dark"):
-    t = {**theme.get("theme", {}), **theme[mode]}
+# Material 3 role pairs (on-X over X), and Android's theme: the HeroUI roles mapped onto them (app/material.json).
+MD = [("md-on-surface", "md-surface", 4.5), ("md-on-surface-variant", "md-surface", 4.5),
+      ("md-on-surface-variant", "md-surface-container-high", 4.5), ("md-on-surface", "md-surface-container-highest", 4.5),
+      ("md-primary", "md-surface", 4.5), ("md-primary", "md-surface-container", 4.5),
+      ("md-on-primary", "md-primary", 4.5), ("md-on-primary-container", "md-primary-container", 4.5),
+      ("md-on-secondary-container", "md-secondary-container", 4.5), ("md-on-tertiary-container", "md-tertiary-container", 4.5),
+      ("md-on-error", "md-error", 4.5), ("md-on-error-container", "md-error-container", 4.5),
+      ("md-inverse-on-surface", "md-inverse-surface", 4.5), ("md-inverse-primary", "md-inverse-surface", 4.5),
+      ("md-error", "md-surface", 4.5), ("md-outline", "md-surface", 3)]
+alias = json.loads((Path(__file__).parent.parent / "app/material.json").read_text())
+
+for mode, t in [(m, {**theme.get("theme", {}), **theme[m]}) for m in ("light", "dark")] + [
+    (f"android-{m}", (lambda v: {**v, **{k: v[r] for k, r in alias.items()}})({**theme.get("theme", {}), **theme[m]})) for m in ("light", "dark")
+]:
     c = lambda k: rgba(t[k])
     for s in SURFACES:
         base = c(s)
@@ -61,10 +73,14 @@ for mode in ("light", "dark"):
     for k in SOLID:
         if k in t:
             check(mode, f"{k}-foreground on {k}", c(f"{k}-foreground"), c(k), 4.5)
+    for ink, bg, need in MD:
+        if ink in t and bg in t:
+            check(mode, f"{ink} on {bg}", over(c(ink), c(bg)), c(bg), need)
     for ink, bg, need in EXTRA:
         check(mode, f"{ink} on {bg}", c(ink), c(bg), need)
-    for k, (ink, alpha) in FLAT.items():
-        ink = FLAT_DARK.get(k, ink) if mode == "dark" else ink
+    # Android draws the flat variant as Material's tonal containers (ui/variants.ts), checked in MD.
+    for k, (ink, alpha) in ({} if mode.startswith("android") else FLAT).items():
+        ink = FLAT_DARK.get(k, ink) if mode.endswith("dark") else ink
         frame = c(k)
         frame[3] = alpha
         bg = over(frame, c("background"))

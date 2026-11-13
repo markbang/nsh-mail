@@ -2,7 +2,7 @@
 import { keymap, Picker, platform, signal, Text, View } from "nsh";
 import { t } from "nsh/i18n";
 import { Mail } from "nsh-mail/native";
-import { Button, IconButton, Page, SelectField, TextField, touch, systemHeader } from "../ui";
+import { Button, IconButton, material, Page, SelectField, TextField, touch, systemHeader } from "../ui";
 import { PageHeader } from "../components/PageHeader";
 import { AttachmentChips } from "../components/Attachments";
 import { createAttachments, onPageDrop, type Incoming } from "../lib/attachments";
@@ -86,7 +86,7 @@ export function ComposePage(props: { init: ComposeInit }) {
         when={systemHeader}
         else={<Button color="primary" icon="send" label={sending() ? t("compose.sending") : t("compose.send")} loading={sending()} onPress={() => void send()} testID="send" />}
       >
-        <IconButton icon="send" tone="primary" label={sending() ? t("compose.sending") : t("compose.send")} disabled={sending()} onPress={() => void send()} testID="send" />
+        <IconButton icon="send" variant={material ? "solid" : undefined} color={material ? "primary" : undefined} tone={material ? undefined : "primary"} label={sending() ? t("compose.sending") : t("compose.send")} disabled={sending()} onPress={() => void send()} testID="send" />
       </If>
     </>
   );

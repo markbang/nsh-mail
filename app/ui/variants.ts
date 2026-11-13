@@ -1,6 +1,7 @@
 // HeroUI's color × variant matrix (utils/variants.ts in @heroui/theme): the
 // surface, the ink for labels and icons, and the hover each pair takes.
 import type { Color, Variant } from "./tokens";
+import { material } from "./material";
 
 export interface Look {
   /** Background, border and shadow. */
@@ -49,6 +50,11 @@ export function look(variant: Variant, color: Color): Look {
         tintHover: "",
       };
     case "flat": {
+      // Android: Material's tonal button, in the color's container.
+      if (material && (neutral || color === "primary" || color === "secondary"))
+        return { frame: "bg-md-secondary-container", text: "text-md-on-secondary-container", tint: "tint-md-on-secondary-container", hover: "", tintHover: "" };
+      if (material && color === "danger")
+        return { frame: "bg-md-error-container", text: "text-md-on-error-container", tint: "tint-md-on-error-container", hover: "", tintHover: "" };
       const shade = flatInk[color];
       const dark = flatInkDark[color];
       return {

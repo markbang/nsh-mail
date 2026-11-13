@@ -18,8 +18,15 @@
     "windows": true
   },
   "tailwind": {
-    "radius": { "small": 8, "medium": 12, "large": 14 },
-    "fontSize": { "tiny": [12, 1.3333], "small": [14, 1.4286], "medium": [16, 1.5], "large": [18, 1.5556] },
+    "radius": {
+      "small": 8, "medium": 12, "large": 14,
+      "shape-xs": 4, "shape-sm": 8, "shape-md": 12, "shape-lg": 16, "shape-lg-inc": 20, "shape-xl": 28, "shape-xl-inc": 32, "shape-2xl": 48
+    },
+    "fontSize": {
+      "tiny": [12, 1.3333], "small": [14, 1.4286], "medium": [16, 1.5], "large": [18, 1.5556],
+      "headline-l": [32, 1.25], "headline-m": [28, 1.2857], "headline-s": [24, 1.3333], "title-l": [22, 1.2727],
+      "title-m": [16, 1.5], "title-s": [14, 1.4286], "label-l": [14, 1.4286], "label-m": [12, 1.3333]
+    },
     "shadow": {
       "small": "0px 0px 5px 0px rgb(0 0 0 / 0.02), 0px 2px 10px 0px rgb(0 0 0 / 0.06), 0px 0px 1px 0px rgb(0 0 0 / 0.3)",
       "medium": "0px 0px 15px 0px rgb(0 0 0 / 0.03), 0px 2px 30px 0px rgb(0 0 0 / 0.08), 0px 0px 1px 0px rgb(0 0 0 / 0.3)",
@@ -28,7 +35,10 @@
       "medium-dark": "0px 0px 15px 0px rgb(0 0 0 / 0.06), 0px 2px 30px 0px rgb(0 0 0 / 0.22), inset 0px 0px 1px 0px rgb(255 255 255 / 0.15)",
       "large-dark": "0px 0px 30px 0px rgb(0 0 0 / 0.07), 0px 30px 60px 0px rgb(0 0 0 / 0.26), inset 0px 0px 1px 0px rgb(255 255 255 / 0.15)"
     },
-    "ease": { "css": [0.25, 0.1, 0.25, 1], "soft": [0.36, 0.66, 0.4, 1], "spring": [0.155, 1.105, 0.295, 1.12], "soft-spring": [0.16, 1.11, 0.3, 1.02] }
+    "ease": { "css": [0.25, 0.1, 0.25, 1], "soft": [0.36, 0.66, 0.4, 1], "spring": [0.155, 1.105, 0.295, 1.12], "soft-spring": [0.16, 1.11, 0.3, 1.02],
+      "spatial-fast": [0.42, 1.67, 0.21, 0.9], "spatial": [0.38, 1.21, 0.22, 1], "spatial-slow": [0.39, 1.29, 0.35, 0.98],
+      "effects-fast": [0.31, 0.94, 0.34, 1], "effects": [0.34, 0.8, 0.34, 1], "effects-slow": [0.34, 0.88, 0.34, 1]
+    }
   },
   "window": {
     "title": "nsh-mail",

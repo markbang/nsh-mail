@@ -3,7 +3,7 @@
 // narrow browser; the toast, keys and the tray.
 import { keymap, mount, View, type InputRef } from "nsh";
 import { NavStack } from "nsh/base";
-import { Dialog, systemHeader } from "./ui";
+import { applyMaterialTheme, Dialog, systemHeader } from "./ui";
 import { Toasts } from "./components/Toasts";
 import { PhoneTabs } from "./components/PhoneTabs";
 import { Workspace } from "./components/Workspace";
@@ -90,7 +90,7 @@ function Main() {
             </NavContext.Provider>
           }
         >
-          <PhoneTabs page={page} onCompose={() => compose("new")} />
+          <PhoneTabs page={page} onCompose={() => compose("new")} onAddAccount={() => phoneStack.push({ name: "addAccount" })} />
         </If>
       }
     >
@@ -128,5 +128,6 @@ function App() {
   );
 }
 
+applyMaterialTheme();
 listenForPushToken();
 mount(App);

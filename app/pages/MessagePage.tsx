@@ -30,7 +30,7 @@ export function MessagePage(props: { id: string }) {
           </If>
         }
       >
-        {(m) => <Reader message={m()} onCompose={compose} toolbar={!systemHeader} phone={systemHeader} />}
+        {(m) => <Reader message={m()} onCompose={compose} toolbar={!systemHeader} phone={systemHeader} onLeave={nav.close} />}
       </If>
     </Page>
   );

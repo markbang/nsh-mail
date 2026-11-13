@@ -3,11 +3,11 @@
 // Pointer devices and wide windows get dense rows with a one-line preview.
 // Touch screens swipe a row right to archive it, left to delete it, and
 // long-press to select.
-import { createAnimatedValue, effect, List, reduceMotion, Text, View, type JSX } from "nsh";
+import { createAnimatedValue, effect, List, reduceMotion, signal, Text, View, type JSX } from "nsh";
 import { Haptics } from "nsh/mobile";
 import { t } from "nsh/i18n";
 import type { Summary } from "nsh-mail/native";
-import { AccountMark, Icon, Row, Spinner, touch } from "../ui";
+import { AccountMark, Icon, initials, LoadingIndicator, material, Row, Spinner, springs, touch, transition } from "../ui";
 import { displayName, listDate } from "../lib/format";
 import { wide } from "../layout";
 import { accountIndex, accounts } from "../store";
@@ -37,11 +37,20 @@ export interface MessageListProps {
   onPick?: (id: string) => void;
 }
 
+/** Android's pull to refresh: Material's contained loading indicator, growing with the pull. */
+const PULL = 80;
+
 export function MessageList(props: MessageListProps) {
   const dense = () => !touch || wide();
   const terms = () => (props.highlight ?? "").split(/\s+/).filter(Boolean);
+  const m3 = () => material && !wide();
+  const pull = createAnimatedValue(0);
   return (
+    <View class="flex-1">
     <List
+      refreshIndicator={m3() && props.onRefresh ? { height: PULL } : undefined}
+      pullValue={m3() ? pull : undefined}
+      contentStyle={m3() ? { paddingTop: 4, paddingBottom: 96 } : undefined}
       each={props.items}
       keyExtractor={(m) => m.id}
       estimatedItemSize={dense() ? (touch ? 82 : 76) : 104}
@@ -61,7 +70,7 @@ export function MessageList(props: MessageListProps) {
     >
       {(m) => (
         <Swipe id={m().id} onArchive={props.picking ? undefined : props.onArchive} onDelete={props.picking ? undefined : props.onDelete}>
-          <MessageRow
+          <If when={m3()} else={<MessageRow
             message={m()}
             selected={props.selectedId === m().id || !!props.picked?.(m().id)}
             picking={!!props.picking}
@@ -78,10 +87,47 @@ export function MessageList(props: MessageListProps) {
             showRecipients={!!props.showRecipients}
             dense={dense()}
             terms={terms()}
-          />
+          />}>
+            <MaterialRow
+              message={m()}
+              selected={props.selectedId === m().id || !!props.picked?.(m().id)}
+              picked={!!props.picked?.(m().id)}
+              onPress={() => (props.picking ? props.onPick?.(m().id) : props.onOpen(m().id))}
+              onPick={
+                props.onPick
+                  ? () => {
+                      Haptics.impact("medium");
+                      props.onPick?.(m().id);
+                    }
+                  : undefined
+              }
+              showAccount={!!props.showAccount && accounts().length > 1}
+              showRecipients={!!props.showRecipients}
+              terms={terms()}
+            />
+          </If>
         </Swipe>
       )}
     </List>
+    <If when={m3() && props.onRefresh}>
+      <View
+        class="absolute inset-x-0 top-0 items-center justify-center"
+        style={{
+          height: PULL,
+          pointerEvents: "none",
+          opacity: pull.interpolate({ inputRange: [0, 24], outputRange: [0, 1] }),
+          transform: [{ translateY: pull.interpolate({ inputRange: [0, PULL], outputRange: [-PULL / 2, 0] }) }],
+        }}
+      >
+        <LoadingIndicator
+          label={t("list.refreshing")}
+          contained
+          progress={props.refreshing ? -1 : pull.interpolate({ inputRange: [0, PULL], outputRange: [0, 1] })}
+          testID="pull-indicator"
+        />
+      </View>
+    </If>
+    </View>
   );
 }
 
@@ -93,15 +139,18 @@ const SWIPE_AT = 0.35;
 function Swipe(props: { id: string; onArchive?: (id: string) => void; onDelete?: (id: string) => void; children?: JSX.Element }) {
   const x = createAnimatedValue(0);
   let width = 0;
+  const span = signal(360);
+  const dragging = signal(false);
   effect(() => {
     void props.id;
     x.set(0);
   });
   const end = (e: { value?: { x?: number }; velocity: { x: number } }) => {
+    dragging.set(false);
     const at = (e.value?.x ?? 0) + e.velocity.x * 0.15;
     const act = width > 0 && Math.abs(at) > width * SWIPE_AT ? (at > 0 ? props.onArchive : props.onDelete) : undefined;
     if (!act) {
-      void x.spring(0, { velocity: e.velocity.x });
+      void x.spring(0, { ...(material ? springs.spatial : {}), velocity: e.velocity.x });
       return;
     }
     const id = props.id;
@@ -112,6 +161,7 @@ function Swipe(props: { id: string; onArchive?: (id: string) => void; onDelete?:
   };
   return (
     <If when={touch && (props.onArchive || props.onDelete)} else={props.children}>
+      <If when={!material} else={materialSwipe()}>
       <View class="overflow-hidden" onLayout={({ bounds }) => (width = bounds.size.width)}>
         <View class="absolute inset-0 flex-row items-center justify-between bg-success-100 px-6" style={{ opacity: x.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }) }}>
           <Icon name="archive" tone="success-800" />
@@ -123,7 +173,120 @@ function Swipe(props: { id: string; onArchive?: (id: string) => void; onDelete?:
           {props.children}
         </View>
       </View>
+      </If>
     </If>
+  );
+
+  // Material 3 Expressive: the row lifts into a rounded card as it moves, over its action in a tonal
+  // container; the action's icon grows on the spatial spring's curve as the swipe nears the point where it acts.
+  function materialSwipe() {
+    const grow = (sign: 1 | -1) =>
+      x.interpolate({
+        inputRange: sign > 0 ? [0, span() * SWIPE_AT, span() * SWIPE_AT + 1] : [-span() * SWIPE_AT - 1, -span() * SWIPE_AT, 0],
+        outputRange: sign > 0 ? [0.6, 1, 1.25] : [1.25, 1, 0.6],
+      });
+    return (
+      <View
+        class="mx-2 overflow-hidden rounded-shape-lg"
+        onLayout={({ bounds }) => {
+          width = bounds.size.width;
+          span.set(bounds.size.width);
+        }}
+      >
+        <View class="absolute inset-0 flex-row items-center bg-md-tertiary-container px-6" style={{ opacity: x.interpolate({ inputRange: [0, 8], outputRange: [0, 1] }) }}>
+          <View style={{ transform: [{ scale: grow(1) }] }}>
+            <Icon name="archive" class="tint-md-on-tertiary-container" />
+          </View>
+        </View>
+        <View class="absolute inset-0 flex-row items-center justify-end bg-md-error-container px-6" style={{ opacity: x.interpolate({ inputRange: [-8, 0], outputRange: [1, 0] }) }}>
+          <View style={{ transform: [{ scale: grow(-1) }] }}>
+            <Icon name="trash" class="tint-md-on-error-container" />
+          </View>
+        </View>
+        <View
+          pan={{ x }}
+          onPanStart={() => dragging.set(true)}
+          onPanEnd={end}
+          class={`overflow-hidden ${transition.fastSpatial} ${dragging() ? "rounded-shape-xl" : "rounded-shape-lg"}`}
+          style={{ translate: [x, 0] }}
+        >
+          {props.children}
+        </View>
+      </View>
+    );
+  }
+}
+
+const tones = [
+  "bg-md-primary-container text-md-on-primary-container",
+  "bg-md-secondary-container text-md-on-secondary-container",
+  "bg-md-tertiary-container text-md-on-tertiary-container",
+];
+const toneOf = (key: string) => tones[[...key].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % tones.length];
+
+/** Android's row: the sender's initials in a tonal circle that morphs into a checked rounded square when
+ * picked (a tap on it picks, as in Gmail), unread in emphasized type, a picked row in the secondary container. */
+function MaterialRow(props: {
+  message: Summary;
+  selected: boolean;
+  picked: boolean;
+  onPress: () => void;
+  onPick?: () => void;
+  showAccount: boolean;
+  showRecipients: boolean;
+  terms: string[];
+}) {
+  const m = () => props.message;
+  const who = () => (props.showRecipients ? m().to.map(displayName).join(", ") || t("compose.noRecipients") : displayName(m().from));
+  const label = () =>
+    [m().seen ? "" : t("list.unread"), who(), m().subject || t("reader.noSubject"), listDate(m().date), m().flagged ? t("list.flagged") : ""]
+      .filter(Boolean)
+      .join(", ");
+  return (
+    <Row
+      selected={props.selected}
+      onPress={props.onPress}
+      onLongPress={props.onPick}
+      accessibilityLabel={label()}
+      testID={`message-${m().id}`}
+      class={`flex-row gap-3 rounded-shape-lg py-3 ps-3 pe-4 ${transition.fastSpatial}`}
+    >
+      <View
+        role="checkbox"
+        accessibilityLabel={t("actions.select")}
+        accessibilityState={{ checked: props.picked }}
+        onPress={props.onPick ? () => props.onPick?.() : undefined}
+        hitSlop={4}
+        class={`size-10 items-center justify-center ${transition.fastSpatial} ${props.picked ? "rounded-shape-md bg-md-primary" : `rounded-full ${toneOf(who())}`}`}
+      >
+        <If when={props.picked} else={<Text class="text-title-s font-medium">{initials(who())}</Text>}>
+          <Icon name="check" class="tint-md-on-primary" />
+        </If>
+      </View>
+      <View class="min-w-0 flex-1">
+        <View class="flex-row items-center gap-1.5">
+          <If when={props.showAccount}>
+            <AccountMark index={accountIndex(m().accountId)} />
+          </If>
+          <Text class={`line-clamp-1 flex-1 text-medium ${m().seen ? "text-md-on-surface-variant" : "font-bold text-md-on-surface"}`}>{who()}</Text>
+          <Text class={`text-label-m tabular-nums ${m().seen ? "font-medium text-md-on-surface-variant" : "font-bold text-md-primary"}`}>{listDate(m().date)}</Text>
+        </View>
+        <View class="flex-row items-center gap-1.5">
+          <Marked
+            text={m().subject || t("reader.noSubject")}
+            terms={props.terms}
+            class={`line-clamp-1 flex-1 text-small ${m().seen ? "text-md-on-surface" : "font-bold text-md-on-surface"}`}
+          />
+          <If when={m().hasAttachments}>
+            <Icon name="paperclip" size="sm" class="tint-md-on-surface-variant" />
+          </If>
+          <If when={m().flagged}>
+            <Icon name="flagFilled" size="sm" tone="flag" />
+          </If>
+        </View>
+        <Marked text={m().snippet} terms={props.terms} class="line-clamp-1 text-small text-md-on-surface-variant" />
+      </View>
+    </Row>
   );
 }
 

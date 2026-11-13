@@ -7,6 +7,8 @@ export type { Color, Radius, Size, Variant } from "./tokens";
 export { BrandMark, Icon, type IconName } from "./icon";
 export { Button, ButtonGroup, ButtonRow, Fab, IconButton, type ButtonVariant } from "./button";
 export { Page } from "./page";
+export { material, springs, transition, applyMaterialTheme } from "./material";
+export { AppBar, FabMenu, FloatingToolbar, LoadingIndicator, NavBar, ToolbarButton } from "./m3";
 export { Field, SelectField, TextField, Textarea, type InputVariant } from "./field";
 export { FileTile } from "./file";
 export { Checkbox, Segmented, Switch, Tabs } from "./choice";

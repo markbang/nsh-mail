@@ -7,6 +7,7 @@ import { touch } from "./density";
 import { tip } from "./tooltip";
 import { Icon, type IconName } from "./icon";
 import { wash } from "./motion";
+import { material } from "./material";
 
 const rowFocus = "focus-visible:outline-2 focus-visible:outline-focus focus-visible:-outline-offset-2";
 
@@ -103,7 +104,7 @@ export const ListboxItem = NavItem;
 /** HeroUI's ListboxSection title: a quiet tiny heading over a group. */
 export function SectionLabel(props: { label: string; class?: string }) {
   return (
-    <Text role="header" class={`px-2 pb-1 pt-3 text-tiny text-foreground-500 ${props.class ?? ""}`}>
+    <Text role="header" class={`px-2 pb-1 pt-3 ${material ? "text-label-l font-medium text-md-primary" : "text-tiny text-foreground-500"} ${props.class ?? ""}`}>
       {props.label}
     </Text>
   );

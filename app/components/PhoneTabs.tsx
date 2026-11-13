@@ -1,11 +1,11 @@
 // iOS and Android phones: the system's tab bar over a stack per tab (Mail,
 // Search, Mailboxes, Settings), each kept while another shows, and the
 // compose button over the Mail tab's list. Pushed pages cover the bar.
-import { effect, platform, signal, Text, untracked, View, type JSX } from "nsh";
+import { effect, platform, signal, untracked, View, type JSX } from "nsh";
 import { BackHandler, TabBar } from "nsh/mobile";
 import { NavStack } from "nsh/base";
 import { t } from "nsh/i18n";
-import { Fab } from "../ui";
+import { Fab, FabMenu, material, NavBar, transition, type IconName } from "../ui";
 import { NavContext, selectedTab, selectTab, tabs, type Route } from "../nav";
 import { picking, toast, unreadCount } from "../store";
 import { Toasts } from "./Toasts";
@@ -17,16 +17,23 @@ const icons = {
   folders: platform.select({ ios: "folder", android: "android:ic_folder_24dp" }),
   settings: platform.select({ ios: "gearshape", android: "android:ic_settings_24dp" }),
 } as const;
+const navIcons = { mail: "inbox", search: "search", folders: "inboxes", settings: "settings" } as const satisfies Record<string, IconName>;
 
-export function PhoneTabs(props: { page: (route: Route) => JSX.Element; onCompose: () => void }) {
+export function PhoneTabs(props: { page: (route: Route) => JSX.Element; onCompose: () => void; onAddAccount: () => void }) {
+  const menu = signal(false);
   const depth = () => tabs[selectedTab()].stack.routes().length;
   // Android back on a tab's first page goes to Mail first, as Gmail's does; the stacks pop before that.
   BackHandler.on("press", () => {
+    if (menu()) {
+      menu.set(false);
+      return true;
+    }
     if (selectedTab() === 0 || depth() > 1) return false;
     selectTab(0);
     return true;
   });
   const choose = (index: number) => {
+    menu.set(false);
     // Choosing the tab already shown goes back to its first page.
     if (index === selectedTab()) tabs[index].stack.popToRoot();
     selectTab(index);
@@ -56,29 +63,62 @@ export function PhoneTabs(props: { page: (route: Route) => JSX.Element; onCompos
           )}
         </Each>
         <If when={selectedTab() === 0 && depth() === 1 && !picking()}>
-          {/* Material 3: the button rises over a snackbar. */}
-          <View class={`absolute bottom-4 end-4 transition-transform duration-250 ease-css motion-reduce:transition-none ${toast() ? "-translate-y-[64px]" : ""}`}>
-            <Fab icon="compose" label={t("actions.compose")} extended onPress={props.onCompose} testID="compose" />
-          </View>
+          <If
+            when={material}
+            else={
+              <View class="absolute bottom-4 end-4">
+                <Fab icon="compose" label={t("actions.compose")} extended onPress={props.onCompose} testID="compose" />
+              </View>
+            }
+          >
+            <View
+              class={`absolute inset-0 bg-md-scrim ${transition.effects} ${menu() ? "opacity-30" : "opacity-0"}`}
+              style={{ pointerEvents: menu() ? "auto" : "none" }}
+              onPress={() => menu.set(false)}
+              accessibilityElementsHidden
+            />
+            {/* Material: the button rises over a snackbar. */}
+            <View class={`absolute bottom-4 end-4 ${transition.spatial} ${toast() ? "-translate-y-[64px]" : ""}`} style={{ pointerEvents: "box-none" }}>
+              <FabMenu
+                icon="compose"
+                label={t("actions.newMenu")}
+                closeLabel={t("common.close")}
+                open={menu()}
+                onOpenChange={(open) => menu.set(open)}
+                items={[
+                  { icon: "user", label: t("accounts.add"), onPress: props.onAddAccount, testID: "fab-add-account" },
+                  { icon: "compose", label: t("actions.compose"), onPress: props.onCompose, testID: "compose" },
+                ]}
+                testID="fab-menu"
+              />
+            </View>
+          </If>
         </If>
         <Toasts class={covered() ? "bottom-4 pb-[env(safe-area-inset-bottom)]" : "bottom-4"} />
       </View>
       <View class={covered() ? "hidden" : ""}>
-        <TabBar
-          items={tabs.map((tab) => ({ title: t(`tabs.${tab.name}`), icon: icons[tab.name] }))}
-          selectedIndex={selectedTab()}
-          onChange={({ index }) => choose(index)}
-          testID="tab-bar"
-        />
-        {/* NSH 0.5's TabBar has no badges: Material 3's large badge, drawn over the Mail tab's icon. */}
-        <If when={platform.os === "android" && unread() > 0}>
-          <View
-            accessibilityElementsHidden
-            class="absolute top-[14px] h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1"
-            style={{ left: `${50 / tabs.length}%`, marginLeft: 2, pointerEvents: "none" }}
-          >
-            <Text class="text-[11px] font-medium leading-4 text-danger-foreground">{unread() > 999 ? "999+" : String(unread())}</Text>
-          </View>
+        <If
+          when={material}
+          else={
+            <TabBar
+              items={tabs.map((tab) => ({ title: t(`tabs.${tab.name}`), icon: icons[tab.name] }))}
+              selectedIndex={selectedTab()}
+              onChange={({ index }) => choose(index)}
+              testID="tab-bar"
+            />
+          }
+        >
+          <NavBar
+            label={t("tabs.label")}
+            items={tabs.map((tab, i) => ({
+              title: t(`tabs.${tab.name}`),
+              icon: navIcons[tab.name],
+              badge: i === 0 && unread() > 0 ? (unread() > 999 ? "999+" : String(unread())) : undefined,
+              testID: `tab-${tab.name}-button`,
+            }))}
+            selected={selectedTab()}
+            onChange={choose}
+          />
         </If>
       </View>
     </View>

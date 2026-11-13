@@ -151,12 +151,18 @@ for mode in ("light", "dark"):
     tap("id:message-.*")
     wait("id:reader")
     shot(f"{mode}-reader")
+    adb("shell", "input", "swipe", str(w // 2), str(h * 7 // 10), str(w // 2), str(h * 3 // 10), "400")
+    shot(f"{mode}-reader-scrolled")
     if tap("id:reader-more"):
         shot(f"{mode}-reader-menu")
         back()
     back()
     wait("id:messages")
 
+    # The FAB menu: New message, Add account.
+    if tap("id:fab-menu"):
+        wait("id:fab-add-account", 5)
+        shot(f"{mode}-fab-menu")
     if tap("id:compose"):
         wait("id:compose-to")
         shot(f"{mode}-compose")
