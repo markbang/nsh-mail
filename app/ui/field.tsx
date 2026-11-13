@@ -51,6 +51,8 @@ export interface TextFieldProps {
   startIcon?: IconName;
   end?: JSX.Element;
   ref?: (ref: InputRef) => void;
+  /** Hears a paste: images and copied files come as `files` and `uris`; text goes in as usual. */
+  onPaste?: (e: { files: File[]; uris: string[] }) => void;
   /** Layout of the field from the caller: width, flex, margin. */
   class?: string;
   testID?: string;
@@ -82,6 +84,7 @@ function field(props: TextFieldProps, multiline: boolean) {
         value={props.value}
         onChange={({ value }) => props.onChange(value)}
         onSubmit={() => props.onSubmit?.()}
+        onPaste={props.onPaste && ((e: { files: File[]; uris: string[] }) => props.onPaste!(e))}
         placeholder={props.placeholder}
         masked={props.masked}
         multiline={multiline}
