@@ -83,7 +83,7 @@ function Main() {
         onAddAccount={() => show({ name: "addAccount" }, true)}
         searchRef={(ref) => (search = ref)}
       />
-      <Dialog open={isModalOpen()} onClose={closeModal} label="nsh-mail" size="lg" height={modalFit()} bare testID="modal">
+      <Dialog open={isModalOpen()} onClose={closeModal} label="nsh-mail" size="3xl" height={modalFit()} bare testID="modal">
         <NavContext.Provider value={modalNavigator}>
           <NavStack state={modalStack} class="flex-1">
             {page}

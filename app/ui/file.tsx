@@ -1,10 +1,12 @@
-// A file to open: its name and size, over a thumbnail when it is an image.
+// A file to open, as a small pressable HeroUI card: its name and size, over a
+// thumbnail when it is an image.
 import { Image, Text, View } from "nsh";
 import { Button as BaseButton } from "nsh/base";
 import { touch } from "./density";
 import { Spinner } from "./feedback";
 import { Icon } from "./icon";
 import { press } from "./motion";
+import { focusRing, shadow } from "./tokens";
 
 export interface FileTileProps {
   name: string;
@@ -26,17 +28,17 @@ export function FileTile(props: FileTileProps) {
       disabled={props.busy}
       accessibilityLabel={`${props.name}, ${props.detail}`}
       testID={props.testID}
-      class={`overflow-hidden rounded-(--radius) border border-border bg-background hover:bg-hover active:bg-pressed focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2 ${press}`}
+      class={`overflow-hidden rounded-large bg-content1 hover:bg-content2 ${shadow.sm} ${focusRing} ${press}`}
     >
       <If when={props.thumbnail}>
-        {(src) => <Image src={src()} accessibilityElementsHidden class="h-32 w-56 bg-muted object-cover" />}
+        {(src) => <Image src={src()} accessibilityElementsHidden class="h-32 w-56 bg-default-100 object-cover" />}
       </If>
       <View class={`flex-row items-center gap-2 px-3 ${touch ? "min-h-11" : "min-h-9"} ${props.thumbnail ? "w-56" : "max-w-80"}`}>
-        <If when={props.busy} else={<Icon name={props.thumbnail ? "image" : "paperclip"} size="sm" tone="muted-foreground" />}>
-          <Spinner label={props.busyLabel} />
+        <If when={props.busy} else={<Icon name={props.thumbnail ? "image" : "paperclip"} size="sm" tone="default-500" />}>
+          <Spinner label={props.busyLabel} size="sm" />
         </If>
-        <Text class={`line-clamp-1 shrink text-foreground ${touch ? "text-base" : "text-sm"}`}>{props.name}</Text>
-        <Text class="text-xs tabular-nums text-muted-foreground">{props.detail}</Text>
+        <Text class={`line-clamp-1 shrink text-foreground ${touch ? "text-medium" : "text-small"}`}>{props.name}</Text>
+        <Text class="text-tiny tabular-nums text-foreground-500">{props.detail}</Text>
       </View>
     </BaseButton>
   );
