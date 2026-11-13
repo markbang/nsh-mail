@@ -5,10 +5,14 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.system.Os
+import android.util.Base64
 import android.util.Log
 import android.view.View
 import android.view.WindowInsetsController
 import com.longbridge.nsh.NshView
+import java.io.File
+import java.security.KeyStore
 
 /** The app's bundle in an NshView, as nsh's own AppActivity runs it, plus the FCM token as the host event `push.token`. */
 class MainActivity : Activity() {
@@ -17,6 +21,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
+        exportUserCas()
         edgeToEdge()
         nsh = NshView(this)
         nsh.setErrorListener { message -> Log.e(TAG, message) }
@@ -50,6 +55,24 @@ class MainActivity : Activity() {
         PushToken.stop(sendToken)
         nsh.destroy()
         super.onDestroy()
+    }
+
+    /**
+     * Local mode's TLS (rustls in Rust) does not use Android's trust manager, so the CAs the user
+     * installed (a self-hosted server's) go to a PEM file that mail-core reads as `SSL_CERT_FILE`,
+     * besides its bundled roots. Before the engine starts; a CA installed later counts after a restart.
+     */
+    private fun exportUserCas() {
+        try {
+            val store = KeyStore.getInstance("AndroidCAStore").apply { load(null) }
+            val pem = store.aliases().toList().filter { it.startsWith("user:") }.mapNotNull { store.getCertificate(it)?.encoded }
+                .joinToString("") { "-----BEGIN CERTIFICATE-----\n" + Base64.encodeToString(it, Base64.DEFAULT) + "-----END CERTIFICATE-----\n" }
+            val file = File(noBackupFilesDir, "user-ca.pem")
+            file.writeText(pem)
+            if (Os.getenv("SSL_CERT_FILE") != file.path) Os.setenv("SSL_CERT_FILE", file.path, true)
+        } catch (e: Exception) {
+            Log.w(TAG, "cannot read the user's CA certificates", e)
+        }
     }
 
     /** Draws behind the system bars, which the app gets as its safe area. */

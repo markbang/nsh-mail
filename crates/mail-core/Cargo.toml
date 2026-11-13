@@ -22,6 +22,7 @@ engine = [
     "dep:roxmltree",
     "dep:rusqlite",
     "dep:rustls",
+    "dep:rustls-native-certs",
     "dep:serde_json",
     "dep:sha2",
     "dep:tokio",
@@ -47,6 +48,7 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls-no-p
 roxmltree = { version = "0.21", optional = true }
 rusqlite = { version = "0.42", features = ["bundled"], optional = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"], optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
 serde_json = { version = "1", optional = true }
 sha2 = { version = "0.11", optional = true }
 tokio = { version = "1", features = ["rt", "net", "sync", "time", "macros", "io-util"], optional = true }

@@ -37,3 +37,5 @@ jobs:
       - name: wait for GreenMail
         run: for i in $(seq 60); do (echo > /dev/tcp/127.0.0.1/3993) 2>/dev/null && exit 0; sleep 1; done; exit 1
       - run: cargo test -p mail-core --features insecure-test-tls
+      - name: private CA from the OS trust store (every certificate check on)
+        run: crates/mail-core/tests/private-ca.sh
