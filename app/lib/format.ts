@@ -94,6 +94,7 @@ export function draftFor(init: ComposeInit, ownEmails: string[]): DraftFields {
   const header = t("compose.quoteHeader", { date: fullDate(m.date), name: displayName(m.from) });
   const body = m.text ?? "";
   const quoted = body
+    .trimEnd()
     .split("\n")
     .map((line) => (line ? `> ${line}` : ">"))
     .join("\n");

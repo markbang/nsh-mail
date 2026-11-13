@@ -34,7 +34,7 @@ export function MessageList(props: MessageListProps) {
     <List
       each={props.items}
       keyExtractor={(m) => m.id}
-      estimatedItemSize={dense() ? (touch ? 76 : 70) : 104}
+      estimatedItemSize={dense() ? (touch ? 82 : 76) : 104}
       refreshing={props.refreshing ?? false}
       onRefresh={props.onRefresh}
       onLoadMore={props.onLoadMore}
@@ -108,7 +108,7 @@ function MessageRow(props: {
       onPress={props.onPress}
       accessibilityLabel={label()}
       testID={`message-${m().id}`}
-      class={`flex-row border-b border-border pe-3 ${props.dense ? "py-2" : "py-3"}`}
+      class={`flex-row border-b border-border pe-3 ${props.dense ? (touch ? "py-1.5" : "py-2") : "py-3"}`}
     >
       <If when={props.showAccount}>
         <AccountMark index={accountIndex(m().accountId)} shape="bar" />
@@ -118,7 +118,7 @@ function MessageRow(props: {
           <View class="size-2 rounded-full bg-unread" />
         </If>
       </View>
-      <View class="min-w-0 flex-1 gap-0.5">
+      <View class={`min-w-0 flex-1 ${touch && props.dense ? "" : "gap-0.5"}`}>
         <View class="flex-row items-center gap-1.5">
           <Text
             class={`line-clamp-1 flex-1 text-foreground ${touch ? "text-base" : "text-sm"} ${m().seen ? "" : "font-semibold"}`}
