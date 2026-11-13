@@ -406,6 +406,21 @@ pub async fn patch_message(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Deserialize)]
+pub struct MoveTo {
+    folder: FolderKind,
+}
+
+pub async fn move_message(
+    State(s): State<Arc<AppState>>,
+    u: AuthUser,
+    Path(id): Path<String>,
+    Json(m): Json<MoveTo>,
+) -> ApiResult<StatusCode> {
+    mail(&s, &u).await?.move_to(&id, m.folder).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn send(
     State(s): State<Arc<AppState>>,
     u: AuthUser,

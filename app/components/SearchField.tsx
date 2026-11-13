@@ -1,7 +1,7 @@
 // The search field over a list: searches as the user types, Escape clears.
 import type { InputRef } from "nsh";
 import { t } from "nsh/i18n";
-import { IconButton, TextField } from "../ui";
+import { IconButton, material, TextField } from "../ui";
 import { clearSearch, runSearch, searchQuery, typeSearch } from "../store";
 
 export function SearchField(props: { autoFocus?: boolean; ref?: (ref: InputRef) => void }) {
@@ -16,10 +16,11 @@ export function SearchField(props: { autoFocus?: boolean; ref?: (ref: InputRef) 
       returnKey="search"
       autoFocus={props.autoFocus}
       startIcon="search"
-      size="sm"
+      size={material ? "lg" : "sm"}
+      radius={material ? "full" : undefined}
       end={
         <If when={searchQuery()}>
-          <IconButton icon="close" label={t("search.clear")} size="sm" radius="full" onPress={clearSearch} class="-me-2 size-6 min-w-0" />
+          <IconButton icon="close" label={t("search.clear")} size="sm" radius="full" onPress={clearSearch} class={material ? "" : "-me-2 size-6 min-w-0"} />
         </If>
       }
       testID="search"

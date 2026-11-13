@@ -27,9 +27,17 @@ const more = signal(true);
 const selected = signal<string | null>(null);
 const query = signal("");
 const results = signal<Summary[] | null>(null);
-const toastMessage = signal<{ id: number; text: string; tone: "neutral" | "error" } | null>(null);
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+const toastMessage = signal<{ id: number; text: string; tone: "neutral" | "error"; action?: ToastAction } | null>(null);
 const notifyOn = signal(true);
 const unreadCounts = signal<Record<string, number>>({});
+// Archived or deleted on screen, still undoable: hidden from the lists until the move is done.
+const leaving = signal<Record<string, true>>({});
+// Long-press selection on phones.
+const picked = signal<Record<string, true>>({});
 
 /** The engine's status (mode, sync). */
 export const mailStatus = () => status();
@@ -47,12 +55,33 @@ export const accountName = (id: string | null | undefined) => {
   return name && accountList().filter((o) => o.name?.trim() === name).length === 1 ? name : a.email;
 };
 export const mailbox = () => box();
-export const messages = () => items();
+export const messages = () => {
+  const gone = leaving();
+  return items().filter((m) => !gone[m.id]);
+};
 export const listStatus = () => listState();
 export const hasMore = () => more();
 export const selectedId = () => selected();
 export const searchQuery = () => query();
-export const searchResults = () => results();
+export const searchResults = () => {
+  const gone = leaving();
+  const list = results();
+  return list && list.filter((m) => !gone[m.id]);
+};
+export const pickedIds = () => Object.keys(picked());
+export const isPicked = (id: string) => !!picked()[id];
+export const picking = () => pickedIds().length > 0;
+export function togglePicked(id: string) {
+  picked.update((p) => {
+    const next = { ...p };
+    if (next[id]) delete next[id];
+    else next[id] = true;
+    return next;
+  });
+}
+export function clearPicked() {
+  picked.set({});
+}
 export const toast = () => toastMessage();
 export const notificationsEnabled = () => notifyOn();
 /** Unread messages in an account's inbox; every inbox together when `id` is null. */
@@ -66,10 +95,57 @@ export const current = resource(selected, (id) => Mail.get(id));
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let toastId = 0;
-export function showToast(text: string, tone: "neutral" | "error" = "neutral") {
+/** A message at the bottom; with an action (Undo) it stays a little longer. */
+export function showToast(text: string, tone: "neutral" | "error" = "neutral", action?: ToastAction) {
   clearTimeout(toastTimer);
-  toastMessage.set({ id: ++toastId, text, tone });
-  toastTimer = setTimeout(() => toastMessage.set(null), 3200);
+  toastMessage.set({ id: ++toastId, text, tone, action });
+  toastTimer = setTimeout(() => toastMessage.set(null), action ? UNDO_MS : 3200);
+}
+
+export function dismissToast() {
+  clearTimeout(toastTimer);
+  toastMessage.set(null);
+}
+
+// Material: a snackbar with an action stays long enough to reach it.
+const UNDO_MS = 8000;
+
+/** Archives or deletes messages: they leave the lists at once, and move on the server once
+ * the Undo has passed; a failure brings them back with the error. */
+export function moveMessages(ids: string[], folder: "archive" | "trash") {
+  if (!ids.length) return;
+  const mark = (on: boolean) =>
+    leaving.update((l) => {
+      const next = { ...l };
+      for (const id of ids) {
+        if (on) next[id] = true;
+        else delete next[id];
+      }
+      return next;
+    });
+  mark(true);
+  if (ids.includes(selected() ?? "")) selected.set(null);
+  let undone = false;
+  const commit = setTimeout(async () => {
+    if (undone) return;
+    const failed: unknown[] = [];
+    await Promise.all(ids.map((id) => Mail.moveTo(id, folder).catch((e: unknown) => failed.push(e))));
+    await reload();
+    if (results()) void runSearch(query());
+    mark(false);
+    void loadUnread();
+    if (failed.length) showToast(errorText(failed[0]), "error");
+  }, UNDO_MS);
+  const key = folder === "archive" ? "archived" : "deleted";
+  showToast(ids.length === 1 ? t(`actions.${key}One`) : t(`actions.${key}`, { count: ids.length }), "neutral", {
+    label: t("actions.undo"),
+    run: () => {
+      undone = true;
+      clearTimeout(commit);
+      mark(false);
+      dismissToast();
+    },
+  });
 }
 
 /** A failure as people read it: by its code, with the engine's detail. */
@@ -213,6 +289,7 @@ export async function refresh() {
 export function openMailbox(next: Mailbox) {
   batch(() => {
     box.set(next);
+    picked.set({});
     items.set([]);
     more.set(true);
     selected.set(null);

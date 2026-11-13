@@ -19,6 +19,10 @@ export function PageScroll(props: { contentClass: string; testID?: string; child
     <Scroll class={`flex-1 ${nav.modal ? "bg-surface-container-low" : "bg-surface"}`} testID={props.testID}>
       <View class={props.contentClass} onLayout={fit ? ({ bounds }) => report(bounds.size.height) : undefined}>
         {props.children}
+        {/* Phones draw under the navigation bar: the end of the page stays clear of it. */}
+        <If when={touch && !nav.modal}>
+          <View class="pb-[env(safe-area-inset-bottom)]" />
+        </If>
       </View>
     </Scroll>
   );

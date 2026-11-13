@@ -127,6 +127,10 @@ pub(crate) struct Conn {
     pub session: Session,
     pub idle: bool,
     pub condstore: bool,
+    /// RFC 6851 MOVE; without it a move is COPY, \Deleted and EXPUNGE.
+    pub moves: bool,
+    /// RFC 4315 UID EXPUNGE, which expunges only the moved message.
+    pub uidplus: bool,
 }
 
 pub(crate) async fn connect(ep: &Endpoint, login: Login<'_>) -> Result<Conn> {
@@ -186,6 +190,8 @@ pub(crate) async fn connect(ep: &Endpoint, login: Login<'_>) -> Result<Conn> {
     Ok(Conn {
         idle: caps.has_str("IDLE"),
         condstore: caps.has_str("CONDSTORE"),
+        moves: caps.has_str("MOVE"),
+        uidplus: caps.has_str("UIDPLUS"),
         session,
     })
 }
@@ -302,6 +308,8 @@ pub(crate) async fn discover(session: &mut Session) -> Result<Vec<(FolderKind, S
             NameAttribute::Drafts => Some(FolderKind::Drafts),
             NameAttribute::Archive => Some(FolderKind::Archive),
             NameAttribute::Trash => Some(FolderKind::Trash),
+            // Gmail has no Archive: archiving takes a message out of the inbox, into All Mail.
+            NameAttribute::All => Some(FolderKind::Archive),
             _ => None,
         });
         if let Some(kind) = attr_kind {
@@ -757,6 +765,30 @@ pub(crate) async fn store_flags(
             )
             .await?;
         }
+    }
+    Ok(())
+}
+
+/// Moves one message to `to`. Without MOVE, a server without UIDPLUS expunges every
+/// message marked \Deleted in the folder, as its own clients would.
+pub(crate) async fn move_message(conn: &mut Conn, from: &str, uid: u32, to: &str) -> Result<()> {
+    conn.session.select(from).await?;
+    let uid = uid.to_string();
+    if conn.moves {
+        conn.session.uid_mv(&uid, to).await?;
+        return Ok(());
+    }
+    conn.session.uid_copy(&uid, to).await?;
+    let _: Vec<Fetch> = collect(
+        conn.session
+            .uid_store(&uid, "+FLAGS.SILENT (\\Deleted)")
+            .await?,
+    )
+    .await?;
+    if conn.uidplus {
+        let _: Vec<u32> = conn.session.uid_expunge(&uid).await?.try_collect().await?;
+    } else {
+        let _: Vec<u32> = conn.session.expunge().await?.try_collect().await?;
     }
     Ok(())
 }

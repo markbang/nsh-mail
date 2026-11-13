@@ -6,6 +6,9 @@ import { tip } from "./tooltip";
 import { Icon, type IconName } from "./icon";
 import { press } from "./motion";
 import { focusRing } from "./tokens";
+import { touch } from "./density";
+import { material } from "./material";
+import { LoadingIndicator } from "./m3";
 import { look, roles, rounded, shadow, type Color, type Radius, type Size, type Variant } from "./variants";
 
 const marks = ["bg-chart-1", "bg-chart-2", "bg-chart-3", "bg-chart-4", "bg-chart-5"];
@@ -230,6 +233,9 @@ export function Spinner(props: { label: string; size?: Size; color?: Color | "cu
   const arc = () =>
     props.class ?? (props.color === "current" ? "border-b-current" : `border-b-${roles[props.color ?? "primary"].fill}`);
   const ring = () => `absolute inset-0 rounded-full border-t-transparent border-l-transparent border-r-transparent ${spinnerBox[props.size ?? "md"]} ${arc()}`;
+  // Android: Material's loading indicator, where it has room (not inside a small button).
+  if (material && props.size !== "sm" && !props.class && (props.color ?? "primary") === "primary")
+    return <LoadingIndicator label={props.label} size={props.size === "lg" ? 56 : 48} />;
   const turn = (easing: "ease" | "linear") =>
     reduceMotion()
       ? undefined
@@ -248,18 +254,36 @@ export function Spinner(props: { label: string; size?: Size; color?: Color | "cu
 }
 
 /** One message at the bottom edge that rises in and leaves on its own. */
-export function Toast(props: { text: string; tone?: "neutral" | "error" }) {
+/** A short message at the bottom, with at most one action (Undo). Touch screens get Material's
+ * snackbar (the inverse surface). */
+export function Toast(props: { text: string; tone?: "neutral" | "error"; action?: { label: string; run: () => void } }) {
   const enter = createMotion({ enter: reduceMotion() ? undefined : "slideInUp", duration: 250 });
   return (
     <View
       role="alert"
-      class={`max-w-[440px] flex-row items-center gap-3 rounded-large border border-outline-variant bg-surface-container-low px-4 py-3 ${shadow.sm}`}
+      android={{ elevation: 3 }}
+      class={
+        touch
+          ? "min-h-12 w-full max-w-[560px] flex-row items-center gap-3 rounded-extra-small bg-inverse-surface py-1.5 ps-4 pe-2"
+          : `max-w-[440px] flex-row items-center gap-3 rounded-large border border-outline-variant bg-surface-container-low px-4 py-3 ${shadow.sm}`
+      }
       style={enter.style}
     >
-      <If when={props.tone === "error"}>
+      <If when={props.tone === "error" && !touch}>
         <Icon name="close" size="sm" tone="error" />
       </If>
-      <Text class="text-body-medium text-on-surface">{props.text}</Text>
+      <Text class={`flex-1 text-body-medium ${touch ? "py-2 text-inverse-on-surface" : "text-on-surface"}`}>{props.text}</Text>
+      <If when={props.action}>
+        {(action) => (
+          <BaseButton
+            onPress={() => action().run()}
+            class={`min-h-10 items-center justify-center rounded-full px-3 ${touch ? "active:bg-inverse-primary/10" : "active:bg-primary/10"} ${focusRing}`}
+            testID="toast-action"
+          >
+            <Text class={`text-label-large font-medium ${touch ? "text-inverse-primary" : "text-primary"}`}>{action().label}</Text>
+          </BaseButton>
+        )}
+      </If>
     </View>
   );
 }

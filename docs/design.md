@@ -70,6 +70,7 @@ Mail.openAttachment(id, attachment): Promise<string | null>  // web: images/PDF 
                                                    // without a save dialog (Android) saved to the app directory, then opened. Returns the path of a saved file no app could open
 Mail.attachmentPreview(id, attachment): Promise<string>      // data: URI of a PNG/JPEG/GIF/WebP (≤ 8 MB), thumbnail in the reader
 Mail.setFlags(id, { seen?, flagged? }): Promise<void>
+Mail.moveTo(id, "archive" | "trash" | …): Promise<void>   // IMAP MOVE (COPY + \Deleted + EXPUNGE without MOVE); creates Archive/Trash when missing, Gmail archives to All Mail
 Mail.send(draft: Draft): Promise<void>             // replies carry inReplyTo / references; attachments see §4 Attachments
 Mail.stage(name, type, bytes: Uint8Array, onProgress: (sent) => void): Promise<Upload>   // stage an attachment, get an id
 Mail.stageFile(path, type, onProgress): Promise<Upload>   // local file (desktop drop, paste after copying in the file manager), read by Rust; rejects on the web
@@ -143,6 +144,7 @@ GET  /v1/messages?folder=&account=&before=&limit=         GET /v1/messages/{id}
 GET  /v1/messages/{id}/attachments/{index}  attachment bytes: Content-Type is its type, Content-Disposition: attachment (filename* per RFC 5987 with the UTF-8 original name),
                                             CSP sandbox + nosniff; fetched from IMAP and cached when the body is not stored locally
 PATCH /v1/messages/{id}  {seen?, flagged?}
+POST /v1/messages/{id}/move  {folder}     move to another folder of the same account (archive, delete to Trash)
 POST /v1/send            GET /v1/search?q=&limit=      GET /v1/unread → {accountId: unread count}
 POST /v1/uploads         {filename, mimeType, size} → Upload {id, filename, mimeType, size}
 PATCH /v1/uploads/{id}?offset=   raw chunk bytes (≤ 4 MiB) → {received}      DELETE /v1/uploads/{id}

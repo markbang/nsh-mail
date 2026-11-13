@@ -204,6 +204,10 @@ impl Backend for LocalBackend {
         self.call(|e| async move { e.set_flags(&id, flags).await })
     }
 
+    fn move_to(&self, id: String, folder: FolderKind) -> MailFuture<'_, ()> {
+        self.call(move |e| async move { e.move_to(&id, folder).await })
+    }
+
     fn send(&self, draft: Draft) -> MailFuture<'_, ()> {
         Box::pin(async move {
             let staged: HashMap<String, StagedFile> = self

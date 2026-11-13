@@ -2,7 +2,7 @@
 import { keymap, Picker, platform, signal, Text, View } from "nsh";
 import { t } from "nsh/i18n";
 import { Mail } from "nsh-mail/native";
-import { Button, IconButton, Page, SelectField, TextField, touch, systemHeader } from "../ui";
+import { Button, IconButton, material, Page, SelectField, TextField, touch, systemHeader } from "../ui";
 import { PageHeader } from "../components/PageHeader";
 import { AttachmentChips } from "../components/Attachments";
 import { createAttachments, onPageDrop, type Incoming } from "../lib/attachments";
@@ -86,11 +86,14 @@ export function ComposePage(props: { init: ComposeInit }) {
         when={systemHeader}
         else={<Button color="primary" icon="send" label={sending() ? t("compose.sending") : t("compose.send")} loading={sending()} onPress={() => void send()} testID="send" />}
       >
-        <IconButton icon="send" tone="primary" label={sending() ? t("compose.sending") : t("compose.send")} disabled={sending()} onPress={() => void send()} testID="send" />
+        <IconButton icon="send" variant={material ? "solid" : undefined} color={material ? "primary" : undefined} tone={material ? undefined : "primary"} label={sending() ? t("compose.sending") : t("compose.send")} disabled={sending()} onPress={() => void send()} testID="send" />
       </If>
     </>
   );
   const label = touch ? "w-16 text-body-medium" : "w-14 text-body-medium";
+  // Phones: Material's full-screen composer, one frameless field per row between dividers.
+  const row = systemHeader ? "flex-row items-center gap-2 min-h-14 border-b border-outline-variant px-4" : "flex-row items-center gap-2";
+  const fieldVariant = systemHeader ? "plain" : undefined;
   const replying = props.init.mode === "reply" || props.init.mode === "replyAll";
   return (
     <Page title={title()} header={<PageHeader title={title()} actions={actions()} />} headerRight={systemHeader ? actions() : undefined}>
@@ -103,9 +106,9 @@ export function ComposePage(props: { init: ComposeInit }) {
           attach(e.uris.map((path, i) => ({ kind: "path", path, type: e.mimeTypes[i] ?? "" })));
         }}
       >
-        <View class={`gap-2 border-b border-outline-variant ${touch ? "p-4" : "px-4 py-3"}`}>
+        <View class={systemHeader ? "" : `gap-2 border-b border-outline-variant ${touch ? "p-4" : "px-4 py-3"}`}>
           <If when={accounts().length > 1}>
-            <View class="flex-row items-center gap-2">
+            <View class={row}>
               <Text class={`${label} text-on-surface-variant`}>{t("compose.from")}</Text>
               <SelectField
                 value={from()}
@@ -117,7 +120,7 @@ export function ComposePage(props: { init: ComposeInit }) {
               />
             </View>
           </If>
-          <View class="flex-row items-center gap-2">
+          <View class={row}>
             <Text class={`${label} text-on-surface-variant`}>{t("compose.to")}</Text>
             <TextField
               value={to()}
@@ -126,6 +129,7 @@ export function ComposePage(props: { init: ComposeInit }) {
               label={t("compose.to")}
               autoFocus={props.init.mode === "new" || props.init.mode === "forward"}
               invalid={!!error()}
+              variant={fieldVariant}
               class="flex-1"
               testID="compose-to"
             />
@@ -134,21 +138,21 @@ export function ComposePage(props: { init: ComposeInit }) {
             </If>
           </View>
           <If when={showCc()}>
-            <View class="flex-row items-center gap-2">
+            <View class={row}>
               <Text class={`${label} text-on-surface-variant`}>{t("compose.cc")}</Text>
-              <TextField value={cc()} onChange={(v) => cc.set(v)} kind="email" label={t("compose.cc")} class="flex-1" testID="compose-cc" />
+              <TextField value={cc()} onChange={(v) => cc.set(v)} kind="email" label={t("compose.cc")} variant={fieldVariant} class="flex-1" testID="compose-cc" />
             </View>
-            <View class="flex-row items-center gap-2">
+            <View class={row}>
               <Text class={`${label} text-on-surface-variant`}>{t("compose.bcc")}</Text>
-              <TextField value={bcc()} onChange={(v) => bcc.set(v)} kind="email" label={t("compose.bcc")} class="flex-1" testID="compose-bcc" />
+              <TextField value={bcc()} onChange={(v) => bcc.set(v)} kind="email" label={t("compose.bcc")} variant={fieldVariant} class="flex-1" testID="compose-bcc" />
             </View>
           </If>
-          <View class="flex-row items-center gap-2">
+          <View class={row}>
             <Text class={`${label} text-on-surface-variant`}>{t("compose.subject")}</Text>
-            <TextField value={subject()} onChange={(v) => subject.set(v)} label={t("compose.subject")} class="flex-1" testID="compose-subject" />
+            <TextField value={subject()} onChange={(v) => subject.set(v)} label={t("compose.subject")} variant={fieldVariant} class="flex-1" testID="compose-subject" />
           </View>
           <If when={error()}>
-            <Text class={`text-error ${touch ? "text-body-medium" : "text-body-small"}`} testID="compose-error">
+            <Text class={`text-error ${touch ? "text-body-medium" : "text-body-small"} ${systemHeader ? "px-4 pt-2" : ""}`} testID="compose-error">
               {error()}
             </Text>
           </If>
@@ -171,6 +175,9 @@ export function ComposePage(props: { init: ComposeInit }) {
           />
         </View>
         <AttachmentChips files={files} error={fileError()} />
+        <If when={systemHeader}>
+          <View class="pb-[env(safe-area-inset-bottom)]" />
+        </If>
         <If when={!touch}>
           <View class="flex-row items-center justify-end gap-2 border-t border-outline-variant px-4 py-2">
             <Text class="flex-1 text-body-small text-on-surface-variant">{t("compose.sendHint", { keys: keymap.label("mod+enter") })}</Text>

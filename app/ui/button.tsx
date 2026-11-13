@@ -8,6 +8,7 @@ import { tip } from "./tooltip";
 import { press } from "./motion";
 import { Spinner } from "./feedback";
 import { focusRing } from "./tokens";
+import { material, pressMorph } from "./material";
 import { disabled, look, rounded, shadow, type Color, type Radius, type Size, type Variant } from "./variants";
 
 /** HeroUI's variants; `primary`, `default` and `danger` are the earlier names (solid primary, flat default, flat danger). */
@@ -36,6 +37,8 @@ const label: Record<Size, string> = { sm: "text-body-small", md: "text-body-medi
 const corner: Record<Size, Radius> = { sm: "sm", md: "md", lg: "lg" };
 const glyph = (size: Size) => (size === "sm" ? "sm" : "md");
 
+/** Android: Material 3 Expressive buttons are round and square up while pressed. */
+const morph = `group relative flex-row items-center justify-center overflow-hidden ${focusRing} ${disabled} ${pressMorph}`;
 const base = `group relative flex-row items-center justify-center overflow-hidden ${focusRing} ${disabled} ${press}`;
 
 export interface ButtonProps {
@@ -72,7 +75,8 @@ export function Button(props: ButtonProps) {
       selected={props.selected}
       testID={props.testID}
       tooltip={tip(props.tooltip)}
-      class={`${base} ${rounded[props.radius ?? corner[size()]]} ${l().frame} ${l().text} ${l().hover} ${box[size()]} ${props.loading ? "!opacity-100" : ""} ${props.fullWidth ? "self-stretch" : ""} ${props.class ?? ""}`}
+      hitSlop={material ? 4 : undefined}
+      class={`${material ? `${morph} rounded-full` : `${base} ${rounded[props.radius ?? corner[size()]]}`} ${l().frame} ${l().text} ${l().hover} ${box[size()]} ${props.loading ? "!opacity-100" : ""} ${props.fullWidth ? "self-stretch" : ""} ${props.class ?? ""}`}
     >
       <If when={!props.loading} else={<Spinner label={props.label} size="sm" class={l().text.replace(/text-/g, "border-b-")} />}>
         <If when={props.icon}>{(name) => <Icon name={name()} class={`${l().tint} ${l().tintHover}`} size={glyph(size())} />}</If>
@@ -117,7 +121,8 @@ export function IconButton(props: IconButtonProps) {
       accessibilityLabel={props.label}
       testID={props.testID}
       tooltip={tip(props.shortcut ? `${props.label}  ${props.shortcut}` : props.label)}
-      class={`${base} ${rounded[props.radius ?? corner[size()]]} ${l().frame} ${l().hover} ${square[size()]} ${props.class ?? ""}`}
+      hitSlop={material ? 4 : undefined}
+      class={`${material ? `${morph} ${props.selected ? "rounded-medium" : "rounded-full"}` : `${base} ${rounded[props.radius ?? corner[size()]]}`} ${l().frame} ${l().hover} ${square[size()]} ${props.class ?? ""}`}
     >
       <Icon
         name={props.icon}

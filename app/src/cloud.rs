@@ -564,6 +564,15 @@ impl Backend for CloudBackend {
         })
     }
 
+    fn move_to(&self, id: String, folder: FolderKind) -> MailFuture<'_, ()> {
+        Box::pin(async move {
+            let path = format!("/messages/{}/move", enc(&id));
+            self.api()
+                .call("POST", &path, to_json(&json!({ "folder": folder })))
+                .await
+        })
+    }
+
     fn send(&self, draft: Draft) -> MailFuture<'_, ()> {
         Box::pin(self.api().call("POST", "/send", to_json(&draft)))
     }

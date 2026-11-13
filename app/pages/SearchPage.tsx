@@ -1,7 +1,7 @@
 // Search on its own page (phones and narrow windows).
 import { cleanup, Text, View } from "nsh";
 import { t } from "nsh/i18n";
-import { Empty, Page, systemHeader, touch } from "../ui";
+import { AppBar, Empty, material, Page, systemHeader, touch } from "../ui";
 import { resultCount } from "../components/Mailbox";
 import { MessageList } from "../components/MessageList";
 import { PageHeader } from "../components/PageHeader";
@@ -13,9 +13,9 @@ export function SearchPage() {
   const nav = NavContext();
   cleanup(clearSearch);
   return (
-    <Page title={t("search.label")} header={<PageHeader title={t("search.label")} />} root={systemHeader}>
+    <Page title={t("search.label")} header={<PageHeader title={t("search.label")} />} root={systemHeader} appBar={<AppBar title={t("search.label")} />}>
       <View class="flex-1 bg-surface">
-        <View class="gap-2 border-b border-outline-variant p-3">
+        <View class={material ? "gap-2 px-4 pb-2" : "gap-2 border-b border-outline-variant p-3"}>
           <SearchField autoFocus />
           <If when={searchResults()}>
             {(found) => <Text class={`px-1 tabular-nums text-on-surface-variant ${touch ? "text-body-medium" : "text-body-small"}`}>{resultCount(found().length)}</Text>}

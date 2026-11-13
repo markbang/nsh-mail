@@ -158,6 +158,45 @@ actions.markUnread:
 actions.markRead:
   en: Mark as read
   zh-CN: 标为已读
+actions.archive:
+  en: Archive
+  zh-CN: 归档
+actions.delete:
+  en: Delete
+  zh-CN: 删除
+actions.archivedOne:
+  en: Archived
+  zh-CN: 已归档
+actions.archived:
+  en: "%{count} archived"
+  zh-CN: 已归档 %{count} 封
+actions.deletedOne:
+  en: Moved to Trash
+  zh-CN: 已移到废纸篓
+actions.deleted:
+  en: "%{count} moved to Trash"
+  zh-CN: 已将 %{count} 封移到废纸篓
+actions.newMenu:
+  en: New
+  zh-CN: 新建
+actions.undo:
+  en: Undo
+  zh-CN: 撤销
+actions.more:
+  en: More
+  zh-CN: 更多
+actions.select:
+  en: Select
+  zh-CN: 选择
+actions.selected:
+  en: "%{count} selected"
+  zh-CN: 已选 %{count} 封
+actions.endSelection:
+  en: Done selecting
+  zh-CN: 结束选择
+actions.retry:
+  en: Try again
+  zh-CN: 重试
 actions.flag:
   en: Flag
   zh-CN: 旗标
@@ -171,6 +210,9 @@ list.unread:
 list.flagged:
   en: Flagged
   zh-CN: 已加旗标
+list.refreshing:
+  en: Checking for mail
+  zh-CN: 正在检查新邮件
 list.loadingMore:
   en: Loading more
   zh-CN: 正在加载更多
@@ -224,6 +266,9 @@ reader.unknownSender:
 reader.untitledAttachment:
   en: Untitled attachment
   zh-CN: 未命名附件
+reader.actions:
+  en: Message actions
+  zh-CN: 邮件操作
 reader.attachments:
   en: Attachments
   zh-CN: 附件
@@ -563,6 +608,9 @@ tray.quit:
   en: Quit
   zh-CN: 退出
 
+tabs.label:
+  en: Sections
+  zh-CN: 分区
 tabs.mail:
   en: Mail
   zh-CN: 邮件
@@ -575,3 +623,7 @@ tabs.folders:
 tabs.settings:
   en: Settings
   zh-CN: 设置
+
+empty.loadFailed:
+  en: Couldn't load this mailbox
+  zh-CN: 无法加载此邮箱

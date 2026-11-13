@@ -842,3 +842,59 @@ async fn html_mail_keeps_its_layout_and_inline_images() {
     let (logo, _) = engine.attachment(&m.summary.id, 0).await.unwrap();
     assert_eq!(logo.content_id.as_deref(), Some("logo@example.com"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn archive_and_delete_move_messages_on_the_server() {
+    let dir = tempfile::tempdir().unwrap();
+    let (alice_email, bob_email) = (unique("alice"), unique("bob"));
+    let (engine, bob) = engine_with_account(&dir, &bob_email).await;
+    for subject in ["keep me", "archive me", "delete me"] {
+        engine
+            .send(draft(&bob, &alice_email, subject, "body"))
+            .await
+            .unwrap();
+    }
+    let alice = engine.add_imap_account(input(&alice_email)).await.unwrap();
+    engine.sync(&alice.id).await.unwrap();
+    let inbox = engine
+        .list(query(FolderKind::Inbox, &alice, None, 10))
+        .await
+        .unwrap();
+    let id = |subject: &str| {
+        inbox
+            .iter()
+            .find(|m| m.subject == subject)
+            .unwrap()
+            .id
+            .clone()
+    };
+
+    // GreenMail has neither Archive nor Trash: the engine creates them.
+    engine
+        .move_to(&id("archive me"), FolderKind::Archive)
+        .await
+        .unwrap();
+    engine
+        .move_to(&id("delete me"), FolderKind::Trash)
+        .await
+        .unwrap();
+
+    let subjects = |folder| {
+        let engine = &engine;
+        let alice = &alice;
+        async move {
+            let list = engine.list(query(folder, alice, None, 10)).await.unwrap();
+            list.into_iter().map(|m| m.subject).collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(subjects(FolderKind::Inbox).await, ["keep me"]);
+    assert_eq!(subjects(FolderKind::Archive).await, ["archive me"]);
+    assert_eq!(subjects(FolderKind::Trash).await, ["delete me"]);
+
+    // Another sync agrees with the server: nothing comes back to the inbox.
+    engine.sync(&alice.id).await.unwrap();
+    assert_eq!(subjects(FolderKind::Inbox).await, ["keep me"]);
+    let mut other = other_client(&alice_email).await;
+    other.select("Trash").await.unwrap();
+    assert!(uid_of(&mut other, "delete me").await.parse::<u32>().is_ok());
+}

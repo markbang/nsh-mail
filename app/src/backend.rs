@@ -38,6 +38,8 @@ pub trait Backend {
     /// The decoded bytes of attachment `index` of message `id`.
     fn attachment(&self, id: String, index: u32) -> MailFuture<'_, Vec<u8>>;
     fn set_flags(&self, id: String, flags: Flags) -> MailFuture<'_, ()>;
+    /// Moves a message to another folder of its account: Archive, Trash.
+    fn move_to(&self, id: String, folder: FolderKind) -> MailFuture<'_, ()>;
     /// Sends a draft; its `upload` attachments are files `stage` kept.
     fn send(&self, draft: Draft) -> MailFuture<'_, ()>;
     /// Keeps a file for a draft until it is sent or `unstage`d.

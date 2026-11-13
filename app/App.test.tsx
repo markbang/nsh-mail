@@ -108,6 +108,25 @@ test("search finds mail across accounts and folders", async () => {
   await app.waitFor("text:Nothing found for “no such words anywhere”");
 });
 
+test("archives a message with Undo, then for real", async () => {
+  const app = await open("./App.tsx", { ...desktop, ...demo });
+  await app.waitFor("text:Q4 roadmap draft");
+  await app.press("text:Q4 roadmap draft");
+  await app.waitFor("id:reader >> text:Q4-roadmap.pdf");
+  await app.press("id:archive");
+  await app.waitFor("text:Archived");
+  await app.waitFor("id:messages >> text:Q4 roadmap draft", { state: "gone" });
+  await app.press("id:toast-action");
+  await app.waitFor("id:messages >> text:Q4 roadmap draft");
+
+  await app.press("text:Q4 roadmap draft");
+  await app.waitFor("id:reader >> text:Q4-roadmap.pdf");
+  await app.press("id:archive");
+  await app.waitFor("text:Archived", { state: "gone", timeout: 15000 });
+  await app.press("text:Archive");
+  await app.waitFor("id:messages >> text:Q4 roadmap draft");
+});
+
 test("phones: the inbox, a message and back", async () => {
   const app = await open("./App.tsx", { platform: "android", width: 390, height: 844, locale: "en-US", ...demo });
   await app.waitFor("text:Photos from the weekend");

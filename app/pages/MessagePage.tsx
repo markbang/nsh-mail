@@ -2,7 +2,7 @@
 import { t } from "nsh/i18n";
 import { Empty, Page, Spinner, systemHeader } from "../ui";
 import { PageHeader } from "../components/PageHeader";
-import { Reader, ReaderActions } from "../components/Reader";
+import { PhoneReaderActions, Reader, ReaderActions } from "../components/Reader";
 import { NavContext } from "../nav";
 import { current } from "../store";
 import type { ComposeMode } from "../lib/format";
@@ -20,6 +20,7 @@ export function MessagePage(props: { id: string }) {
           actions={<If when={message()}>{(m) => <ReaderActions message={m()} onCompose={compose} />}</If>}
         />
       }
+      headerRight={<If when={message()}>{(m) => <PhoneReaderActions message={m()} onLeave={nav.close} />}</If>}
     >
       <If
         when={message()}
@@ -29,7 +30,7 @@ export function MessagePage(props: { id: string }) {
           </If>
         }
       >
-        {(m) => <Reader message={m()} onCompose={compose} toolbar={!systemHeader} />}
+        {(m) => <Reader message={m()} onCompose={compose} toolbar={!systemHeader} phone={systemHeader} onLeave={nav.close} />}
       </If>
     </Page>
   );
