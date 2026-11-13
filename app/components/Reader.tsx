@@ -216,6 +216,7 @@ export function Reader(props: ReaderProps) {
               </View>
             </If>
           </View>
+          {/* The mail card stays white in both appearances on purpose: mail is designed on white and its colors are not inverted. */}
           <View class={`min-h-48 flex-1 overflow-hidden rounded-large border border-outline-variant bg-white ${touch ? "mx-2" : "mx-6"}`}>
             <MailView html={source()} remote={showImages()} onUnavailable={() => webViewAvailable.set(false)} class="flex-1" />
           </View>

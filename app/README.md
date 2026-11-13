@@ -4,7 +4,7 @@ The client: TSX screens over a Rust crate that exports `nsh-mail/native` (the `M
 [docs/design.md](../docs/design.md) §3). Design system and motion: [DESIGN.md](DESIGN.md).
 
 ```
-App.tsx          shell: onboarding, three panes (wide) or a stack (phones), keys, toast
+App.tsx          shell: onboarding, rail + list + reader (wide), tabs (phones, narrow web), keys, snackbar
 store.ts         TSX state: mirrors of Rust's status, accounts and messages; mailbox, selection, search
 nav.ts           the phone stack and the wide layout's dialog stack
 resident.ts      tray, close-to-tray, new-mail notifications
