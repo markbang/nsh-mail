@@ -6,7 +6,7 @@ English | [简体中文](README.zh-CN.md)
 
 ## Build
 
-Needs nsh, JDK 17, the Android SDK (`platforms;android-35`, build tools, an NDK) and the Rust target `aarch64-linux-android` (`armv7-linux-androideabi` too for a release).
+Needs nsh, JDK 17, the Android SDK (`platforms;android-35`, build tools, an NDK) and the Rust target `aarch64-linux-android` (`armv7-linux-androideabi` and `x86_64-linux-android` too for a release).
 
 ```sh
 android/prepare.sh                         # nsh.aar + libnsh.so with the app's crate, and the bundle
@@ -14,7 +14,22 @@ android/prepare.sh                         # nsh.aar + libnsh.so with the app's 
 cd android && ./gradlew assembleDebug      # app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
 ```
 
-Each ABI adds a whole `libnsh.so` (about 32 MB), so APKs carry one: Gradle splits them per ABI in `NSH_ABIS`. Releases ship the AAB (`bundleRelease`, CI sets `NSH_ABIS=arm64-v8a,armeabi-v7a`); Play gives each phone only its own library.
+Each ABI adds a whole `libnsh.so` (about 32 MB), so APKs carry one: Gradle splits them per ABI in `NSH_ABIS` (release CI: `arm64-v8a,armeabi-v7a,x86_64`). This host's APKs and AAB are CI artifacts (`android-fcm`); GitHub Releases attach `nsh package`'s.
+
+## Version codes
+
+`build` in `app/nsh.json` is the base; each package's versionCode is `build × 10 + ABI digit`:
+
+| Package | Digit | `build` 4 (0.0.1) | `build` 5 |
+|---|---|---|---|
+| universal APK, AAB | 0 | 40 | 50 |
+| armeabi-v7a | 1 | 41 | 51 |
+| arm64-v8a | 2 | 42 | 52 |
+| x86_64 | 3 | 43 | 53 |
+
+Bump `build` by one for every release: any package of a release then outranks every package of the one before, so updates install whichever APK was installed before. Within a release, an ABI's APK outranks the universal one, so a phone can move from universal to its own APK but not back. The AAB has the universal's code, as Google Play needs one code per upload that grows. The first 0.0.1 APK had versionCode 4, below all of these.
+
+CI's `Package` step passes the code to `nsh package --build`; `app/build.gradle.kts` applies the same scheme to this host's split APKs. Plain local `nsh package` uses `build` itself.
 
 `prepare.sh` downloads `nsh.aar` from the NSH release matching `nsh --version` (checksum verified), replaces its `libnsh.so` with the one `nsh package` builds for this app (it holds the `nsh-mail/native` module), and writes the bundle with `nsh build --release`. Both outputs are git-ignored.
 

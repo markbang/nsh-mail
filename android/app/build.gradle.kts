@@ -1,3 +1,5 @@
+import com.android.build.api.variant.FilterConfiguration
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -19,7 +21,8 @@ android {
         applicationId = nsh["id"] as String
         minSdk = 26
         targetSdk = 35
-        versionCode = (nsh["build"] as Number).toInt()
+        // The universal APK's and the AAB's code; each ABI's APK adds its digit below.
+        versionCode = (nsh["build"] as Number).toInt() * 10
         versionName = nsh["version"] as String
     }
 
@@ -49,6 +52,17 @@ android {
             keyPassword = System.getenv("NSH_KEYSTORE_PASSWORD")
         }
         buildTypes.getByName("release").signingConfig = signingConfigs.getByName("release")
+    }
+}
+
+// versionCode = build × 10 + the ABI's digit, as for the release APKs (android/README.md, Version codes).
+val abiDigits = mapOf("armeabi-v7a" to 1, "arm64-v8a" to 2, "x86_64" to 3)
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            val abi = output.filters.find { it.filterType == FilterConfiguration.FilterType.ABI }?.identifier
+            output.versionCode.set((nsh["build"] as Number).toInt() * 10 + (abiDigits[abi] ?: 0))
+        }
     }
 }
 

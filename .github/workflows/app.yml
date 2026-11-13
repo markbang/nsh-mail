@@ -6,12 +6,16 @@ on:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      upload_to:
+        description: "Back-fill: an existing release's tag. Builds the Android packages from that tag and uploads them to its release; the other jobs skip."
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: app-${{ github.event.pull_request.number || github.ref }}
+  group: app-${{ github.event.pull_request.number || inputs.upload_to || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -31,6 +35,7 @@ defaults:
 
 jobs:
   check:
+    if: ${{ !inputs.upload_to }}
     runs-on: ubuntu-24.04
     # Local mode end to end (app/tests/greenmail.rs) and cloud mode (.e2e/run.sh).
     services:
@@ -85,6 +90,7 @@ jobs:
           key: *cache-key
 
   linux:
+    if: ${{ !inputs.upload_to }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -104,7 +110,7 @@ jobs:
 
   windows:
     # Slow: only for releases (a pushed version tag or a manual run).
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: ${{ !inputs.upload_to && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') }}
     runs-on: windows-latest
     env:
       # QuickJS is C: bindgen needs libclang, which the image's LLVM has.
@@ -176,11 +182,13 @@ jobs:
       RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.upload_to }}
       - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
         working-directory: .
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android, armv7-linux-androideabi
+          targets: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android
       # The image has the SDK, its build tools, a JDK and NDKs; `nsh` builds the crate's libnsh.so with the newest NDK.
       - name: Install the Android platform
         run: (yes || :) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" > /dev/null
@@ -197,17 +205,31 @@ jobs:
           [ -n "$NSH_KEYSTORE_PASSWORD" ] || { echo "::error::The NSH_KEYSTORE_PASSWORD secret is missing: add the keystore's password."; exit 1; }
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
-          # The AABs carry 32-bit phones' library too (Play delivers each phone only its own); previews stay arm64-v8a.
-          if [ "$RELEASE" = true ]; then echo "NSH_ABIS=arm64-v8a,armeabi-v7a" >> "$GITHUB_ENV"; fi
-      # Runs `nsh package --target android`, then readies the Gradle host (android/): nsh.aar with that libnsh.so, and the bundle.
-      - run: android/prepare.sh ${ANDROID_KEYSTORE_FILE:+--keystore "$ANDROID_KEYSTORE_FILE" --key-alias "$ANDROID_KEY_ALIAS"}
+      # Pull requests and main: one arm64-v8a APK. Releases: one APK per ABI, a universal APK, and the AAB.
+      # prepare.sh packages the first APK and readies the Gradle host (android/): nsh.aar with each ABI's libnsh.so, and the bundle.
+      - name: Package
         working-directory: .
-      # The release artifact is the AAB; the APK beside it, for sideloading, stays arm64-v8a.
-      - name: App bundle for Google Play
-        if: env.RELEASE == 'true'
         run: |
-          nsh package App.tsx --target android --format aab --abi "$NSH_ABIS" --keystore "$ANDROID_KEYSTORE_FILE" --key-alias "$ANDROID_KEY_ALIAS"
-          nsh package App.tsx --target android --abi arm64-v8a --keystore "$ANDROID_KEYSTORE_FILE" --key-alias "$ANDROID_KEY_ALIAS"
+          base=$(jq -r .build app/nsh.json)
+          # versionCode = build × 10 + the ABI's digit (android/README.md, Version codes).
+          code() { case $1 in armeabi-v7a) d=1 ;; arm64-v8a) d=2 ;; x86_64) d=3 ;; *) d=0 ;; esac; echo $((base * 10 + d)); }
+          sign=(${ANDROID_KEYSTORE_FILE:+--keystore "$ANDROID_KEYSTORE_FILE" --key-alias "$ANDROID_KEY_ALIAS"})
+          first=arm64-v8a
+          if [ "$RELEASE" = true ]; then
+            first=universal
+            export NSH_ABIS=arm64-v8a,armeabi-v7a,x86_64
+            echo "NSH_ABIS=$NSH_ABIS" >> "$GITHUB_ENV"
+          fi
+          android/prepare.sh --build "$(code $first)" "${sign[@]}"
+          out=app/.nsh/out
+          mv "$out/nsh-mail.apk" "$out/nsh-mail-$first.apk"
+          [ "$RELEASE" = true ] || exit 0
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            (cd app && nsh package App.tsx --target android --abi "$abi" --build "$(code "$abi")" "${sign[@]}")
+            mv "$out/nsh-mail.apk" "$out/nsh-mail-$abi.apk"
+          done
+          # Google Play delivers each phone only its own libnsh.so.
+          (cd app && nsh package App.tsx --target android --format aab --abi arm64-v8a,armeabi-v7a --build "$(code universal)" "${sign[@]}")
       - uses: actions/upload-artifact@v7
         with:
           name: android
@@ -217,25 +239,14 @@ jobs:
           if-no-files-found: error
       # Without the secret the host builds with push off.
       - name: Add the Firebase config
-        if: env.GOOGLE_SERVICES_JSON != ''
+        if: ${{ !inputs.upload_to && env.GOOGLE_SERVICES_JSON != '' }}
         run: printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
         working-directory: android
       - name: Build the Gradle host
+        if: ${{ !inputs.upload_to }}
         run: |
           if [ -n "${ANDROID_KEYSTORE_FILE:-}" ]; then
             ./gradlew --no-daemon assembleRelease $([ "$RELEASE" = true ] && echo bundleRelease)
-            apksigner=$(printf '%s\n' "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
-            for apk in ../app/.nsh/out/*.apk app/build/outputs/apk/release/*.apk; do
-              certs=$("$apksigner" verify --print-certs "$apk")
-              echo "$(basename "$apk"):" && echo "$certs" | grep 'certificate'
-              cert=$(echo "$certs" | grep -m1 'certificate SHA-256 digest' | awk '{print $NF}' || :)
-              [ "$cert" = "$ANDROID_CERT_SHA256" ] || { echo "::error::$apk is not signed with the release key ($ANDROID_CERT_SHA256): check the ANDROID_KEYSTORE_BASE64 secret."; exit 1; }
-            done
-            for aab in $(compgen -G '../app/.nsh/out/*.aab'; compgen -G 'app/build/outputs/bundle/release/*.aab'); do
-              cert=$(keytool -printcert -jarfile "$aab" | grep -m1 'SHA256:' | awk '{print $NF}' | tr -d ':' | tr 'A-F' 'a-f' || :)
-              echo "$(basename "$aab"): certificate SHA-256 $cert"
-              [ "$cert" = "$ANDROID_CERT_SHA256" ] || { echo "::error::$aab is not signed with the release key ($ANDROID_CERT_SHA256)."; exit 1; }
-            done
           else
             ./gradlew --no-daemon assembleDebug
           fi
@@ -243,7 +254,40 @@ jobs:
       - name: Remove the signing key
         if: always() && env.ANDROID_KEYSTORE_FILE != ''
         run: rm -f "$ANDROID_KEYSTORE_FILE"
+      # Each APK: the release key, versionCode = build × 10 + its ABI's digit, and only its ABIs' native code.
+      - name: Verify the packages
+        working-directory: .
+        run: |
+          base=$(jq -r .build app/nsh.json)
+          tools=$(printf '%s\n' "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
+          fail() { echo "::error::$*"; exit 1; }
+          for apk in app/.nsh/out/*.apk $(compgen -G 'android/app/build/outputs/apk/*/*.apk'); do
+            case $apk in
+              *armeabi-v7a*) abis=armeabi-v7a d=1 ;;
+              *arm64-v8a*) abis=arm64-v8a d=2 ;;
+              *x86_64*) abis=x86_64 d=3 ;;
+              *universal*) abis=$NSH_ABIS d=0 ;;
+              *) fail "$apk: no ABI in its file name" ;;
+            esac
+            badging=$("$tools/aapt2" dump badging "$apk")
+            code=$(echo "$badging" | sed -n "s/^package: .* versionCode='\([0-9]*\)'.*/\1/p")
+            native=$(echo "$badging" | sed -n 's/^native-code: //p' | tr -d "'" | tr ' ' '\n' | sort | paste -sd, -)
+            want=$(echo "$abis" | tr , '\n' | sort | paste -sd, -)
+            echo "$(basename "$apk"): versionCode $code, native code $native"
+            [ "$code" = $((base * 10 + d)) ] || fail "$apk has versionCode $code, not $((base * 10 + d))."
+            [ "$native" = "$want" ] || fail "$apk carries native code for $native, not $want."
+            [ -n "${ANDROID_KEYSTORE_FILE:-}" ] || continue
+            cert=$("$tools/apksigner" verify --print-certs "$apk" | grep -m1 'certificate SHA-256 digest' | awk '{print $NF}' || :)
+            [ "$cert" = "$ANDROID_CERT_SHA256" ] || fail "$apk is not signed with the release key ($ANDROID_CERT_SHA256): check the ANDROID_KEYSTORE_BASE64 secret."
+          done
+          [ -n "${ANDROID_KEYSTORE_FILE:-}" ] || exit 0
+          for aab in $(compgen -G 'app/.nsh/out/*.aab'; compgen -G 'android/app/build/outputs/bundle/release/*.aab'); do
+            cert=$(keytool -printcert -jarfile "$aab" | grep -m1 'SHA256:' | awk '{print $NF}' | tr -d ':' | tr 'A-F' 'a-f' || :)
+            echo "$(basename "$aab"): certificate SHA-256 $cert"
+            [ "$cert" = "$ANDROID_CERT_SHA256" ] || fail "$aab is not signed with the release key ($ANDROID_CERT_SHA256)."
+          done
       - uses: actions/upload-artifact@v7
+        if: ${{ !inputs.upload_to }}
         with:
           name: android-fcm
           path: |
@@ -253,6 +297,7 @@ jobs:
       - *save-cache
 
   web:
+    if: ${{ !inputs.upload_to }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -327,8 +372,11 @@ jobs:
     uses: ./.github/workflows/screenshots.yml
 
   # A pushed `v*` tag publishes a GitHub Release with the packages; the notes are docs/releases/<version>.md (+ .zh-CN.md).
+  # A manual run with `upload_to` replaces an existing release's Android packages and notes instead (back-fill).
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      always() && needs.android.result == 'success' && (inputs.upload_to ||
+      startsWith(github.ref, 'refs/tags/v') && needs.check.result == 'success' && needs.linux.result == 'success' && needs.windows.result == 'success')
     needs: [check, linux, windows, android]
     runs-on: ubuntu-24.04
     permissions:
@@ -345,17 +393,28 @@ jobs:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
+          UPLOAD_TO: ${{ inputs.upload_to }}
         run: |
-          v=${GITHUB_REF_NAME#v}
+          tag=${UPLOAD_TO:-$GITHUB_REF_NAME}
+          v=${tag#v}
           notes=docs/releases/$v.md
-          [ -f "$notes" ] && [ -f "docs/releases/$v.zh-CN.md" ] || { echo "::error::Write $notes and docs/releases/$v.zh-CN.md before tagging."; exit 1; }
+          [ -f "$notes" ] && [ -f "docs/releases/$v.zh-CN.md" ] || { echo "::error::Write $notes and docs/releases/$v.zh-CN.md first."; exit 1; }
           a=$RUNNER_TEMP/a d=$RUNNER_TEMP/dist
           mkdir "$d"
-          cp "$a/android/nsh-mail.apk" "$d/nsh-mail-$v-android-arm64.apk"
-          cp "$a/android/nsh-mail.aab" "$d/nsh-mail-$v-android.aab"
+          for abi in arm64-v8a armeabi-v7a x86_64 universal; do cp "$a/android/nsh-mail-$abi.apk" "$d/nsh-mail-$v-$abi.apk"; done
+          cp "$a/android/nsh-mail.aab" "$d/nsh-mail-$v.aab"
+          cp "docs/releases/$v.zh-CN.md" "$d/RELEASE_NOTES.zh-CN.md"
+          if [ -n "$UPLOAD_TO" ]; then
+            gh release upload "$tag" "$d"/* --clobber
+            gh release edit "$tag" --notes-file "$notes"
+            # The checksums cover every asset of the release, as uploaded.
+            rm -rf "$d" && gh release download "$tag" -D "$d"
+            (cd "$d" && rm -f SHA256SUMS.txt && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+            gh release upload "$tag" "$d/SHA256SUMS.txt" --clobber
+            exit 0
+          fi
           cp "$a/linux/nsh-mail.tar.gz" "$d/nsh-mail-$v-linux-x86_64.tar.gz"
           cp "$a/windows/nsh-mail.zip" "$d/nsh-mail-$v-windows-x64.zip"
           cp "$a/windows/nsh-mail-setup.exe" "$d/nsh-mail-$v-windows-x64-setup.exe"
-          cp "docs/releases/$v.zh-CN.md" "$d/RELEASE_NOTES.zh-CN.md"
           (cd "$d" && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt)
-          gh release create "$GITHUB_REF_NAME" "$d"/* --title "nsh-mail $v" --notes-file "$notes" --verify-tag
+          gh release create "$tag" "$d"/* --title "nsh-mail $v" --notes-file "$notes" --verify-tag

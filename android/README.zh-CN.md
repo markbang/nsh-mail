@@ -6,7 +6,7 @@
 
 ## 构建
 
-需要 nsh、JDK 17、Android SDK（`platforms;android-35`、build tools、NDK）和 Rust 目标 `aarch64-linux-android`（正式发布还要 `armv7-linux-androideabi`）。
+需要 nsh、JDK 17、Android SDK（`platforms;android-35`、build tools、NDK）和 Rust 目标 `aarch64-linux-android`（正式发布还要 `armv7-linux-androideabi` 和 `x86_64-linux-android`）。
 
 ```sh
 android/prepare.sh                         # nsh.aar + libnsh.so with the app's crate, and the bundle
@@ -14,7 +14,22 @@ android/prepare.sh                         # nsh.aar + libnsh.so with the app's 
 cd android && ./gradlew assembleDebug      # app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
 ```
 
-每个 ABI 都是一整份 `libnsh.so`（约 32 MB），所以每个 APK 只带一个：Gradle 按 `NSH_ABIS` 分 ABI 出包。正式发布用 AAB（`bundleRelease`，CI 设 `NSH_ABIS=arm64-v8a,armeabi-v7a`），Play 只给每台手机下发它自己的那份。
+每个 ABI 都是一整份 `libnsh.so`（约 32 MB），所以每个 APK 只带一个：Gradle 按 `NSH_ABIS` 分 ABI 出包（正式发布的 CI 设 `arm64-v8a,armeabi-v7a,x86_64`）。这个宿主的 APK 和 AAB 只是 CI 产物（`android-fcm`）；GitHub Release 附带的是 `nsh package` 打的包。
+
+## 版本号（versionCode）
+
+`app/nsh.json` 里的 `build` 是基数；每个包的 versionCode 为 `build × 10 + ABI 位`：
+
+| 包 | ABI 位 | `build` 4（0.0.1） | `build` 5 |
+|---|---|---|---|
+| universal APK、AAB | 0 | 40 | 50 |
+| armeabi-v7a | 1 | 41 | 51 |
+| arm64-v8a | 2 | 42 | 52 |
+| x86_64 | 3 | 43 | 53 |
+
+每次发版把 `build` 加一：新版本的任何包都高于上一版的所有包，之前装的是哪个 APK 都能升级。同一版本内，按 ABI 的 APK 高于 universal，所以手机可以从 universal 换成自己 ABI 的包，反过来不行。AAB 用 universal 的版本号，Google Play 要求每次上传一个递增的版本号。最早发布的 0.0.1 APK 是 versionCode 4，低于以上所有值。
+
+CI 的 `Package` 步骤把版本号传给 `nsh package --build`；`app/build.gradle.kts` 给这个宿主的分包用同样的规则。本地直接运行 `nsh package` 时用的就是 `build` 本身。
 
 `prepare.sh` 从与 `nsh --version` 相同的 NSH 版本下载 `nsh.aar`（校验 sha256），把其中的 `libnsh.so` 换成 `nsh package` 为本应用构建的那份（含 `nsh-mail/native` 模块），并用 `nsh build --release` 生成 bundle。产物都不进 git。
 
