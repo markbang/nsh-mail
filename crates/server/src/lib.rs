@@ -29,6 +29,7 @@ use tower_http::{
 pub use config::Config;
 use db::Db;
 use mail::Mailboxes;
+use mail_core::MailDb;
 use push::{Fcm, Push};
 
 pub struct AppState {
@@ -40,12 +41,19 @@ pub struct AppState {
     pub vapid_public_key: String,
 }
 
-/// Opens storage, loads push credentials and starts mail sync for every user with a mail store.
+/// Opens storage (moving old per-user mail databases in), loads push credentials and starts mail
+/// sync for every user with an account.
 pub async fn build(config: Config) -> Result<Arc<AppState>> {
     let users_dir = config.data_dir.join("users");
     std::fs::create_dir_all(&users_dir)
         .with_context(|| format!("cannot create data directory {}", users_dir.display()))?;
-    let db = Db::open(&config.data_dir.join("server.sqlite"))?;
+    let db_path = config.data_dir.join("server.sqlite");
+    let db = Db::open(&db_path)?;
+    let mail_db = MailDb::open(&db_path)
+        .map_err(|e| anyhow::anyhow!("cannot open {}: {}", db_path.display(), e.message))?;
+    let dir = users_dir.clone();
+    let import_db = mail_db.clone();
+    tokio::task::spawn_blocking(move || mail::import_legacy(&import_db, &dir)).await??;
     let http = reqwest::Client::builder()
         .user_agent(concat!("nsh-mail-server/", env!("CARGO_PKG_VERSION")))
         .timeout(std::time::Duration::from_secs(30))
@@ -65,6 +73,7 @@ pub async fn build(config: Config) -> Result<Arc<AppState>> {
         presence: Default::default(),
     });
     let mailboxes = Mailboxes::new(
+        mail_db,
         users_dir,
         config.master_key,
         config.oauth.clone(),
@@ -80,7 +89,11 @@ pub async fn build(config: Config) -> Result<Arc<AppState>> {
         push,
         http,
     });
-    for user_id in state.mailboxes.existing_users()? {
+    let users = state
+        .mailboxes
+        .existing_users()
+        .map_err(|e| anyhow::anyhow!("cannot list users with mail: {}", e.message))?;
+    for user_id in users {
         if let Err(e) = state.mailboxes.get(user_id).await {
             tracing::error!(user_id, "cannot open mail store: {}", e.message);
         }

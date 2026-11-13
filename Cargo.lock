@@ -1949,6 +1949,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "mail-core"
+version = "0.1.0"
+source = "git+https://github.com/markbang/nsh-mail?rev=ec172435302f79013110f70235acaaaea5c9a89a#ec172435302f79013110f70235acaaaea5c9a89a"
+dependencies = [
+ "aes-gcm 0.11.1",
+ "ammonia",
+ "async-imap",
+ "base64 0.23.1",
+ "futures",
+ "getrandom 0.4.3",
+ "keyring",
+ "lettre",
+ "mail-parser",
+ "reqwest",
+ "roxmltree",
+ "rusqlite",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "webpki-roots",
+]
+
+[[package]]
 name = "mail-parser"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2103,7 +2130,8 @@ dependencies = [
  "base64 0.22.1",
  "futures-util",
  "lettre",
- "mail-core",
+ "mail-core 0.1.0",
+ "mail-core 0.1.0 (git+https://github.com/markbang/nsh-mail?rev=ec172435302f79013110f70235acaaaea5c9a89a)",
  "reqwest",
  "rusqlite",
  "serde",

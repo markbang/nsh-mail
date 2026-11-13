@@ -1,17 +1,43 @@
 //! SQLite store: accounts, folders with IMAP sync state, message envelopes, lazily cached bodies,
-//! and an FTS5 index. One file per user (`data_dir/mail.sqlite`, or `data/users/<id>.sqlite`).
+//! and an FTS5 index. One database holds the mail of many users (the server's `server.sqlite`;
+//! the app keeps [`LOCAL_USER`] alone in `mail.sqlite`). Every row carries `user_id`, and the
+//! queries live only on [`Store`], which [`MailDb::user`] binds to one user: there is no way to
+//! read or write mail without naming whose it is.
 
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use rusqlite::{Connection, OptionalExtension, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 
 use crate::error::err;
 use crate::types::*;
 
+/// The user id of the app's single-user database.
+pub const LOCAL_USER: i64 = 0;
+
+/// A mail database file. Opening it creates the schema, or migrates a database from before
+/// `user_id` in place (its rows become [`LOCAL_USER`]'s).
+#[derive(Clone)]
+pub struct MailDb {
+    conn: Arc<Mutex<Connection>>,
+}
+
+/// One user's view of a [`MailDb`]. Every statement on the mail tables binds `user_id` as `?1`;
+/// search index rows are reached only through that user's messages.
 pub(crate) struct Store {
-    conn: Mutex<Connection>,
+    conn: Arc<Mutex<Connection>>,
+    user: i64,
+}
+
+/// Rows copied by [`MailDb::import_legacy`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ImportCounts {
+    pub accounts: i64,
+    pub folders: i64,
+    pub messages: i64,
+    /// Search index entries.
+    pub indexed: i64,
 }
 
 #[derive(Clone, Debug)]
@@ -56,14 +82,19 @@ pub(crate) struct StoredMessage {
     pub body: Option<Vec<u8>>,
 }
 
+/// Account, folder and message ids are random or rowids, unique across users, so the
+/// constraints on them need no `user_id`; the indexes queries use lead with it.
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS accounts (
     id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
     position INTEGER NOT NULL,
     data TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS accounts_by_user ON accounts (user_id, position);
 CREATE TABLE IF NOT EXISTS folders (
     id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     kind TEXT NOT NULL,
     name TEXT NOT NULL,
@@ -72,8 +103,10 @@ CREATE TABLE IF NOT EXISTS folders (
     highestmodseq INTEGER,
     UNIQUE (account_id, kind)
 );
+CREATE INDEX IF NOT EXISTS folders_by_user ON folders (user_id, kind, account_id);
 CREATE TABLE IF NOT EXISTS messages (
     pk INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
     id TEXT NOT NULL UNIQUE,
     folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
     uid INTEGER NOT NULL,
@@ -93,7 +126,7 @@ CREATE TABLE IF NOT EXISTS messages (
     body BLOB,
     UNIQUE (folder_id, uid)
 );
-CREATE INDEX IF NOT EXISTS messages_by_date ON messages (folder_id, date DESC, pk DESC);
+CREATE INDEX IF NOT EXISTS messages_by_user_date ON messages (user_id, folder_id, date DESC, pk DESC);
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5 (
     subject, from_text, to_text, body,
     content = '', contentless_delete = 1, tokenize = 'unicode61 remove_diacritics 2'
@@ -103,10 +136,13 @@ CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
 END;
 "#;
 
+const MESSAGE_COLUMNS: &str = "uid, date, from_addr, to_addrs, cc_addrs, subject, snippet, message_id, \
+     in_reply_to, refs, seen, flagged, has_attachments, size, body";
+
 const SUMMARY_COLUMNS: &str = "m.id, f.account_id, f.kind, m.from_addr, m.to_addrs, m.subject, m.snippet, \
      m.date, m.seen, m.flagged, m.has_attachments";
 
-impl Store {
+impl MailDb {
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| {
@@ -116,17 +152,390 @@ impl Store {
                 )
             })?;
         }
-        let conn = Connection::open(path)?;
+        let mut conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
-        conn.pragma_update(None, "foreign_keys", true)?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        if has_table(&conn, "main", "accounts")?
+            && !has_column(&conn, "main", "accounts", "user_id")?
+        {
+            add_user_id(&mut conn).map_err(|e| {
+                err(
+                    ErrorCode::Storage,
+                    format!("cannot upgrade {}: {}", path.display(), e.message),
+                )
+            })?;
+        }
+        conn.pragma_update(None, "foreign_keys", true)?;
         conn.execute_batch(SCHEMA)?;
         Ok(Self {
-            conn: Mutex::new(conn),
+            conn: Arc::new(Mutex::new(conn)),
         })
     }
 
+    pub(crate) fn user(&self, user: i64) -> Store {
+        Store {
+            conn: self.conn.clone(),
+            user,
+        }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Connection> {
+        lock(&self.conn)
+    }
+
+    /// Users that have at least one account.
+    pub fn users(&self) -> Result<Vec<i64>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare("SELECT DISTINCT user_id FROM accounts")?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Copies a single-user database from before `user_id` (the server's old
+    /// `users/<id>.sqlite`) in as `user`'s mail, in one transaction that commits only when every
+    /// account, folder (with its sync state) and message (with its flags and cached body) matches
+    /// the source and the search index has as many entries. Message ids stay, so clients' links
+    /// keep working. When `user` already holds exactly the source's data (an earlier run
+    /// committed but was stopped before the caller moved the file), nothing is copied. The
+    /// source is only read.
+    pub fn import_legacy(&self, user: i64, path: &Path) -> Result<ImportCounts> {
+        if !path.is_file() {
+            return Err(err(
+                ErrorCode::NotFound,
+                format!("{} is not a file", path.display()),
+            ));
+        }
+        let mut conn = self.lock();
+        conn.execute("ATTACH DATABASE ?1 AS legacy", [path.to_string_lossy()])?;
+        let result = import(&mut conn, user);
+        let detached = conn.execute_batch("DETACH DATABASE legacy");
+        let counts = result?;
+        detached?;
+        Ok(counts)
+    }
+}
+
+fn lock(conn: &Mutex<Connection>) -> MutexGuard<'_, Connection> {
+    // A panic while holding the lock cannot leave SQLite inconsistent (transactions roll back).
+    conn.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn has_table(conn: &Connection, schema: &str, table: &str) -> Result<bool> {
+    Ok(conn
+        .query_row(
+            &format!("SELECT 1 FROM {schema}.sqlite_master WHERE name = ?1"),
+            [table],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+fn has_column(conn: &Connection, schema: &str, table: &str, column: &str) -> Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info(?1, ?2) WHERE name = ?3",
+            [table, schema, column],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+fn count(conn: &Connection, sql: &str, params: impl rusqlite::Params) -> Result<i64> {
+    Ok(conn.query_row(sql, params, |r| r.get(0))?)
+}
+
+/// Rebuilds the three tables of a database from before `user_id` with the column added (the
+/// rows become [`LOCAL_USER`]'s). `pk`s are kept, so the search index stays valid untouched.
+fn add_user_id(conn: &mut Connection) -> Result<()> {
+    // Renaming must not rewrite the old tables' foreign keys, which get dropped with them.
+    conn.pragma_update(None, "foreign_keys", false)?;
+    conn.pragma_update(None, "legacy_alter_table", true)?;
+    let result = (|| {
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let before: Vec<i64> = ["accounts", "folders", "messages"]
+            .iter()
+            .map(|t| count(&tx, &format!("SELECT count(*) FROM {t}"), []))
+            .collect::<Result<_>>()?;
+        tx.execute_batch(
+            "DROP TRIGGER IF EXISTS messages_fts_delete;
+             DROP INDEX IF EXISTS messages_by_date;
+             ALTER TABLE accounts RENAME TO v0_accounts;
+             ALTER TABLE folders RENAME TO v0_folders;
+             ALTER TABLE messages RENAME TO v0_messages;",
+        )?;
+        tx.execute_batch(SCHEMA)?;
+        tx.execute(
+            "INSERT INTO accounts (id, user_id, position, data)
+             SELECT id, ?1, position, data FROM v0_accounts",
+            [LOCAL_USER],
+        )?;
+        tx.execute(
+            "INSERT INTO folders (id, user_id, account_id, kind, name, uidvalidity, uidnext, highestmodseq)
+             SELECT id, ?1, account_id, kind, name, uidvalidity, uidnext, highestmodseq FROM v0_folders",
+            [LOCAL_USER],
+        )?;
+        tx.execute(
+            &format!(
+                "INSERT INTO messages (pk, user_id, id, folder_id, {MESSAGE_COLUMNS})
+                 SELECT pk, ?1, id, folder_id, {MESSAGE_COLUMNS} FROM v0_messages"
+            ),
+            [LOCAL_USER],
+        )?;
+        let after: Vec<i64> = ["accounts", "folders", "messages"]
+            .iter()
+            .map(|t| count(&tx, &format!("SELECT count(*) FROM {t}"), []))
+            .collect::<Result<_>>()?;
+        if before != after {
+            return Err(err(
+                ErrorCode::Storage,
+                format!("row counts changed from {before:?} to {after:?}"),
+            ));
+        }
+        tx.execute_batch("DROP TABLE v0_messages; DROP TABLE v0_folders; DROP TABLE v0_accounts;")?;
+        let broken: Option<String> = tx
+            .query_row("PRAGMA foreign_key_check", [], |r| r.get(0))
+            .optional()?;
+        if let Some(table) = broken {
+            return Err(err(
+                ErrorCode::Storage,
+                format!("a row in {table} lost its parent"),
+            ));
+        }
+        tx.commit()?;
+        Ok(())
+    })();
+    conn.pragma_update(None, "legacy_alter_table", false)?;
+    result
+}
+
+fn import(conn: &mut Connection, user: i64) -> Result<ImportCounts> {
+    let check: String = conn.query_row("PRAGMA legacy.quick_check", [], |r| r.get(0))?;
+    if check != "ok" {
+        return Err(err(
+            ErrorCode::Storage,
+            format!("the file is damaged (SQLite quick_check: {check})"),
+        ));
+    }
+    for table in ["accounts", "folders", "messages", "messages_fts"] {
+        if !has_table(conn, "legacy", table)? {
+            return Err(err(
+                ErrorCode::Storage,
+                format!("not an nsh-mail database: it has no {table} table"),
+            ));
+        }
+    }
+    if has_column(conn, "legacy", "accounts", "user_id")? {
+        return Err(err(
+            ErrorCode::Storage,
+            "the file already has the multi-user layout; it is not an old per-user database",
+        ));
+    }
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let present = count(
+        &tx,
+        "SELECT EXISTS (SELECT 1 FROM main.accounts WHERE user_id = ?1)
+             OR EXISTS (SELECT 1 FROM main.messages WHERE user_id = ?1)",
+        [user],
+    )? == 1;
+    if !present {
+        copy_legacy(&tx, user)?;
+    }
+    let counts = verify_legacy(&tx, user).map_err(|e| match present {
+        true => err(
+            e.code,
+            format!(
+                "user {user} already has mail in the database that differs from this file: {}",
+                e.message
+            ),
+        ),
+        false => e,
+    })?;
+    tx.commit()?;
+    Ok(counts)
+}
+
+fn copy_legacy(tx: &Connection, user: i64) -> Result<()> {
+    tx.execute(
+        "INSERT INTO main.accounts (id, user_id, position, data)
+         SELECT id, ?1, position, data FROM legacy.accounts",
+        [user],
+    )?;
+    tx.execute(
+        "INSERT INTO main.folders (user_id, account_id, kind, name, uidvalidity, uidnext, highestmodseq)
+         SELECT ?1, account_id, kind, name, uidvalidity, uidnext, highestmodseq FROM legacy.folders
+         ORDER BY id",
+        [user],
+    )?;
+    let source_columns = MESSAGE_COLUMNS
+        .split(", ")
+        .map(|c| format!("s.{c}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    tx.execute(
+        &format!(
+            "INSERT INTO main.messages (user_id, id, folder_id, {MESSAGE_COLUMNS})
+             SELECT ?1, s.id, f.id, {source_columns}
+             FROM legacy.messages s
+             JOIN legacy.folders lf ON lf.id = s.folder_id
+             JOIN main.folders f ON f.user_id = ?1 AND f.account_id = lf.account_id AND f.kind = lf.kind
+             ORDER BY s.pk"
+        ),
+        [user],
+    )?;
+    // A contentless FTS5 table cannot be read back, so the index is rebuilt from the same text
+    // the engine indexes: the cached body's text, or the snippet when no body is cached.
+    let mut stmt = tx.prepare(
+        "SELECT pk, subject, from_addr, to_addrs, cc_addrs, snippet, body
+         FROM main.messages WHERE user_id = ?1",
+    )?;
+    let mut rows = stmt.query([user])?;
+    while let Some(r) = rows.next()? {
+        let body: Option<Vec<u8>> = r.get(6)?;
+        let text = match body {
+            Some(raw) => crate::mime::parse_body(&raw).index_text,
+            None => r.get(5)?,
+        };
+        index_stored(
+            tx,
+            r.get(0)?,
+            &r.get::<_, String>(1)?,
+            r.get(2)?,
+            &r.get::<_, String>(3)?,
+            &r.get::<_, String>(4)?,
+            &text,
+        )?;
+    }
+    Ok(())
+}
+
+fn verify_legacy(tx: &Connection, user: i64) -> Result<ImportCounts> {
+    let pairs = [
+        (
+            "accounts",
+            "SELECT count(*) FROM legacy.accounts",
+            "SELECT count(*) FROM main.accounts WHERE user_id = ?1",
+        ),
+        (
+            "folders",
+            "SELECT count(*) FROM legacy.folders",
+            "SELECT count(*) FROM main.folders WHERE user_id = ?1",
+        ),
+        (
+            "messages",
+            "SELECT count(*) FROM legacy.messages",
+            "SELECT count(*) FROM main.messages WHERE user_id = ?1",
+        ),
+        (
+            "search index entries",
+            "SELECT count(*) FROM legacy.messages_fts",
+            "SELECT count(*) FROM main.messages_fts
+             WHERE rowid IN (SELECT pk FROM main.messages WHERE user_id = ?1)",
+        ),
+    ];
+    let mut n = [0i64; 4];
+    for (i, (what, source, imported)) in pairs.iter().enumerate() {
+        let (a, b) = (count(tx, source, [])?, count(tx, imported, [user])?);
+        if a != b {
+            return Err(err(
+                ErrorCode::Storage,
+                format!("{what}: the file has {a}, the import has {b}"),
+            ));
+        }
+        n[i] = a;
+    }
+    let same_message = MESSAGE_COLUMNS
+        .split(", ")
+        .map(|c| format!("m.{c} IS s.{c}"))
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let mismatches = [
+        (
+            "accounts",
+            "SELECT count(*) FROM legacy.accounts s WHERE NOT EXISTS (
+                SELECT 1 FROM main.accounts a
+                WHERE a.id = s.id AND a.user_id = ?1 AND a.position IS s.position AND a.data IS s.data)"
+                .to_string(),
+        ),
+        (
+            "folders",
+            "SELECT count(*) FROM legacy.folders s WHERE NOT EXISTS (
+                SELECT 1 FROM main.folders f
+                WHERE f.account_id = s.account_id AND f.kind = s.kind AND f.user_id = ?1
+                  AND f.name IS s.name AND f.uidvalidity IS s.uidvalidity
+                  AND f.uidnext IS s.uidnext AND f.highestmodseq IS s.highestmodseq)"
+                .to_string(),
+        ),
+        (
+            "messages",
+            format!(
+                "SELECT count(*) FROM legacy.messages s JOIN legacy.folders lf ON lf.id = s.folder_id
+                 WHERE NOT EXISTS (
+                    SELECT 1 FROM main.messages m JOIN main.folders f ON f.id = m.folder_id
+                    WHERE m.id = s.id AND m.user_id = ?1
+                      AND f.account_id = lf.account_id AND f.kind = lf.kind AND {same_message})"
+            ),
+        ),
+    ];
+    for (what, sql) in mismatches {
+        let bad = count(tx, &sql, [user])?;
+        if bad > 0 {
+            return Err(err(
+                ErrorCode::Storage,
+                format!("{bad} {what} differ between the file and the import"),
+            ));
+        }
+    }
+    Ok(ImportCounts {
+        accounts: n[0],
+        folders: n[1],
+        messages: n[2],
+        indexed: n[3],
+    })
+}
+
+/// Adds a message's search entry under `pk`.
+fn index(
+    conn: &Connection,
+    pk: i64,
+    subject: &str,
+    from: &str,
+    to: &str,
+    text: &str,
+) -> Result<()> {
+    conn.prepare_cached(
+        "INSERT INTO messages_fts (rowid, subject, from_text, to_text, body) VALUES (?1, ?2, ?3, ?4, ?5)",
+    )?
+    .execute(params![pk, fts_text(subject), fts_text(from), fts_text(to), fts_text(text)])?;
+    Ok(())
+}
+
+/// [`index`] from the stored JSON address columns.
+fn index_stored(
+    conn: &Connection,
+    pk: i64,
+    subject: &str,
+    from: Option<String>,
+    to: &str,
+    cc: &str,
+    text: &str,
+) -> Result<()> {
+    let from: Option<Address> = from.map(|f| serde_json::from_str(&f)).transpose()?;
+    let to: Vec<Address> = serde_json::from_str(to)?;
+    let cc: Vec<Address> = serde_json::from_str(cc)?;
+    index(
+        conn,
+        pk,
+        subject,
+        &addresses_text(from.iter()),
+        &addresses_text(to.iter().chain(&cc)),
+        text,
+    )
+}
+
+impl Store {
     /// Runs store work on tokio's blocking pool so SQLite never stalls an async worker.
     pub async fn run<T: Send + 'static>(
         self: &Arc<Self>,
@@ -137,32 +546,34 @@ impl Store {
     }
 
     fn conn(&self) -> MutexGuard<'_, Connection> {
-        // A panic while holding the lock cannot leave SQLite inconsistent (transactions roll back).
-        self.conn.lock().unwrap_or_else(|e| e.into_inner())
+        lock(&self.conn)
     }
 
     pub fn insert_account(&self, account: &Account) -> Result<()> {
         self.conn().execute(
-            "INSERT INTO accounts (id, position, data)
-             VALUES (?1, (SELECT IFNULL(MAX(position), 0) + 1 FROM accounts), ?2)",
-            params![account.id, serde_json::to_string(account)?],
+            "INSERT INTO accounts (user_id, id, position, data)
+             VALUES (?1, ?2, (SELECT IFNULL(MAX(position), 0) + 1 FROM accounts WHERE user_id = ?1), ?3)",
+            params![self.user, account.id, serde_json::to_string(account)?],
         )?;
         Ok(())
     }
 
     pub fn accounts(&self) -> Result<Vec<Account>> {
         let conn = self.conn();
-        let mut stmt = conn.prepare("SELECT data FROM accounts ORDER BY position")?;
-        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        let mut stmt =
+            conn.prepare("SELECT data FROM accounts WHERE user_id = ?1 ORDER BY position")?;
+        let rows = stmt.query_map([self.user], |r| r.get::<_, String>(0))?;
         rows.map(|r| Ok(serde_json::from_str(&r?)?)).collect()
     }
 
     pub fn account(&self, id: &str) -> Result<Account> {
         let data: Option<String> = self
             .conn()
-            .query_row("SELECT data FROM accounts WHERE id = ?1", [id], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT data FROM accounts WHERE user_id = ?1 AND id = ?2",
+                params![self.user, id],
+                |r| r.get(0),
+            )
             .optional()?;
         match data {
             Some(d) => Ok(serde_json::from_str(&d)?),
@@ -171,17 +582,20 @@ impl Store {
     }
 
     pub fn delete_account(&self, id: &str) -> Result<()> {
-        self.conn()
-            .execute("DELETE FROM accounts WHERE id = ?1", [id])?;
+        self.conn().execute(
+            "DELETE FROM accounts WHERE user_id = ?1 AND id = ?2",
+            params![self.user, id],
+        )?;
         Ok(())
     }
 
     pub fn folders(&self, account_id: &str) -> Result<Vec<FolderRow>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, kind, name, uidvalidity, uidnext, highestmodseq FROM folders WHERE account_id = ?1",
+            "SELECT id, kind, name, uidvalidity, uidnext, highestmodseq FROM folders
+             WHERE user_id = ?1 AND account_id = ?2",
         )?;
-        let rows = stmt.query_map([account_id], folder_row)?;
+        let rows = stmt.query_map(params![self.user, account_id], folder_row)?;
         Ok(rows
             .collect::<rusqlite::Result<Vec<_>>>()?
             .into_iter()
@@ -201,11 +615,26 @@ impl Store {
     pub fn set_folders(&self, account_id: &str, folders: &[(FolderKind, String)]) -> Result<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
+        let user = self.user;
+        // The account must be this user's before folders are added under it.
+        let owned: Option<i64> = tx
+            .query_row(
+                "SELECT 1 FROM accounts WHERE user_id = ?1 AND id = ?2",
+                params![user, account_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if owned.is_none() {
+            return Err(err(
+                ErrorCode::NotFound,
+                format!("no account with id {account_id}"),
+            ));
+        }
         for kind in FolderKind::ALL {
             let existing: Option<(i64, String)> = tx
                 .query_row(
-                    "SELECT id, name FROM folders WHERE account_id = ?1 AND kind = ?2",
-                    params![account_id, kind.as_str()],
+                    "SELECT id, name FROM folders WHERE user_id = ?1 AND account_id = ?2 AND kind = ?3",
+                    params![user, account_id, kind.as_str()],
                     |r| Ok((r.get(0)?, r.get(1)?)),
                 )
                 .optional()?;
@@ -216,20 +645,26 @@ impl Store {
             match (existing, wanted) {
                 (Some((_, old)), Some(name)) if old == name => {}
                 (Some((id, _)), Some(name)) => {
-                    tx.execute("DELETE FROM messages WHERE folder_id = ?1", [id])?;
                     tx.execute(
-                        "UPDATE folders SET name = ?2, uidvalidity = NULL, uidnext = NULL, highestmodseq = NULL
-                         WHERE id = ?1",
-                        params![id, name],
+                        "DELETE FROM messages WHERE user_id = ?1 AND folder_id = ?2",
+                        params![user, id],
+                    )?;
+                    tx.execute(
+                        "UPDATE folders SET name = ?3, uidvalidity = NULL, uidnext = NULL, highestmodseq = NULL
+                         WHERE user_id = ?1 AND id = ?2",
+                        params![user, id, name],
                     )?;
                 }
                 (Some((id, _)), None) => {
-                    tx.execute("DELETE FROM folders WHERE id = ?1", [id])?;
+                    tx.execute(
+                        "DELETE FROM folders WHERE user_id = ?1 AND id = ?2",
+                        params![user, id],
+                    )?;
                 }
                 (None, Some(name)) => {
                     tx.execute(
-                        "INSERT INTO folders (account_id, kind, name) VALUES (?1, ?2, ?3)",
-                        params![account_id, kind.as_str(), name],
+                        "INSERT INTO folders (user_id, account_id, kind, name) VALUES (?1, ?2, ?3, ?4)",
+                        params![user, account_id, kind.as_str(), name],
                     )?;
                 }
                 (None, None) => {}
@@ -241,8 +676,10 @@ impl Store {
 
     pub fn set_folder_state(&self, folder: &FolderRow) -> Result<()> {
         self.conn().execute(
-            "UPDATE folders SET uidvalidity = ?2, uidnext = ?3, highestmodseq = ?4 WHERE id = ?1",
+            "UPDATE folders SET uidvalidity = ?3, uidnext = ?4, highestmodseq = ?5
+             WHERE user_id = ?1 AND id = ?2",
             params![
+                self.user,
                 folder.id,
                 folder.uidvalidity,
                 folder.uidnext,
@@ -253,8 +690,10 @@ impl Store {
     }
 
     pub fn clear_folder(&self, folder_id: i64) -> Result<()> {
-        self.conn()
-            .execute("DELETE FROM messages WHERE folder_id = ?1", [folder_id])?;
+        self.conn().execute(
+            "DELETE FROM messages WHERE user_id = ?1 AND folder_id = ?2",
+            params![self.user, folder_id],
+        )?;
         Ok(())
     }
 
@@ -264,18 +703,17 @@ impl Store {
         let tx = conn.transaction()?;
         let mut inserted = Vec::new();
         {
-            let mut insert = tx.prepare(
-                "INSERT INTO messages (id, folder_id, uid, date, from_addr, to_addrs, cc_addrs, subject,
-                     snippet, message_id, in_reply_to, refs, seen, flagged, has_attachments, size, body)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
-                 ON CONFLICT (folder_id, uid) DO NOTHING",
-            )?;
-            let mut fts = tx.prepare(
-                "INSERT INTO messages_fts (rowid, subject, from_text, to_text, body) VALUES (?1, ?2, ?3, ?4, ?5)",
-            )?;
+            // Selecting the folder through `user_id` makes a folder of another user insert nothing.
+            let mut insert = tx.prepare(&format!(
+                "INSERT INTO messages (user_id, id, folder_id, {MESSAGE_COLUMNS})
+                 SELECT ?1, ?2, id, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
+                 FROM folders WHERE user_id = ?1 AND id = ?3
+                 ON CONFLICT (folder_id, uid) DO NOTHING"
+            ))?;
             for m in messages {
                 let id = new_id();
                 let n = insert.execute(params![
+                    self.user,
                     id,
                     folder_id,
                     m.uid,
@@ -297,14 +735,14 @@ impl Store {
                 if n == 0 {
                     continue;
                 }
-                let pk = tx.last_insert_rowid();
-                fts.execute(params![
-                    pk,
-                    fts_text(&m.subject),
-                    fts_text(&addresses_text(m.from.iter())),
-                    fts_text(&addresses_text(m.to.iter().chain(&m.cc))),
-                    fts_text(m.index_text.as_deref().unwrap_or(&m.snippet)),
-                ])?;
+                index(
+                    &tx,
+                    tx.last_insert_rowid(),
+                    &m.subject,
+                    &addresses_text(m.from.iter()),
+                    &addresses_text(m.to.iter().chain(&m.cc)),
+                    m.index_text.as_deref().unwrap_or(&m.snippet),
+                )?;
                 inserted.push(id);
             }
         }
@@ -315,9 +753,10 @@ impl Store {
 
     pub fn uids(&self, folder_id: i64) -> Result<Vec<u32>> {
         let conn = self.conn();
-        let mut stmt =
-            conn.prepare("SELECT uid FROM messages WHERE folder_id = ?1 ORDER BY uid")?;
-        let rows = stmt.query_map([folder_id], |r| r.get(0))?;
+        let mut stmt = conn.prepare(
+            "SELECT uid FROM messages WHERE user_id = ?1 AND folder_id = ?2 ORDER BY uid",
+        )?;
+        let rows = stmt.query_map(params![self.user, folder_id], |r| r.get(0))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -328,11 +767,11 @@ impl Store {
         let mut changed = 0;
         {
             let mut stmt = tx.prepare(
-                "UPDATE messages SET seen = ?3, flagged = ?4
-                 WHERE folder_id = ?1 AND uid = ?2 AND (seen != ?3 OR flagged != ?4)",
+                "UPDATE messages SET seen = ?4, flagged = ?5
+                 WHERE user_id = ?1 AND folder_id = ?2 AND uid = ?3 AND (seen != ?4 OR flagged != ?5)",
             )?;
             for (uid, seen, flagged) in flags {
-                changed += stmt.execute(params![folder_id, uid, seen, flagged])?;
+                changed += stmt.execute(params![self.user, folder_id, uid, seen, flagged])?;
             }
         }
         tx.commit()?;
@@ -343,9 +782,11 @@ impl Store {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         {
-            let mut stmt = tx.prepare("DELETE FROM messages WHERE folder_id = ?1 AND uid = ?2")?;
+            let mut stmt = tx.prepare(
+                "DELETE FROM messages WHERE user_id = ?1 AND folder_id = ?2 AND uid = ?3",
+            )?;
             for uid in uids {
-                stmt.execute(params![folder_id, uid])?;
+                stmt.execute(params![self.user, folder_id, uid])?;
             }
         }
         tx.commit()?;
@@ -354,8 +795,9 @@ impl Store {
 
     pub fn set_local_flags(&self, id: &str, flags: Flags) -> Result<()> {
         self.conn().execute(
-            "UPDATE messages SET seen = IFNULL(?2, seen), flagged = IFNULL(?3, flagged) WHERE id = ?1",
-            params![id, flags.seen, flags.flagged],
+            "UPDATE messages SET seen = IFNULL(?3, seen), flagged = IFNULL(?4, flagged)
+             WHERE user_id = ?1 AND id = ?2",
+            params![self.user, id, flags.seen, flags.flagged],
         )?;
         Ok(())
     }
@@ -366,28 +808,19 @@ impl Store {
         let tx = conn.transaction()?;
         let (pk, subject, from, to, cc): (i64, String, Option<String>, String, String) = tx
             .query_row(
-                "SELECT pk, subject, from_addr, to_addrs, cc_addrs FROM messages WHERE id = ?1",
-                [id],
+                "SELECT pk, subject, from_addr, to_addrs, cc_addrs FROM messages
+                 WHERE user_id = ?1 AND id = ?2",
+                params![self.user, id],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
-            )?;
+            )
+            .optional()?
+            .ok_or_else(|| not_found(id))?;
         tx.execute(
-            "UPDATE messages SET body = ?2, has_attachments = ?3 WHERE pk = ?1",
-            params![pk, raw, has_attachments],
+            "UPDATE messages SET body = ?3, has_attachments = ?4 WHERE user_id = ?1 AND pk = ?2",
+            params![self.user, pk, raw, has_attachments],
         )?;
-        let from: Option<Address> = from.map(|f| serde_json::from_str(&f)).transpose()?;
-        let to: Vec<Address> = serde_json::from_str(&to)?;
-        let cc: Vec<Address> = serde_json::from_str(&cc)?;
         tx.execute("DELETE FROM messages_fts WHERE rowid = ?1", [pk])?;
-        tx.execute(
-            "INSERT INTO messages_fts (rowid, subject, from_text, to_text, body) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                pk,
-                fts_text(&subject),
-                fts_text(&addresses_text(from.iter())),
-                fts_text(&addresses_text(to.iter().chain(&cc))),
-                fts_text(text),
-            ],
-        )?;
+        index_stored(&tx, pk, &subject, from, &to, &cc, text)?;
         tx.commit()?;
         Ok(())
     }
@@ -395,8 +828,11 @@ impl Store {
     pub fn summary(&self, id: &str) -> Result<Summary> {
         self.conn()
             .query_row(
-                &format!("SELECT {SUMMARY_COLUMNS} FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.id = ?1"),
-                [id],
+                &format!(
+                    "SELECT {SUMMARY_COLUMNS} FROM messages m JOIN folders f ON f.id = m.folder_id
+                     WHERE m.user_id = ?1 AND m.id = ?2"
+                ),
+                params![self.user, id],
                 summary_row,
             )
             .optional()?
@@ -408,9 +844,10 @@ impl Store {
             .query_row(
                 &format!(
                     "SELECT {SUMMARY_COLUMNS}, f.name, m.uid, m.cc_addrs, m.message_id, m.in_reply_to, m.refs, m.body
-                     FROM messages m JOIN folders f ON f.id = m.folder_id WHERE m.id = ?1"
+                     FROM messages m JOIN folders f ON f.id = m.folder_id
+                     WHERE m.user_id = ?1 AND m.id = ?2"
                 ),
-                [id],
+                params![self.user, id],
                 |r| {
                     Ok(StoredMessage {
                         summary: summary_row(r)?,
@@ -433,9 +870,11 @@ impl Store {
         let conn = self.conn();
         let cursor: Option<(i64, i64)> = match &q.before {
             Some(id) => Some(
-                conn.query_row("SELECT date, pk FROM messages WHERE id = ?1", [id], |r| {
-                    Ok((r.get(0)?, r.get(1)?))
-                })
+                conn.query_row(
+                    "SELECT date, pk FROM messages WHERE user_id = ?1 AND id = ?2",
+                    params![self.user, id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
                 .optional()?
                 .ok_or_else(|| not_found(id))?,
             ),
@@ -443,12 +882,14 @@ impl Store {
         };
         let mut stmt = conn.prepare(&format!(
             "SELECT {SUMMARY_COLUMNS} FROM messages m JOIN folders f ON f.id = m.folder_id
-             WHERE f.kind = ?1 AND (?2 IS NULL OR f.account_id = ?2)
-               AND (?3 IS NULL OR m.date < ?3 OR (m.date = ?3 AND m.pk < ?4))
-             ORDER BY m.date DESC, m.pk DESC LIMIT ?5"
+             WHERE m.user_id = ?1 AND f.user_id = ?1 AND f.kind = ?2
+               AND (?3 IS NULL OR f.account_id = ?3)
+               AND (?4 IS NULL OR m.date < ?4 OR (m.date = ?4 AND m.pk < ?5))
+             ORDER BY m.date DESC, m.pk DESC LIMIT ?6"
         ))?;
         let rows = stmt.query_map(
             params![
+                self.user,
                 q.folder.as_str(),
                 q.account,
                 cursor.map(|c| c.0),
@@ -465,9 +906,10 @@ impl Store {
         let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT f.account_id, COUNT(*) FROM messages m JOIN folders f ON f.id = m.folder_id
-             WHERE f.kind = 'inbox' AND m.seen = 0 GROUP BY f.account_id",
+             WHERE m.user_id = ?1 AND f.user_id = ?1 AND f.kind = 'inbox' AND m.seen = 0
+             GROUP BY f.account_id",
         )?;
-        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let rows = stmt.query_map([self.user], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -479,9 +921,10 @@ impl Store {
         let mut stmt = conn.prepare(&format!(
             "SELECT {SUMMARY_COLUMNS} FROM messages_fts s
              JOIN messages m ON m.pk = s.rowid JOIN folders f ON f.id = m.folder_id
-             WHERE messages_fts MATCH ?1 ORDER BY m.date DESC, m.pk DESC LIMIT ?2"
+             WHERE messages_fts MATCH ?2 AND m.user_id = ?1
+             ORDER BY m.date DESC, m.pk DESC LIMIT ?3"
         ))?;
-        let rows = stmt.query_map(params![query, limit.clamp(1, 500)], summary_row)?;
+        let rows = stmt.query_map(params![self.user, query, limit.clamp(1, 500)], summary_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 }
