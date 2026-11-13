@@ -202,6 +202,16 @@ for mode in ("light", "dark"):
         wait("id:results")
         back()  # the keyboard
         shot(f"{mode}-search-results")
+        # A mail laid out for 600px fits the phone's width.
+        if tap("id:search"):
+            adb("shell", "input", "keyevent", "123", *["67"] * 8)  # end, then delete "roadmap"
+            adb("shell", "input", "text", "receipt")
+            wait("id:results")
+            back()
+            if tap("Your receipt from Fastmail"):
+                wait("id:reader")
+                shot(f"{mode}-reader-fit")
+                back()
 
     if tap("Mailboxes"):
         wait("id:mailbox-all")
