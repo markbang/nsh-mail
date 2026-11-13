@@ -43,6 +43,18 @@ def matches(n, key):
     return key in (text, desc)
 
 
+def settled(key, tries=10):
+    """`key`'s bounds once they stop moving: a cold start on a slow emulator is still sliding in."""
+    last = bounds(key)
+    for _ in range(tries):
+        time.sleep(1)
+        now = bounds(key)
+        if now == last:
+            return now
+        last = now
+    return last
+
+
 def bounds(key, timeout=20):
     end = time.time() + timeout
     while time.time() < end:
@@ -142,7 +154,7 @@ for mode in ("light", "dark"):
     shot(f"{mode}-inbox")
 
     # Swipe the first row right: Archive, with Undo. Swipes start mid-row: the screen's edges are the system's back gesture.
-    row = bounds("id:message-.*")
+    row = settled("id:message-.*")
     if row:
         x1, y1, x2, y2 = row
         y = (y1 + y2) // 2
