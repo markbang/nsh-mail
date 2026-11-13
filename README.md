@@ -10,6 +10,8 @@ A unified inbox for all your mail accounts, built with [Native Shell](https://ns
 |---|---|
 | <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/markbang/nsh-mail/screenshots/main/web-reader-dark.png"><img src="https://raw.githubusercontent.com/markbang/nsh-mail/screenshots/main/web-reader-light.png" alt="Reader" width="100%"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/markbang/nsh-mail/screenshots/main/web-compose-dark.png"><img src="https://raw.githubusercontent.com/markbang/nsh-mail/screenshots/main/web-compose-light.png" alt="Compose" width="100%"></picture> |
 
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/markbang/nsh-mail/screenshots/main/android-inbox-dark.png"><img src="https://raw.githubusercontent.com/markbang/nsh-mail/screenshots/main/android-inbox-light.png" alt="Android inbox" width="270"></picture> <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/markbang/nsh-mail/screenshots/main/android-reader-dark.png"><img src="https://raw.githubusercontent.com/markbang/nsh-mail/screenshots/main/android-reader-light.png" alt="Android reader" width="270"></picture>
+
 <sub>Screenshots are taken by CI from main ([tools/screenshots](tools/screenshots)).</sub>
 
 Design: [docs/design.md](docs/design.md)
