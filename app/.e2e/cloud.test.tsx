@@ -16,6 +16,7 @@ async function signUp(email: string) {
   await app.waitFor("id:onboarding");
   await app.press("id:mode-cloud");
   await app.press("text:Create account");
+  await app.clear("id:server");
   await app.type("id:server", server);
   await app.type("id:cloud-email", email);
   await app.type("id:cloud-password", "correct horse battery");
