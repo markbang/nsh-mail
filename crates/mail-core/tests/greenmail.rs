@@ -142,7 +142,10 @@ async fn sync_send_search_flags_and_pagination() {
     let first = engine.get(&page2[0].id).await.unwrap();
     assert!(first.text.as_deref().unwrap().contains("body 0"));
     let html = first.html.as_deref().unwrap();
-    assert_eq!(html, r#"<p>hi<img src="https://tracker.example/p.gif"></p>"#);
+    assert_eq!(
+        html,
+        r#"<p>hi<img src="https://tracker.example/p.gif"></p>"#
+    );
     assert_eq!(first.remote_images, ["https://tracker.example/p.gif"]);
 
     // Flags round-trip through the server: a second engine with an empty database sees them.
