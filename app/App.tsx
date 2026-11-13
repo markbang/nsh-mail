@@ -120,7 +120,8 @@ function App() {
       </If>
       {/* Phones show it over the tab's content (PhoneTabs). */}
       <If when={!(systemHeader && !wide() && isStarted() && mailStatus().mode !== "none")}>
-        <Toasts class={`pb-[env(safe-area-inset-bottom)] ${wide() || systemHeader ? "bottom-6" : "bottom-24"}`} />
+        {/* Above the reader's floating toolbar (wide) and the navigation bar (narrow web), never over them. */}
+        <Toasts class={`pb-[env(safe-area-inset-bottom)] ${!wide() && systemHeader ? "bottom-6" : "bottom-24"}`} />
       </If>
     </View>
   );
