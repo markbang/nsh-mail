@@ -10,6 +10,8 @@ import { tip } from "./tooltip";
 import { Icon, type IconName } from "./icon";
 
 const shapeMorph = "transition-all duration-350 ease-spatial-fast motion-reduce:transition-none";
+// Touch rows only recolor: a moving shape under a finger fights the swipe around them.
+const wash = "transition-colors duration-150 ease-effects-fast motion-reduce:transition-none";
 const rowFocus = "focus-visible:outline-3 focus-visible:outline-secondary focus-visible:-outline-offset-3";
 
 /** The state layer of a row: on-surface at 8% hovered, 10% pressed. */
@@ -47,7 +49,7 @@ export function Row(props: {
         onLongPress={props.onLongPress ? () => props.onLongPress?.() : undefined}
         android={{ ripple: { color: `${token("on-surface").slice(0, 7)}1f` } }}
         testID={props.testID}
-        class={`relative overflow-hidden ${shape()} ios:active:rounded-large ios:active:bg-on-surface/10 ${shapeMorph} ${props.class ?? ""}`}
+        class={`${props.selected ? "bg-secondary-container" : "bg-surface"} ios:active:bg-on-surface/10 ${wash} ${props.class ?? ""}`}
       >
         {props.children}
       </View>
