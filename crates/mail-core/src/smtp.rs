@@ -5,7 +5,7 @@ use std::time::Duration;
 use base64::Engine as _;
 use lettre::message::{Attachment, Mailbox, MultiPart, SinglePart, header::ContentType};
 use lettre::transport::smtp::authentication::{Credentials, Mechanism};
-use lettre::transport::smtp::client::{Tls, TlsParameters};
+use lettre::transport::smtp::client::{Certificate, CertificateStore, Tls, TlsParameters};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor};
 
 use crate::engine::StagedFile;
@@ -18,7 +18,15 @@ pub(crate) enum SmtpAuth {
 }
 
 fn transport(ep: &Endpoint, auth: SmtpAuth) -> Result<AsyncSmtpTransport<Tokio1Executor>> {
-    let tls = TlsParameters::builder(ep.host.clone())
+    // lettre takes no rustls config: the same roots as IMAP, webpki's and the OS's.
+    let mut tls =
+        TlsParameters::builder(ep.host.clone()).certificate_store(CertificateStore::WebpkiRoots);
+    for der in crate::tls::os_roots() {
+        let cert = Certificate::from_der(der.to_vec())
+            .map_err(|e| err(ErrorCode::Tls, format!("system certificate unusable: {e}")))?;
+        tls = tls.add_root_certificate(cert);
+    }
+    let tls = tls
         .dangerous_accept_invalid_certs(crate::tls::insecure())
         .dangerous_accept_invalid_hostnames(crate::tls::insecure())
         .build_rustls()

@@ -1,8 +1,29 @@
-//! One rustls configuration (ring + webpki roots) for IMAP, SMTP and HTTPS.
+//! One rustls configuration (ring; webpki roots plus the OS trust store) for IMAP, SMTP and HTTPS.
 
 use std::sync::{Arc, OnceLock};
 
 use rustls::ClientConfig;
+use rustls::pki_types::CertificateDer;
+
+/// The roots the OS trusts besides the bundled ones, such as a self-hosted server's private CA:
+/// the system store on Windows and macOS; `SSL_CERT_FILE`/`SSL_CERT_DIR` or the distribution's
+/// bundle on Linux; on Android the CAs the user installed, which the app exports to a file it
+/// names in `SSL_CERT_FILE`. Read once per process; certificates rustls cannot use are skipped.
+pub(crate) fn os_roots() -> &'static [CertificateDer<'static>] {
+    static ROOTS: OnceLock<Vec<CertificateDer<'static>>> = OnceLock::new();
+    ROOTS.get_or_init(|| {
+        let found = rustls_native_certs::load_native_certs();
+        for e in &found.errors {
+            tracing::warn!("system certificates: {e}");
+        }
+        let mut check = rustls::RootCertStore::empty();
+        found
+            .certs
+            .into_iter()
+            .filter(|c| check.add(c.clone()).is_ok())
+            .collect()
+    })
+}
 
 pub(crate) fn client_config() -> Arc<ClientConfig> {
     static CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
@@ -10,6 +31,7 @@ pub(crate) fn client_config() -> Arc<ClientConfig> {
         .get_or_init(|| {
             let mut roots = rustls::RootCertStore::empty();
             roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            roots.add_parsable_certificates(os_roots().iter().cloned());
             let builder = ClientConfig::builder_with_provider(provider())
                 .with_safe_default_protocol_versions()
                 .expect("ring supports the default TLS versions");

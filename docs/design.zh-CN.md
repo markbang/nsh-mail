@@ -187,7 +187,7 @@ Android 宿主（`android/`，用法见其 README）：
 - **OAuth 优先**：Gmail 和 Outlook 只引导 OAuth（XOAUTH2）。本地模式在客户端做授权码 + PKCE，回调用回环地址 `http://127.0.0.1:<随机端口>`（Google "桌面应用"客户端、Microsoft 公共客户端都支持，Android 也可用）；云端模式由服务端做 Web 流程。Google 范围 `https://mail.google.com/`，Microsoft 范围 `IMAP.AccessAsUser.All SMTP.Send offline_access`；两家都另加 `openid email`，从 ID token 取账号邮箱。客户端 ID 在构建时注入（`NSHMAIL_GOOGLE_CLIENT_ID`、`NSHMAIL_MS_CLIENT_ID`）。
 - **普通 IMAP**：只接受应用专用密码（界面说明怎样生成，并给常见服务商的链接）；QQ、163、iCloud、Fastmail、Yahoo 等预设服务器。
 - **凭据存储**：Windows 凭据管理器、Linux Secret Service（`keyring` crate）；没有 Secret Service 的 Linux 会话退回应用私有目录下 0600 的加密文件并提示。Android v1 存应用私有目录（系统沙箱隔离）的加密文件，Gradle 宿主就位后改用 Android Keystore。
-- **传输**：只允许 TLS（993/465 或 STARTTLS），拒绝明文；rustls + webpki 根证书。
+- **传输**：只允许 TLS（993/465 或 STARTTLS），拒绝明文；rustls，信任内置的 webpki 根证书，外加系统信任库（`rustls-native-certs`：Windows 用系统证书库，Linux 用 `SSL_CERT_FILE`/`SSL_CERT_DIR` 或发行版的证书包；Android 由 `MainActivity` 把用户安装的 CA 导出到文件，并通过 `SSL_CERT_FILE` 指向它），所以自建服务器用私有 CA 时，只要在设备上装好这个 CA 就能连。没有"接受无效证书"的选项。
 - **邮件内容**：HTML 在 mail-core 里用 ammonia 清洗一次（去掉脚本、事件属性、`javascript:`、表单、iframe/object/embed、`<meta>`/`<link>`/`<base>`；保留 `<style>`、`style`/`class` 和表格排版属性），`cid:` 内嵌图片换成 `data:` URI（每封合计 10 MB 内）。客户端用 NSH `WebView` 显示（Web 上是不带 `allow-scripts` 的 sandbox iframe，原生关闭 JS、`incognito`），文档里的 CSP 默认挡住所有远程资源（图片、CSS `url()`、字体），用户点“显示图片”才放开。`nsh.json` 的 `capabilities.webview.hosts` 为空：WebView 里的链接导航被原生拒绝并以 `onError` 报回，客户端交给系统浏览器打开；Web 上靠 `<base target="_blank">` 开新标签页。HTML 放在浅色卡片里（`color-scheme: light`），深色模式不反色。没有 HTML 部分的邮件、没有 Web 引擎的平台（Linux 缺 WebKitGTK 6.0、Windows 缺 WebView2）显示纯文本。
 - **附件**：Web 上只有图片和 PDF 以原类型的 blob 在新标签页打开，其余一律以 `application/octet-stream` 下载，防止 HTML/SVG 附件在本站源下运行；服务端附件接口同样带 `Content-Security-Policy: sandbox`。
 - **日志**：不记录凭据、token 和正文。
