@@ -128,6 +128,10 @@ def launch():
 apk = sorted(glob.glob(os.path.join(apk_dir, "*.apk")))[0]
 adb("install", "-r", "-g", apk)
 adb("shell", "settings", "put", "system", "font_scale", "1.0")
+# The idle launcher behind the app sometimes stops responding on a loaded runner, and its
+# dialog then covers the app every few seconds: take the launcher out and hide such dialogs.
+adb("shell", "settings", "put", "global", "hide_error_dialogs", "1")
+adb("shell", "pm", "disable-user", "--user", "0", "com.google.android.apps.nexuslauncher", check=False)
 size = adb("shell", "wm", "size").split()[-1]
 w, h = map(int, size.split("x"))
 
