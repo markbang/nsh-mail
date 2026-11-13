@@ -45,7 +45,7 @@ export function PageHeader(props: { title: string; actions?: JSX.Element; leadin
       >
         {props.leading}
       </If>
-      <Text role="header" class={`line-clamp-1 flex-1 px-2 font-semibold text-foreground ${touch ? "text-large" : "text-small"}`}>
+      <Text role="header" class={`line-clamp-1 flex-1 px-2 font-semibold text-foreground ${touch || nav.modal ? "text-large" : "text-small"}`}>
         {props.title}
       </Text>
       <View class="flex-row items-center gap-1">{props.actions}</View>
