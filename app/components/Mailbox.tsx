@@ -3,6 +3,7 @@ import { View } from "nsh";
 import { t } from "nsh/i18n";
 import { Button, Empty, LoadingIndicator } from "../ui";
 import { MessageList } from "./MessageList";
+import { ScheduledList } from "./ScheduledList";
 import {
   accountName,
   accounts,
@@ -57,54 +58,56 @@ export function MailboxList(props: { onOpen: (row: Row) => void; onAddAccount: (
     <If
       when={searching()}
       else={
-        <MessageList
-          items={rows()}
-          selectedId={props.highlight ? selectedKey() : null}
-          onOpen={open(rows)}
-          refreshing={listStatus() === "refreshing"}
-          onRefresh={() => void refresh()}
-          onLoadMore={() => void loadMore()}
-          loadingMore={listStatus() === "more" || (hasMore() && rows().length > 0 && listStatus() !== "loading")}
-          showAccount={mailbox().account === null}
-          showRecipients={mailbox().folder === "sent" || mailbox().folder === "drafts"}
-          testID="messages"
-          onArchive={props.touchActions && folder() !== "archive" && folder() !== "trash" ? move("archive") : undefined}
-          onDelete={props.touchActions && folder() !== "trash" ? move("trash") : undefined}
-          picked={isPicked}
-          picking={!!props.touchActions && picking()}
-          onPick={props.touchActions ? (id) => togglePicked(id) : undefined}
-          empty={
-            <If
-              when={listStatus() !== "loading"}
-              else={
-                <View class="flex-1 items-center justify-center p-8">
-                  <LoadingIndicator label={t("reader.loading")} contained />
-                </View>
-              }
-            >
+        <If when={folder() !== "scheduled"} else={<ScheduledList />}>
+          <MessageList
+            items={rows()}
+            selectedId={props.highlight ? selectedKey() : null}
+            onOpen={open(rows)}
+            refreshing={listStatus() === "refreshing"}
+            onRefresh={() => void refresh()}
+            onLoadMore={() => void loadMore()}
+            loadingMore={listStatus() === "more" || (hasMore() && rows().length > 0 && listStatus() !== "loading")}
+            showAccount={mailbox().account === null}
+            showRecipients={mailbox().folder === "sent" || mailbox().folder === "drafts"}
+            testID="messages"
+            onArchive={props.touchActions && folder() !== "archive" && folder() !== "trash" ? move("archive") : undefined}
+            onDelete={props.touchActions && folder() !== "trash" ? move("trash") : undefined}
+            picked={isPicked}
+            picking={!!props.touchActions && picking()}
+            onPick={props.touchActions ? (id) => togglePicked(id) : undefined}
+            empty={
               <If
-                when={listStatus() === "error"}
+                when={listStatus() !== "loading"}
                 else={
-                  <If
-                    when={accounts().length}
-                    else={
-                      <Empty
-                        icon="inbox"
-                        title={t("empty.noAccounts")}
-                        description={t("empty.noAccountsHint")}
-                        action={<Button icon="plus" label={t("accounts.add")} onPress={props.onAddAccount} />}
-                      />
-                    }
-                  >
-                    <Empty icon="inbox" title={t("empty.mailbox")} />
-                  </If>
+                  <View class="flex-1 items-center justify-center p-8">
+                    <LoadingIndicator label={t("reader.loading")} contained />
+                  </View>
                 }
               >
-                <Empty icon="inbox" title={t("empty.loadFailed")} action={<Button variant="tonal" icon="refresh" label={t("actions.retry")} onPress={() => void reload()} />} />
+                <If
+                  when={listStatus() === "error"}
+                  else={
+                    <If
+                      when={accounts().length}
+                      else={
+                        <Empty
+                          icon="inbox"
+                          title={t("empty.noAccounts")}
+                          description={t("empty.noAccountsHint")}
+                          action={<Button icon="plus" label={t("accounts.add")} onPress={props.onAddAccount} />}
+                        />
+                      }
+                    >
+                      <Empty icon="inbox" title={t("empty.mailbox")} />
+                    </If>
+                  }
+                >
+                  <Empty icon="inbox" title={t("empty.loadFailed")} action={<Button variant="tonal" icon="refresh" label={t("actions.retry")} onPress={() => void reload()} />} />
+                </If>
               </If>
-            </If>
-          }
-        />
+            }
+          />
+        </If>
       }
     >
       <MessageList

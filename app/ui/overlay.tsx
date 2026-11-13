@@ -3,7 +3,7 @@
 // medium and fill with tertiary-container when chosen), popovers and the
 // modal side and bottom sheets. Anchored popups grow from their trigger on
 // the fast spatial curve.
-import { Text, View, type JSX } from "nsh";
+import { Keyboard, Text, View, type JSX } from "nsh";
 import {
   Dialog as BaseDialog,
   Menu as BaseMenu,
@@ -147,6 +147,8 @@ export function Menu(props: { trigger: JSX.Element; actions: MenuAction[]; label
       popupStartingClass={popover.starting}
       popupEndingClass={popover.ending}
       backdropClass="bg-scrim/32"
+      // A phone's sheet would open under the software keyboard.
+      onOpenChange={(e: { open: boolean }) => e.open && touch && Keyboard.dismiss()}
     >
       <Each of={props.actions} key={(a) => a.id}>
         {(action) => (

@@ -23,6 +23,8 @@ use crate::smtp::{self, SmtpAuth};
 use crate::store::{LOCAL_USER, Located, MailDb, Store, StoredMessage, new_id};
 use crate::types::*;
 
+mod outbox;
+
 const IDLE_RENEW: Duration = Duration::from_secs(29 * 60);
 /// Servers may hold back changes made by other clients until IDLE ends (GreenMail sends flag
 /// changes only on DONE or with the next EXISTS/EXPUNGE); restarting IDLE this often bounds that
@@ -76,6 +78,9 @@ struct Inner {
     pool: Mutex<HashMap<AccountId, Slot>>,
     /// `Some` once `run` was called: the per-account IDLE loops.
     loops: Mutex<Option<HashMap<AccountId, AbortHandle>>>,
+    /// The outbox's sender, once `run` was called, and what wakes it when a message is queued.
+    outbox_task: Mutex<Option<AbortHandle>>,
+    outbox_wake: Arc<tokio::sync::Notify>,
     refresh_lock: tokio::sync::Mutex<()>,
 }
 
@@ -88,6 +93,14 @@ impl Drop for Inner {
             .take()
         {
             loops.values().for_each(AbortHandle::abort);
+        }
+        if let Some(task) = self
+            .outbox_task
+            .get_mut()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
+            task.abort();
         }
     }
 }
@@ -132,6 +145,8 @@ impl Engine {
                 events: broadcast::channel(256).0,
                 pool: Mutex::new(HashMap::new()),
                 loops: Mutex::new(None),
+                outbox_task: Mutex::new(None),
+                outbox_wake: Arc::new(tokio::sync::Notify::new()),
                 refresh_lock: tokio::sync::Mutex::new(()),
             }),
         })
@@ -535,12 +550,18 @@ impl Engine {
 
     /// Starts background sync: per account, a full sync, then IDLE on INBOX (renewed every 29
     /// minutes, with a full sync on each renewal), or polling every 2 minutes without IDLE.
-    /// Accounts added later start automatically. Idempotent.
+    /// Accounts added later start automatically. Also starts sending the outbox: what came due
+    /// while nothing ran goes at once. Idempotent.
     pub async fn run(&self) -> Result<()> {
         let accounts = self.accounts().await?;
         lock(&self.inner.loops).get_or_insert_with(HashMap::new);
         for a in accounts {
             self.start_loop(&a.id);
+        }
+        let mut task = lock(&self.inner.outbox_task);
+        if task.as_ref().is_none_or(|t| t.is_finished()) {
+            let handle = tokio::spawn(outbox::outbox_loop(Arc::downgrade(&self.inner)));
+            *task = Some(handle.abort_handle());
         }
         Ok(())
     }
@@ -549,6 +570,9 @@ impl Engine {
     pub fn stop(&self) {
         if let Some(loops) = lock(&self.inner.loops).take() {
             loops.values().for_each(AbortHandle::abort);
+        }
+        if let Some(task) = lock(&self.inner.outbox_task).take() {
+            task.abort();
         }
     }
 

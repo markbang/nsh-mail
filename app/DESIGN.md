@@ -46,7 +46,7 @@ One design language on every platform: Material 3 Expressive (M3E). The values c
 
 - Actions: `Button` (filled, tonal, outlined, elevated, text; xs/sm/md; round or square; toggle via `selected`; `tone="error"`), `IconButton` (standard, filled, tonal, outlined; xs/sm/md; narrow/default/wide), `ButtonGroup` (standard or connected), `Choice` (a connected group choosing one option), `SplitButton`, `Fab` (sm/md/lg, extended), `FabMenu`.
 - Containers and navigation: `NavigationRail` (collapsed or expanded), `NavBar`, `FloatingToolbar` with `ToolbarButton`, `AppBar`, `Row` and `ListItem` (expressive shapes), `SectionLabel`, `Card` (filled, outlined, elevated), `Dialog` / `DialogBody` / `DialogFooter`, `Menu`, `Popover`, `Sheet`, `Panes` / `Pane`.
-- Inputs: `TextField` / `Textarea` (filled, outlined, search, plain; floating label, supporting text, error), `SelectField` (exposed dropdown), `Field`, `Chip` (assist, filter, input, suggestion), `Switch`, `Checkbox`.
+- Inputs: `TextField` / `Textarea` (filled, outlined, search, plain; floating label, supporting text, error), `SelectField` (exposed dropdown), `Field`, `Chip` (assist, filter, input, suggestion), `Switch`, `Checkbox`, `DateCalendar` (the docked date picker's month of days), `TimeInput` (a time field drawn as an outlined field).
 - Feedback: `LoadingIndicator` (M3E's morphing shape, a shader, or a turning cookie where there are no shaders), `LinearProgress`, `CircularProgress`, `Snackbar`, `Tooltip` (plain), `Badge`, `Avatar`, `AccountMark`, `Divider`, `Empty`, `FileTile`, `Icon` (Lucide geometry, tinted with `tint-*`).
 
 Every pressable draws M3's state layer (the content color at 8% hovered, 10% pressed or focused) and morphs its corners while pressed. Features pass variants, sizes and states, never raw colors or radii. `ui/Gallery.tsx` shows every component; `ui/gallery.test.tsx` drives it.
@@ -83,7 +83,10 @@ Reduced motion: transitions off (`motion-reduce:`), motions not started (`reduce
 | Dialogs | Open / close | Scrim and container fade (platform `fade`) |
 | Settings | Switch | Handle grows 16 → 24pt and slides; 28pt while pressed: spatial fast. Track recolors: effects fast |
 | Panes | Drag handle | Appears under the pointer, grows while dragged: spatial fast |
-| All | Snackbar | Rises from the bottom edge (`slideInUp`, 300ms), leaves after 3.2s |
+| All | Snackbar | Rises from the bottom edge (`slideInUp`, 300ms), leaves after 3.2s; with Undo after 8s, or after the undo delay for Sending… |
+| Composer | Send's menu opens | The menu button's chevron turns 180° and its inner corners go round (spatial fast); the menu grows from it |
+| Schedule send | A day is picked | The day fills with primary, the last one empties: effects fast (150ms) |
+| Scheduled | A message is cancelled / put back | No motion: the list follows the outbox; the snackbar carries the Undo |
 
 Reduced motion: transitions off (`motion-reduce:`), motions and springs not started (`reduceMotion()`), indicators rest.
 

@@ -3,7 +3,8 @@
 import { expect, open, test } from "nsh/test";
 
 const desktop = { platform: "linux", width: 1280, height: 820, locale: "en-US" } as const;
-const demo = { storage: { "nshmail.mode": "demo" } };
+const demo = { storage: { "nshmail.mode": "demo", "nshmail.undoSend": "0" } };
+const undo = (seconds: number) => ({ storage: { "nshmail.mode": "demo", "nshmail.undoSend": String(seconds) } });
 
 test("prefills our server for cloud mode", async () => {
   const app = await open("./App.tsx", desktop);
@@ -312,4 +313,104 @@ test("phones: back keeps the draft, Discard asks the system's alert", async () =
   await app.press("id:compose");
   await app.waitFor("id:compose-subject");
   expect(app.value("id:compose-subject")).toBe("");
+});
+
+test("Send waits out Undo: Undo brings the draft back, left alone it goes once", async () => {
+  const app = await open("./App.tsx", { ...desktop, ...undo(5), clock: {} });
+  await app.waitFor("text:Q4 roadmap draft");
+  await app.press("id:compose");
+  await app.type("id:compose-to", "mei@lumen.dev");
+  await app.type("id:compose-subject", "Undo me");
+  await app.type("id:compose-body", "Second thoughts.");
+  await app.press("id:send");
+  await app.waitFor("text:Sending…");
+  await app.waitFor("id:modal", { state: "gone" });
+  await app.press("id:toast-action");
+  await app.waitFor("id:compose-subject");
+  expect(app.value("id:compose-subject")).toBe("Undo me");
+  expect(app.value("id:compose-body")).toBe("Second thoughts.");
+  await app.wait(6000);
+
+  await app.press("id:send");
+  await app.waitFor("text:Sending…");
+  await app.waitFor("text:Message sent", { timeout: 8000 });
+  await app.press("text:Sent");
+  await app.waitFor("id:messages >> text:Undo me");
+  expect(app.count("id:messages >> text:Undo me")).toBe(1);
+});
+
+test("Undo send is a setting", async () => {
+  const app = await open("./App.tsx", { ...desktop, ...undo(10) });
+  await app.waitFor("id:open-settings");
+  await app.press("id:open-settings");
+  await app.press("id:undo-30");
+  await app.waitUntil(() => app.storage()["nshmail.undoSend"] === "30");
+  await app.press("id:undo-0");
+  await app.waitUntil(() => app.storage()["nshmail.undoSend"] === "0");
+});
+
+test("Schedule send from the split button: listed under Scheduled, edited, sent at its time", async () => {
+  // A Friday morning: the presets are tomorrow and Monday at 8:00.
+  const app = await open("./App.tsx", { ...desktop, ...undo(10), clock: { time: new Date(2026, 10, 13, 9, 30) } });
+  await app.waitFor("text:Q4 roadmap draft");
+  await app.press("id:compose");
+  await app.type("id:compose-to", "mei@lumen.dev");
+  await app.type("id:compose-subject", "Plan for Monday");
+  await app.press("id:send-later");
+  await app.waitFor("text:Tomorrow morning");
+  await app.press("text:Monday morning");
+  await app.waitFor("text:/^Scheduled for Mon, Nov 16/");
+  await app.waitFor("id:modal", { state: "gone" });
+
+  await app.press("id:mailbox-scheduled");
+  await app.waitFor("id:scheduled >> text:Plan for Monday");
+  await app.press("id:scheduled >> text:Plan for Monday");
+  await app.waitFor("id:compose-scheduled");
+  await app.clear("id:compose-subject");
+  await app.type("id:compose-subject", "Plan for Monday, v2");
+  await app.press("id:header-back");
+  await app.waitFor("id:modal", { state: "gone" });
+  await app.waitFor("id:scheduled >> text:Plan for Monday, v2");
+
+  // Cancel takes it out, Undo puts it back.
+  await app.press("id:scheduled-cancel");
+  await app.waitFor("text:Scheduled send cancelled");
+  await app.waitFor("id:scheduled >> text:Plan for Monday, v2", { state: "gone" });
+  await app.press("id:toast-action");
+  await app.waitFor("id:scheduled >> text:Plan for Monday, v2");
+
+  await app.clock!.fastForward(3 * 24 * 3600 * 1000);
+  await app.waitFor("text:Nothing scheduled");
+  await app.press("text:Sent");
+  await app.waitFor("id:messages >> text:Plan for Monday, v2");
+});
+
+test("Schedule send at a picked date and time", async () => {
+  const app = await open("./App.tsx", { ...desktop, ...undo(10), clock: { time: new Date(2026, 10, 13, 9, 30) } });
+  await app.waitFor("text:Q4 roadmap draft");
+  await app.press("id:compose");
+  await app.type("id:compose-to", "mei@lumen.dev");
+  await app.type("id:compose-subject", "Quarterly numbers");
+  await app.press("id:send-later");
+  await app.press("text:Pick date & time");
+  await app.waitFor("id:schedule-dialog");
+  await app.press("role:button[2026-11-20]");
+  await app.waitFor("text:/^Sends Fri, Nov 20, 8:00/");
+  await app.press("id:schedule-confirm");
+  await app.waitFor("text:/^Scheduled for Fri, Nov 20/");
+  await app.press("id:mailbox-scheduled");
+  await app.waitFor("id:scheduled >> text:Quarterly numbers");
+});
+
+test("phones: Schedule send from the composer's clock", async () => {
+  const app = await open("./App.tsx", { platform: "android", width: 390, height: 844, locale: "en-US", ...undo(10), clock: { time: new Date(2026, 10, 13, 9, 30) } });
+  await app.waitFor("text:Photos from the weekend");
+  await app.press("id:fab-menu");
+  await app.press("id:compose");
+  await app.type("id:compose-to", "mei@lumen.dev");
+  await app.type("id:compose-subject", "Saturday hike");
+  await app.press("id:send-later >> nth=1");
+  await app.press("text:Tomorrow morning");
+  await app.waitFor("text:/^Scheduled for Sat, Nov 14/");
+  await app.waitFor("id:messages");
 });

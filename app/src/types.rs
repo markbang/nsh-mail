@@ -39,6 +39,8 @@ ts! {
     ListQuery => "ListQuery",
     MailEvent => "MailEvent",
     Message => "Message",
+    Outgoing => "Outgoing",
+    SendAt => "SendAt",
     OAuthProvider => "OAuthProvider",
     ServerSettings => "ServerSettings",
     Status => "Status",
@@ -224,6 +226,24 @@ const DECLARATIONS: &[(&str, &str)] = &[
          export type MailEvent =\n  | { type: \"newMail\"; summary: Summary }\n  \
          | { type: \"changed\"; accountId: string; folder: Folder }\n  \
          | { type: \"syncState\"; accountId: string; syncing: boolean; error: ErrorInfo | null }\n  \
-         | { type: \"error\"; accountId: string | null; error: ErrorInfo };",
+         | { type: \"error\"; accountId: string | null; error: ErrorInfo }\n  \
+         | { type: \"outbox\"; accountId: string; id: string; subject: string; state: OutboxState; late: boolean; error: ErrorInfo | null };",
+    ),
+    (
+        "SendAt",
+        "/** When a queued message goes: after `delay` seconds (the undo window) or at `sendAt` (ms since the epoch). */\n\
+         export type SendAt = { delay: number } | { sendAt: number };",
+    ),
+    (
+        "OutboxState",
+        "/** What happened to a message in the outbox. */\n\
+         export type OutboxState = \"queued\" | \"cancelled\" | \"sent\" | \"failed\";",
+    ),
+    (
+        "Outgoing",
+        "/** A message in the outbox. */\n\
+         export interface Outgoing {\n  id: string;\n  /** Its attachments are all uploads, described by `files`. */\n  draft: Draft;\n  \
+         /** When it goes (ms since the epoch). */\n  sendAt: number;\n  /** The user picked the time; otherwise it waits out the undo delay. */\n  scheduled: boolean;\n  \
+         files: Upload[];\n  /** Why it was not sent; it then waits for the user. */\n  error?: ErrorInfo | null;\n}",
     ),
 ];

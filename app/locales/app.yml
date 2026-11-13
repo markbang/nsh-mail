@@ -101,6 +101,9 @@ folder.archive:
 folder.trash:
   en: Trash
   zh-CN: 废纸篓
+folder.scheduled:
+  en: Scheduled
+  zh-CN: 定时发送
 
 provider.gmail:
   en: Gmail
@@ -412,6 +415,87 @@ compose.stillUploading:
 compose.removeFailed:
   en: Remove the files that couldn't be attached, or attach them again.
   zh-CN: 请移除未能添加的文件，或重新添加。
+compose.schedule:
+  en: Schedule send
+  zh-CN: 定时发送
+compose.sendingUndo:
+  en: Sending…
+  zh-CN: 正在发送…
+compose.scheduledFor:
+  en: "Scheduled for %{when}"
+  zh-CN: 已定于 %{when} 发送
+compose.editTitle:
+  en: Scheduled message
+  zh-CN: 定时邮件
+compose.editScheduled:
+  en: "Scheduled for %{when}. Closing keeps it scheduled."
+  zh-CN: 定于 %{when} 发送。关闭后仍会按时发送。
+compose.editFailed:
+  en: "Not sent: %{detail}. Closing tries again."
+  zh-CN: 未能发送：%{detail}。关闭后会再试一次。
+compose.notKept:
+  en: "Couldn't put the message back in Scheduled: %{detail}"
+  zh-CN: 无法把邮件放回“定时发送”：%{detail}
+compose.deleteScheduledTitle:
+  en: Delete this scheduled message?
+  zh-CN: 删除这封定时邮件？
+compose.deleteScheduledBody:
+  en: It won't be sent, and its attachments will be deleted.
+  zh-CN: 它不会被发送，附件也会被删除。
+schedule.tomorrow:
+  en: Tomorrow morning
+  zh-CN: 明天上午
+schedule.monday:
+  en: Monday morning
+  zh-CN: 周一上午
+schedule.pick:
+  en: Pick date & time
+  zh-CN: 选择日期和时间
+schedule.date:
+  en: Date
+  zh-CN: 日期
+schedule.time:
+  en: Time
+  zh-CN: 时间
+schedule.previousMonth:
+  en: Previous month
+  zh-CN: 上个月
+schedule.nextMonth:
+  en: Next month
+  zh-CN: 下个月
+schedule.past:
+  en: Pick a time in the future.
+  zh-CN: 请选择将来的时间。
+outbox.sends:
+  en: "Sends %{when}"
+  zh-CN: 将于 %{when} 发送
+outbox.notSent:
+  en: "Not sent: %{detail}"
+  zh-CN: 未能发送：%{detail}
+outbox.cancel:
+  en: Cancel send
+  zh-CN: 取消发送
+outbox.cancelled:
+  en: Scheduled send cancelled
+  zh-CN: 已取消定时发送
+outbox.tooLate:
+  en: Too late to undo, the message is on its way.
+  zh-CN: 来不及撤销，邮件已经发出。
+outbox.sentLate:
+  en: "Sent “%{subject}”: its time came while nsh-mail was closed."
+  zh-CN: 已发送“%{subject}”：它的发送时间在 nsh-mail 关闭期间已到。
+outbox.failed:
+  en: "Couldn't send “%{subject}”. %{detail} It's waiting in Scheduled."
+  zh-CN: 未能发送“%{subject}”。%{detail} 它在“定时发送”里等你处理。
+outbox.empty:
+  en: Nothing scheduled
+  zh-CN: 没有定时邮件
+outbox.emptyHint:
+  en: Use the arrow next to Send to send a message later.
+  zh-CN: 点“发送”旁的箭头，可以稍后再发送邮件。
+outbox.localHint:
+  en: Scheduled mail goes out while nsh-mail runs (on desktops it keeps running in the tray). Anything due while it's closed goes out when it starts again.
+  zh-CN: 定时邮件在 nsh-mail 运行时发出（桌面端关闭窗口后会在托盘中继续运行）。关闭期间到时的邮件，会在下次启动时发出。
 
 search.label:
   en: Search
@@ -450,6 +534,21 @@ settings.accounts:
 settings.sync:
   en: Sync
   zh-CN: 同步
+settings.sending:
+  en: Sending
+  zh-CN: 发送
+settings.undoSend:
+  en: Undo send
+  zh-CN: 撤销发送
+settings.undoSendDetail:
+  en: How long you can take a message back after pressing Send.
+  zh-CN: 按下发送后，还能撤回邮件的时间。
+settings.undoOff:
+  en: "Off"
+  zh-CN: 关闭
+settings.seconds:
+  en: "%{n} s"
+  zh-CN: "%{n} 秒"
 settings.signedInAs:
   en: Signed in as %{email}
   zh-CN: 已登录：%{email}

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drives nsh-mail on a running emulator with adb and screenshots each screen,
 in light and dark mode: inbox, swipe to archive and Undo, selection, pull to
-refresh, reader, a conversation, compose, search, mailboxes, settings, a tab switch that must
+refresh, reader, a conversation, compose, Schedule send, search, mailboxes, Scheduled, settings, a tab switch that must
 keep the inbox's scroll position; then larger text and a tablet-sized screen.
 
 Usage: android-ui.py <dir with the APK> <screenshot dir>
@@ -41,6 +41,18 @@ def matches(n, key):
     if key.startswith("id:"):
         return re.fullmatch(key[3:], rid) is not None
     return key in (text, desc)
+
+
+def settled(key, tries=10):
+    """`key`'s bounds once they stop moving: a cold start on a slow emulator is still sliding in."""
+    last = bounds(key)
+    for _ in range(tries):
+        time.sleep(1)
+        now = bounds(key)
+        if now == last:
+            return now
+        last = now
+    return last
 
 
 def bounds(key, timeout=20):
@@ -128,6 +140,10 @@ def launch():
 apk = sorted(glob.glob(os.path.join(apk_dir, "*.apk")))[0]
 adb("install", "-r", "-g", apk)
 adb("shell", "settings", "put", "system", "font_scale", "1.0")
+# The idle launcher behind the app sometimes stops responding on a loaded runner, and its
+# dialog then covers the app every few seconds: take the launcher out and hide such dialogs.
+adb("shell", "settings", "put", "global", "hide_error_dialogs", "1")
+adb("shell", "pm", "disable-user", "--user", "0", "com.google.android.apps.nexuslauncher", check=False)
 size = adb("shell", "wm", "size").split()[-1]
 w, h = map(int, size.split("x"))
 
@@ -138,7 +154,7 @@ for mode in ("light", "dark"):
     shot(f"{mode}-inbox")
 
     # Swipe the first row right: Archive, with Undo. Swipes start mid-row: the screen's edges are the system's back gesture.
-    row = bounds("id:message-.*")
+    row = settled("id:message-.*")
     if row:
         x1, y1, x2, y2 = row
         y = (y1 + y2) // 2
@@ -146,8 +162,13 @@ for mode in ("light", "dark"):
         quarter = (x2 - x1) // 4
         during(["swipe", str(mid - quarter), str(y), str(mid), str(y), "1500"], f"{mode}-swipe-archive", 1.0)
         time.sleep(1)
-        adb("shell", "input", "swipe", str(mid - quarter), str(y), str(x2 - 60), str(y), "150")
-        wait("id:toast-action", 5)
+        # Right after launch the list may still be settling and miss the first fling.
+        for _ in range(2):
+            adb("shell", "input", "swipe", str(mid - quarter), str(y), str(x2 - 60), str(y), "150")
+            if find("id:toast-action", 5):
+                break
+        else:
+            fail("never showed: id:toast-action")
         shot(f"{mode}-archived-snackbar")
         tap("id:toast-action", 5)
         time.sleep(1)
@@ -197,8 +218,19 @@ for mode in ("light", "dark"):
     if tap("id:compose"):
         wait("id:compose-to")
         shot(f"{mode}-compose")
-        back()
-        back()
+        # Schedule send from the top bar's clock: the presets' sheet, then the snackbar with Undo.
+        scheduled = False
+        if tap("id:compose-to"):
+            adb("shell", "input", "text", "mei@lumen.dev")
+            if tap("id:send-later") and find("Tomorrow morning", 5):
+                shot(f"{mode}-schedule-menu")
+                scheduled = tap("Tomorrow morning")
+                if scheduled:
+                    wait("id:toast-action", 5)
+                    shot(f"{mode}-scheduled-snackbar")
+        if not scheduled:
+            back()
+            back()
     wait("id:messages")
 
     # Scroll the inbox, switch tabs and back: the inbox keeps its place.
@@ -230,6 +262,11 @@ for mode in ("light", "dark"):
     if tap("Mailboxes"):
         wait("id:mailbox-all")
         shot(f"{mode}-mailboxes")
+        if tap("id:mailbox-scheduled"):
+            wait("id:scheduled")
+            shot(f"{mode}-scheduled")
+            if tap("Mailboxes"):
+                tap("id:mailbox-all")
 
     if tap("Settings"):
         wait("id:settings")

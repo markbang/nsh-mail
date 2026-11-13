@@ -3,18 +3,19 @@
 // windows show them in the navigation rail; phones in the Mailboxes tab.
 import { Text, View, type JSX } from "nsh";
 import { t } from "nsh/i18n";
-import type { Folder } from "nsh-mail/native";
 import { AccountMark, IconButton, LoadingIndicator, NavigationRail, type IconName, type RailItem } from "../ui";
-import { accountName, accounts, clearSearch, mailbox, mailStatus, openMailbox, refresh, unreadCount } from "../store";
+import { waiting } from "../outbox";
+import { accountName, accounts, clearSearch, mailbox, mailStatus, openMailbox, refresh, unreadCount, type Mailbox } from "../store";
 
-const folders: { folder: Folder; icon: IconName }[] = [
+const folders: { folder: Mailbox["folder"]; icon: IconName }[] = [
   { folder: "sent", icon: "send" },
+  { folder: "scheduled", icon: "clock" },
   { folder: "drafts", icon: "drafts" },
   { folder: "archive", icon: "archive" },
   { folder: "trash", icon: "trash" },
 ];
 
-const keyOf = (account: string | null, folder: Folder) => `${account ?? "*"}/${folder}`;
+const keyOf = (account: string | null, folder: Mailbox["folder"]) => `${account ?? "*"}/${folder}`;
 
 function items(): RailItem[] {
   return [
@@ -30,14 +31,16 @@ function items(): RailItem[] {
       key: keyOf(mailbox().account, f.folder),
       label: t(`folder.${f.folder}`),
       icon: f.icon,
+      badge: f.folder === "scheduled" ? waiting(mailbox().account).length : undefined,
       section: i === 0 ? t("mailbox.folders") : undefined,
+      testID: `mailbox-${f.folder}`,
     })),
   ];
 }
 
 function choose(key: string) {
   const [account, folder] = key.split("/");
-  openMailbox({ account: account === "*" ? null : account, folder: folder as Folder });
+  openMailbox({ account: account === "*" ? null : account, folder: folder as Mailbox["folder"] });
 }
 
 /** Sync status, refresh and settings: the rail's footer. */

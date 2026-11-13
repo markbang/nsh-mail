@@ -3,6 +3,7 @@
 //! Local: `java -Dgreenmail.setup.test.all -Dgreenmail.auth.disabled -jar greenmail-standalone.jar`
 //! then `cargo test -p mail-core --features insecure-test-tls`.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -1091,4 +1092,193 @@ async fn conversations_group_replies_across_accounts() {
     shapes_again.sort();
     assert_eq!(shapes_again.len(), 3);
     assert!(shapes_again.iter().any(|(s, n, _)| s == "Lunch" && *n == 2));
+}
+
+async fn outbox_done(rx: &mut broadcast::Receiver<MailEvent>, outgoing: &Outgoing) -> MailEvent {
+    let id = outgoing.id.clone();
+    next_event(rx, move |e| {
+        matches!(e, MailEvent::Outbox { id: i, state: OutboxState::Sent | OutboxState::Failed, .. } if *i == id)
+    })
+    .await
+}
+
+async fn inbox_subjects(engine: &Engine, account: &Account) -> Vec<String> {
+    engine.sync(&account.id).await.unwrap();
+    let list = engine
+        .list(query(FolderKind::Inbox, account, None, 50))
+        .await
+        .unwrap();
+    list.into_iter().map(|s| s.subject).collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn outbox_undo_delay_schedule_and_restart() {
+    accept_invalid_certs_for_tests();
+    let dir = tempfile::tempdir().unwrap();
+    let secrets = Arc::new(MemoryStore::new());
+    let open = || Engine::open(dir.path().join("mail.sqlite"), secrets.clone()).unwrap();
+    let engine = open();
+    engine.run().await.unwrap();
+    let mut rx = engine.subscribe();
+    let (alice_email, bob_email) = (unique("alice"), unique("bob"));
+    let bob = engine.add_imap_account(input(&bob_email)).await.unwrap();
+    let alice = engine.add_imap_account(input(&alice_email)).await.unwrap();
+    let delay = |s| SendAt {
+        delay: Some(s),
+        send_at: None,
+    };
+
+    // Undone inside the window: nothing goes, and the draft comes back with its file.
+    let mut d = draft(&bob, &alice_email, "undone", "never sent");
+    d.attachments = vec![DraftAttachment::Upload { id: "f1".into() }];
+    let kept = HashMap::from([staged("f1", "notes.txt", "text/plain", b"keep me")]);
+    let queued = engine.queue(d, kept, delay(2)).await.unwrap();
+    assert!(!queued.scheduled);
+    assert_eq!(engine.outbox().await.unwrap().len(), 1);
+    let (back, returned) = engine.cancel(&queued.id).await.unwrap();
+    assert_eq!(back.draft.subject, "undone");
+    assert_eq!(back.files[0].filename, "notes.txt");
+    assert_eq!(returned["f1"].data, b"keep me");
+    assert_eq!(
+        engine.cancel(&queued.id).await.err().unwrap().code,
+        ErrorCode::NotFound
+    );
+
+    // Left alone, it goes after the delay, attachment and Sent copy included.
+    let mut d = draft(&bob, &alice_email, "after the window", "sent late");
+    d.attachments = vec![DraftAttachment::Upload { id: "f2".into() }];
+    let kept = HashMap::from([staged("f2", "a.bin", "application/octet-stream", &[7; 512])]);
+    let started = std::time::Instant::now();
+    let queued = engine.queue(d, kept, delay(1)).await.unwrap();
+    let done = outbox_done(&mut rx, &queued).await;
+    assert!(
+        matches!(
+            done,
+            MailEvent::Outbox {
+                state: OutboxState::Sent,
+                late: false,
+                ..
+            }
+        ),
+        "{done:?}"
+    );
+    assert!(started.elapsed() >= Duration::from_secs(1));
+    assert!(engine.outbox().await.unwrap().is_empty());
+    let got = only_message(&engine, FolderKind::Inbox, &alice).await;
+    assert_eq!(got.summary.subject, "after the window");
+    assert_eq!(files(&engine, &got).await[0].2, vec![7; 512]);
+    assert_eq!(
+        only_message(&engine, FolderKind::Sent, &bob)
+            .await
+            .summary
+            .subject,
+        "after the window"
+    );
+
+    // Scheduled: listed until its time, then sent; the undone one never arrived.
+    let at = mail_now() + 2_000;
+    let when = SendAt {
+        delay: None,
+        send_at: Some(at),
+    };
+    let queued = engine
+        .queue(
+            draft(&bob, &alice_email, "scheduled", "at its time"),
+            HashMap::new(),
+            when,
+        )
+        .await
+        .unwrap();
+    assert!(queued.scheduled);
+    assert_eq!(engine.outbox().await.unwrap()[0].send_at, at);
+    outbox_done(&mut rx, &queued).await;
+    assert!(mail_now() >= at);
+    let subjects = inbox_subjects(&engine, &alice).await;
+    assert!(subjects.contains(&"scheduled".to_string()), "{subjects:?}");
+    assert!(!subjects.contains(&"undone".to_string()), "{subjects:?}");
+
+    // A time in the past is refused.
+    let past = SendAt {
+        delay: None,
+        send_at: Some(mail_now() - 3_600_000),
+    };
+    let e = engine
+        .queue(draft(&bob, &alice_email, "past", ""), HashMap::new(), past)
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::InvalidInput);
+
+    // Scheduled while the app runs, due after it closed: the next start sends it.
+    let when = SendAt {
+        delay: None,
+        send_at: Some(mail_now() + 1_500),
+    };
+    engine
+        .queue(
+            draft(&bob, &alice_email, "after restart", ""),
+            HashMap::new(),
+            when,
+        )
+        .await
+        .unwrap();
+    engine.stop();
+    drop(engine);
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let reopened = open();
+    let mut rx = reopened.subscribe();
+    let pending = reopened.outbox().await.unwrap();
+    assert_eq!(pending.len(), 1, "kept across the restart: {pending:?}");
+    reopened.run().await.unwrap();
+    outbox_done(&mut rx, &pending[0]).await;
+    let subjects = inbox_subjects(&reopened, &alice).await;
+    assert!(
+        subjects.contains(&"after restart".to_string()),
+        "{subjects:?}"
+    );
+    reopened.stop();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn outbox_is_per_user() {
+    accept_invalid_certs_for_tests();
+    let dir = tempfile::tempdir().unwrap();
+    let db = MailDb::open(&dir.path().join("server.sqlite")).unwrap();
+    let open = |user_id| {
+        Engine::open_with(EngineOptions {
+            db: db.clone(),
+            user_id,
+            secrets: Arc::new(MemoryStore::new()),
+            oauth: OAuthApps::default(),
+            max_attachments: MAX_ATTACHMENTS,
+        })
+        .unwrap()
+    };
+    let (one, two) = (open(1), open(2));
+    let bob = one.add_imap_account(input(&unique("bob"))).await.unwrap();
+    let when = SendAt {
+        delay: None,
+        send_at: Some(mail_now() + 3_600_000),
+    };
+    let queued = one
+        .queue(
+            draft(&bob, "x@test.local", "mine", ""),
+            HashMap::new(),
+            when,
+        )
+        .await
+        .unwrap();
+    assert!(two.outbox().await.unwrap().is_empty());
+    assert_eq!(
+        two.cancel(&queued.id).await.err().unwrap().code,
+        ErrorCode::NotFound
+    );
+    assert_eq!(one.outbox().await.unwrap().len(), 1);
+    one.cancel(&queued.id).await.unwrap();
+}
+
+fn mail_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
 }

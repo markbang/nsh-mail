@@ -76,6 +76,9 @@ Mail.attachmentPreview(id, attachment): Promise<string>      // data: URI of a P
 Mail.setFlags(id, { seen?, flagged? }): Promise<void>
 Mail.moveTo(id, "archive" | "trash" | …): Promise<void>   // IMAP MOVE (COPY + \Deleted + EXPUNGE without MOVE); creates Archive/Trash when missing, Gmail archives to All Mail
 Mail.send(draft: Draft): Promise<void>             // replies carry inReplyTo / references; attachments see §4 Attachments
+Mail.queue(draft, when: {delay} | {sendAt}): Promise<Outgoing>   // into the outbox: undo window (seconds) or scheduled (ms); see §4 Outbox
+Mail.outbox(): Promise<Outgoing[]>                 // waiting (undo window, scheduled) or failed
+Mail.cancel(id): Promise<Outgoing>                 // out of the outbox before it goes; its files are staged again under the same ids
 Mail.stage(name, type, bytes: Uint8Array, onProgress: (sent) => void): Promise<Upload>   // stage an attachment, get an id
 Mail.stageFile(path, type, onProgress): Promise<Upload>   // local file (desktop drop, paste after copying in the file manager), read by Rust; rejects on the web
 Mail.unstage(id): Promise<void>
@@ -83,7 +86,7 @@ Mail.attachmentLimit(): number                     // most a message's attachmen
 Mail.search(text, limit): Promise<Summary[]>
 Mail.unread(): Promise<Record<accountId, number>>  // unread count of each account's inbox
 Mail.refresh(): Promise<void>
-Mail.on(listener: (e: MailEvent) => void): () => void   // newMail / changed / syncState / error
+Mail.on(listener: (e: MailEvent) => void): () => void   // newMail / changed / syncState / error / outbox
 Push.setToken(token): Promise<void>                // FCM token from the Android host (§5), registered with the server in cloud mode
 ```
 
@@ -149,6 +152,16 @@ mail-core threads every message as it is stored (`store.rs`), in both modes and 
 - **Migration**: opening a database from before threads adds the column and threads every message in one transaction, oldest first; so does importing an old per-user server database.
 - **Client**: "Group by conversation" (Settings → Reading, on by default, `Storage` `nshmail.threads`) switches the lists between `threads` and `list`. The reader shows a conversation as stacked messages: the expanded one (the latest when it opens) with its body, older ones collapsed above it (past three: the first, "N more" and the last), newer ones below; a tap expands another. The HTML body has no height of its own (the web view runs no script to measure it), so one message is expanded at a time. Reply and forward act on the expanded message; its menu marks it unread or deletes it alone.
 
+### Outbox: undo send and scheduled send
+
+Send with Undo and Schedule send both put the message in an outbox that mail-core keeps in the store (`outbox` and `outbox_files`, rows bound to `user_id` like the mail tables), with its files: `upload`s are copied in and `forward`s read then, so the message no longer depends on what it came from and its draft names every file as an upload (`Outgoing.files`). One task per engine (started by `run`) sends each when due, through the normal send (SMTP, then the Sent copy), and reports `outbox` events (`queued`, `cancelled`, `sent`, `failed`; `late` when it went more than a minute after its time).
+
+- **Undo send**: Settings → Sending → Undo send (off, 5, 10, 20, 30 s; 10 by default, `Storage` key `nshmail.undoSend`). Send queues with `{delay}` and shows "Sending… Undo" for as long; Undo calls `Mail.cancel` and reopens the composer with the same draft (`app/drafts.ts` holds it meanwhile, off the device's storage). Off sends at once with `Mail.send`, as before.
+- **Schedule send**: the Send split button's menu (a clock button on phones): tomorrow 8:00, next Monday 8:00, or a date and time from a calendar and a time field, in the device's time zone; `{sendAt}` is absolute (ms since the epoch), so the server needs no time zone. The Scheduled mailbox lists scheduled and failed messages; opening one takes it out of the outbox into the composer, and closing the composer puts it back at its time; Cancel send takes it out, with Undo.
+- **Local mode**: the delay and the schedule run in the app; the outbox is in `mail.sqlite`, so closing the app during the undo window neither loses nor sends the message early: it goes at the next start. A scheduled time that passes while the app is closed sends at the next start, and the app says so ("Sent … : its time came while nsh-mail was closed"). Desktops keep running in the tray.
+- **Cloud mode**: the server holds the message; `POST /v1/send` with `delay` or `sendAt` answers 202 with the `Outgoing`, `DELETE /v1/outbox/{id}` cancels before it goes (the files become uploads again, same ids). Closing the tab changes nothing; the server's outbox survives restarts (the engines of users with accounts start at boot).
+- **Failures**: network errors retry 5 times, 1, 2, 4, 8, 16 minutes apart; other errors leave the message `failed` with its error, listed under Scheduled for the user to edit or cancel. A message left `sending` by a process that stopped becomes `failed` ("check Sent"), since it may have gone. A time more than a minute in the past is refused; delays are at most 5 minutes.
+
 ### Server API
 
 ```
@@ -164,7 +177,9 @@ PATCH /v1/messages/{id}  {seen?, flagged?}
 POST /v1/messages/{id}/move  {folder}     move to another folder of the same account (archive, delete to Trash)
 GET  /v1/threads?folder=&account=&before=&limit=          GET /v1/threads/{id}   (a conversation's messages, oldest first)
 PATCH /v1/threads/{id}  {seen?, flagged?}   POST /v1/threads/{id}/move  {folder: "archive"|"trash"}
-POST /v1/send            GET /v1/search?q=&limit=      GET /v1/unread → {accountId: unread count}
+POST /v1/send            Draft → 204; with {delay} (seconds) or {sendAt} (ms) → 202 Outgoing, held in the outbox
+GET  /v1/outbox          DELETE /v1/outbox/{id} → Outgoing (cancelled before it goes; its files are uploads again)
+GET  /v1/search?q=&limit=      GET /v1/unread → {accountId: unread count}
 POST /v1/uploads         {filename, mimeType, size} → Upload {id, filename, mimeType, size}
 PATCH /v1/uploads/{id}?offset=   raw chunk bytes (≤ 4 MiB) → {received}      DELETE /v1/uploads/{id}
 POST /v1/devices         {kind: "fcm"|"webpush", token | subscription, vapidKey?}  DELETE /v1/devices/{id}

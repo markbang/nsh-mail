@@ -19,7 +19,7 @@ use mail_core::{
 use nsh_core::prelude::*;
 use tokio::sync::broadcast::error::RecvError;
 
-use crate::backend::{Backend, Events, File, MailFuture, Progress, Staged};
+use crate::backend::{Backend, Events, File, MailFuture, Progress, Staged, rename_upload};
 
 type Slot = RefCell<Option<Engine>>;
 
@@ -105,6 +105,25 @@ fn forward(engine: &Engine, slot: Weak<Slot>, events: Events) {
             }
         })
     });
+}
+
+impl LocalBackend {
+    /// Copies of the files a draft's `upload`s name, for the engine.
+    fn staged_files(&self, draft: &Draft) -> Result<HashMap<String, StagedFile>> {
+        Ok(self
+            .staged
+            .of(draft)?
+            .into_iter()
+            .map(|(id, f)| {
+                let file = StagedFile {
+                    filename: f.name.clone(),
+                    mime_type: f.mime_type.clone(),
+                    data: f.data.clone(),
+                };
+                (id, file)
+            })
+            .collect())
+    }
 }
 
 impl Backend for LocalBackend {
@@ -226,24 +245,47 @@ impl Backend for LocalBackend {
 
     fn send(&self, draft: Draft) -> MailFuture<'_, ()> {
         Box::pin(async move {
-            let staged: HashMap<String, StagedFile> = self
-                .staged
-                .of(&draft)?
-                .into_iter()
-                .map(|(id, f)| {
-                    let file = StagedFile {
-                        filename: f.name.clone(),
-                        mime_type: f.mime_type.clone(),
-                        data: f.data.clone(),
-                    };
-                    (id, file)
-                })
-                .collect();
+            let staged = self.staged_files(&draft)?;
             let engine = self.engine()?;
             let sending = draft.clone();
             run(async move { engine.send_with(sending, staged).await }).await?;
             self.staged.sent(&draft);
             Ok(())
+        })
+    }
+
+    fn queue(&self, draft: Draft, when: SendAt) -> MailFuture<'_, Outgoing> {
+        Box::pin(async move {
+            let staged = self.staged_files(&draft)?;
+            let engine = self.engine()?;
+            let queued = draft.clone();
+            let outgoing = run(async move { engine.queue(queued, staged, when).await }).await?;
+            // The outbox keeps its own copy, in the database.
+            self.staged.sent(&draft);
+            Ok(outgoing)
+        })
+    }
+
+    fn outbox(&self) -> MailFuture<'_, Vec<Outgoing>> {
+        self.call(|e| async move { e.outbox().await })
+    }
+
+    fn cancel(&self, id: String) -> MailFuture<'_, Outgoing> {
+        Box::pin(async move {
+            let engine = self.engine()?;
+            let (mut outgoing, files) = run(async move { engine.cancel(&id).await }).await?;
+            for (id, f) in files {
+                let file = File {
+                    name: f.filename,
+                    mime_type: f.mime_type,
+                    data: f.data,
+                };
+                let staged = self.staged.restore(id.clone(), file);
+                if staged != id {
+                    rename_upload(&mut outgoing, &id, &staged);
+                }
+            }
+            Ok(outgoing)
         })
     }
 
