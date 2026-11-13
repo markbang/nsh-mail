@@ -4,6 +4,7 @@ export { duration, press, wash } from "./motion";
 export { Icon, type IconName } from "./icon";
 export { Button, ButtonRow, IconButton, type ButtonVariant } from "./button";
 export { Field, SelectField, TextField } from "./field";
+export { FileTile } from "./file";
 export { Segmented, Switch } from "./choice";
 export { Dialog, Menu, Sheet, popup, type MenuAction } from "./overlay";
 export { AccountMark, Avatar, Badge, Empty, Separator, Spinner, Toast } from "./feedback";

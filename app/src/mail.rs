@@ -322,7 +322,47 @@ impl Mail {
 
     /// A whole message.
     pub async fn get(id: String) -> Result<Js<Message>, JsError> {
-        backend()?.get(id).await.map(Js).map_err(js)
+        let mut message = backend()?.get(id).await.map_err(js)?;
+        message.html = message.html.as_deref().map(crate::layout::reading_html);
+        Ok(Js(message))
+    }
+
+    /// Opens attachment `attachment` of message `id`: in a new tab (images, PDFs) or as a
+    /// download on the web; elsewhere saved where the user picks (in the app's files where
+    /// there is no save dialog) and opened in its default app. Resolves with the saved file's
+    /// path when no app opened it, else `null`.
+    pub async fn open_attachment(
+        id: String,
+        attachment: Js<Attachment>,
+    ) -> Result<Option<String>, JsError> {
+        let a = attachment.0;
+        let backend = backend()?;
+        #[cfg(target_arch = "wasm32")]
+        let tab = crate::attachments::Tab::open(&a);
+        let bytes = backend.attachment(id.clone(), a.index).await.map_err(js)?;
+        #[cfg(target_arch = "wasm32")]
+        return crate::attachments::deliver(tab, &a, &bytes)
+            .map(|()| None)
+            .map_err(js);
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::attachments::save(&id, &a, bytes).await.map_err(js)
+    }
+
+    /// A thumbnail of image attachment `attachment` of message `id`, as a `data:` URI. Rejects
+    /// with `ERR_UNSUPPORTED` for other types and large images.
+    pub async fn attachment_preview(
+        id: String,
+        attachment: Js<Attachment>,
+    ) -> Result<String, JsError> {
+        let a = attachment.0;
+        if !crate::attachments::previewable(&a) {
+            return Err(js(Error::new(
+                ErrorCode::Unsupported,
+                "no preview for this attachment",
+            )));
+        }
+        let bytes = backend()?.attachment(id, a.index).await.map_err(js)?;
+        Ok(crate::attachments::data_uri(&a, &bytes))
     }
 
     /// Marks a message read or unread, flagged or not.

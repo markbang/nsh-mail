@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
 
-use mail_parser::{AddressList, MessageParser, MessageRef, PartKind};
+use mail_parser::{AddressList, MessageParser, MessagePart, MessageRef, PartKind};
 
 use crate::store::NewMessage;
 use crate::types::{Address, Attachment};
@@ -138,21 +138,7 @@ pub(crate) fn parse_body(raw: &[u8]) -> Body {
     let attachments = m
         .attachments()
         .enumerate()
-        .map(|(i, part)| Attachment {
-            index: i as u32,
-            filename: part.attachment_name().map(str::to_string),
-            mime_type: part
-                .content_type()
-                .map(|ct| match ct.subtype() {
-                    Some(sub) => format!("{}/{}", ct.ctype(), sub),
-                    None => ct.ctype().to_string(),
-                })
-                .unwrap_or_else(|| "application/octet-stream".into())
-                .to_ascii_lowercase(),
-            size: part.decoded_len() as u64,
-            inline: part.is_inline(),
-            content_id: part.content_id().map(str::to_string),
-        })
+        .map(|(i, part)| attachment_meta(i as u32, &part))
         .collect();
     Body {
         index_text: text.clone().unwrap_or_default(),
@@ -162,6 +148,31 @@ pub(crate) fn parse_body(raw: &[u8]) -> Body {
         attachments,
         reply_to: addresses(m.reply_to()),
     }
+}
+
+fn attachment_meta(index: u32, part: &MessagePart<'_>) -> Attachment {
+    Attachment {
+        index,
+        filename: part.attachment_name().map(str::to_string),
+        mime_type: part
+            .content_type()
+            .map(|ct| match ct.subtype() {
+                Some(sub) => format!("{}/{}", ct.ctype(), sub),
+                None => ct.ctype().to_string(),
+            })
+            .unwrap_or_else(|| "application/octet-stream".into())
+            .to_ascii_lowercase(),
+        size: part.decoded_len() as u64,
+        inline: part.is_inline(),
+        content_id: part.content_id().map(str::to_string),
+    }
+}
+
+/// Attachment `index` (as `parse_body` numbers them) and its decoded bytes.
+pub(crate) fn attachment(raw: &[u8], index: u32) -> Option<(Attachment, Vec<u8>)> {
+    let msg = MessageParser::new().parse(raw)?;
+    let part = msg.root().attachments().nth(index as usize)?;
+    Some((attachment_meta(index, &part), part.decoded().into_owned()))
 }
 
 fn first_text(m: &MessageRef<'_>) -> Option<String> {

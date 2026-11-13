@@ -305,7 +305,7 @@ async fn large_message_is_fetched_on_open() {
         .multipart(
             MultiPart::mixed()
                 .singlepart(SinglePart::plain("See the attached report.".to_string()))
-                .singlepart(Attachment::new("report.bin".into()).body(
+                .singlepart(Attachment::new("季度报告.bin".into()).body(
                     vec![7u8; 64 * 1024],
                     ContentType::parse("application/octet-stream").unwrap(),
                 )),
@@ -336,14 +336,21 @@ async fn large_message_is_fetched_on_open() {
     assert!(s.has_attachments);
     assert_eq!(s.from.as_ref().unwrap().name.as_deref(), Some("Carol"));
 
+    // Before `get`: the attachment alone downloads the body too.
+    let (meta, bytes) = engine.attachment(&s.id, 0).await.unwrap();
+    assert_eq!(bytes, vec![7u8; 64 * 1024]);
+    let missing = engine.attachment(&s.id, 1).await.unwrap_err();
+    assert_eq!(missing.code, ErrorCode::NotFound);
+
     let m = engine.get(&s.id).await.unwrap();
     assert_eq!(
         m.text.as_deref().map(str::trim),
         Some("See the attached report.")
     );
     assert_eq!(m.attachments.len(), 1);
-    assert_eq!(m.attachments[0].filename.as_deref(), Some("report.bin"));
+    assert_eq!(m.attachments[0].filename.as_deref(), Some("季度报告.bin"));
     assert_eq!(m.attachments[0].size, 64 * 1024);
+    assert_eq!(meta, m.attachments[0]);
 }
 
 async fn smtp() -> lettre::transport::smtp::client::AsyncSmtpConnection {

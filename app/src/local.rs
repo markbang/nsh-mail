@@ -195,6 +195,10 @@ impl Backend for LocalBackend {
         self.call(|e| async move { e.get(&id).await })
     }
 
+    fn attachment(&self, id: String, index: u32) -> MailFuture<'_, Vec<u8>> {
+        self.call(move |e| async move { Ok(e.attachment(&id, index).await?.1) })
+    }
+
     fn set_flags(&self, id: String, flags: Flags) -> MailFuture<'_, ()> {
         self.call(|e| async move { e.set_flags(&id, flags).await })
     }

@@ -1,10 +1,12 @@
 //! nsh-mail's Rust side: the `Mail` interface TSX imports from
 //! `nsh-mail/native` (docs/design.md §3) and its backends.
 
+mod attachments;
 mod backend;
 mod cloud;
 #[cfg(debug_assertions)]
 mod demo;
+mod layout;
 #[cfg(not(target_arch = "wasm32"))]
 mod local;
 mod mail;

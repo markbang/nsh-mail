@@ -50,6 +50,8 @@ Reduced motion: transitions off (`motion-reduce:`), motions not started (`reduce
 | List | Unread → read, flag toggled | Weight and icon change in place, no motion (data ticks) |
 | Reader | Another message opens | The reader fades in, `fast` |
 | Reader | Remote images loaded | Notice leaves, images replace their placeholders in place |
+| Reader | Attachment pressed | Tile press scale; a spinner replaces its icon until the file opens or downloads |
+| Reader | Image thumbnail arrives | The tile grows its preview in place, no motion |
 | Compose / settings (wide) | Dialog opens / closes | Scrim and card fade (`Dialog` `fade`) |
 | Phones | Pages push / pop | The platform's stack transition |
 | Phones | Mailbox sheet | Slides from the start edge over the scrim |

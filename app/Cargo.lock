@@ -3057,12 +3057,15 @@ dependencies = [
 name = "nsh-app-nsh-mail"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "futures-channel",
  "futures-core",
  "futures-util",
+ "html5ever 0.27.0",
  "js-sys",
  "log",
  "mail-core",
+ "markup5ever_rcdom",
  "nsh-base",
  "nsh-core",
  "nsh-engine",

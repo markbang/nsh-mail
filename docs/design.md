@@ -59,7 +59,10 @@ Mail.addImap(input: ImapInput): Promise<Account>   // 先连通 IMAP 和 SMTP �
 Mail.addOAuth(provider: "google"|"microsoft"): Promise<Account>
 Mail.removeAccount(id): Promise<void>
 Mail.list(q: { folder: "inbox"|"sent"|"drafts"|"archive"|"trash", account?, before?, limit }): Promise<Summary[]>
-Mail.get(id): Promise<Message>                     // 正文已清洗；附件元数据
+Mail.get(id): Promise<Message>                     // 正文已清洗，排版表格已改成块（见 §7）；附件元数据
+Mail.openAttachment(id, attachment): Promise<string | null>  // Web：图片/PDF 新标签页打开，其余下载；桌面：系统保存对话框后用默认程序打开；
+                                                   // 没有保存对话框时（Android）存进应用目录再打开。返回已保存但没有程序打开的文件路径
+Mail.attachmentPreview(id, attachment): Promise<string>      // PNG/JPEG/GIF/WebP（≤ 8 MB）的 data: URI，阅读页缩略图
 Mail.setFlags(id, { seen?, flagged? }): Promise<void>
 Mail.send(draft: Draft): Promise<void>             // 回复时带 inReplyTo / references
 Mail.search(text, limit): Promise<Summary[]>
@@ -117,6 +120,8 @@ GET  /v1/accounts        POST /v1/accounts (imap)        DELETE /v1/accounts/{id
 GET  /v1/detect?email=   POST /v1/sync（立即同步全部账号）
 GET  /v1/oauth/{google|microsoft}/start?token=…           GET /v1/oauth/{provider}/callback
 GET  /v1/messages?folder=&account=&before=&limit=         GET /v1/messages/{id}
+GET  /v1/messages/{id}/attachments/{index}  附件字节：Content-Type 为其类型，Content-Disposition: attachment（filename* 按 RFC 5987 带 UTF-8 原名），
+                                            CSP sandbox + nosniff；本地没有正文时从 IMAP 取并缓存
 PATCH /v1/messages/{id}  {seen?, flagged?}
 POST /v1/send            GET /v1/search?q=&limit=      GET /v1/unread → {accountId: 未读数}
 POST /v1/devices         {kind: "fcm"|"webpush", token | subscription}     DELETE /v1/devices/{id}
@@ -159,7 +164,8 @@ Android 宿主（`android/`，用法见其 README）：
 - **普通 IMAP**：只接受应用专用密码（界面说明怎样生成，并给常见服务商的链接）；QQ、163、iCloud、Fastmail、Yahoo 等预设服务器。
 - **凭据存储**：Windows 凭据管理器、Linux Secret Service（`keyring` crate）；没有 Secret Service 的 Linux 会话退回应用私有目录下 0600 的加密文件并提示。Android v1 存应用私有目录（系统沙箱隔离）的加密文件，Gradle 宿主就位后改用 Android Keystore。
 - **传输**：只允许 TLS（993/465 或 STARTTLS），拒绝明文；rustls + webpki 根证书。
-- **邮件内容**：HTML 先用 ammonia 清洗，再用 NSH `TextView` 以原生文本渲染（不跑脚本）；远程图片默认不加载，防跟踪。
+- **邮件内容**：HTML 先用 ammonia 清洗，再用 NSH `TextView` 以原生文本渲染（不跑脚本）；远程图片默认不加载，防跟踪。`TextView` 把表格画成单行单元格的网格，邮件却用表格排版，所以客户端在交给 `TextView` 前把排版表格改成块（`app/src/layout.rs`：每行一块，短单元格同一行用 em 空格（U+2003）隔开，`display:none` 的去掉）；表头是 `<th>`、单元格只有文字的数据表格保持表格。
+- **附件**：Web 上只有图片和 PDF 以原类型的 blob 在新标签页打开，其余一律以 `application/octet-stream` 下载，防止 HTML/SVG 附件在本站源下运行；服务端附件接口同样带 `Content-Security-Policy: sandbox`。
 - **日志**：不记录凭据、token 和正文。
 
 ## 8. CI 与产物

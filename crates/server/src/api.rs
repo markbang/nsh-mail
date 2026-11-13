@@ -4,7 +4,7 @@ use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use axum::{
     Json,
     extract::{FromRequestParts, Path, Query, State},
-    http::{StatusCode, header, request::Parts},
+    http::{HeaderValue, StatusCode, header, request::Parts},
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
@@ -324,6 +324,70 @@ pub async fn get_message(
     Path(id): Path<String>,
 ) -> ApiResult<impl IntoResponse> {
     Ok(Json(mail(&s, &u).await?.get(&id).await?))
+}
+
+/// One attachment's bytes, always as a download: `Content-Security-Policy: sandbox` and
+/// `nosniff` keep an HTML or SVG attachment from running as this origin's page.
+pub async fn get_attachment(
+    State(s): State<Arc<AppState>>,
+    u: AuthUser,
+    Path((id, index)): Path<(String, u32)>,
+) -> ApiResult<Response> {
+    let (meta, bytes) = mail(&s, &u).await?.attachment(&id, index).await?;
+    let mime = HeaderValue::from_str(&meta.mime_type)
+        .ok()
+        .filter(|_| {
+            meta.mime_type
+                .split_once('/')
+                .is_some_and(|(t, s)| !t.is_empty() && !s.is_empty())
+        })
+        .unwrap_or(HeaderValue::from_static("application/octet-stream"));
+    let name = meta
+        .filename
+        .unwrap_or_else(|| format!("attachment-{}", index + 1));
+    let disposition = HeaderValue::from_str(&content_disposition(&name))
+        .map_err(|e| anyhow::anyhow!("content disposition: {e}"))?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, mime),
+            (header::CONTENT_DISPOSITION, disposition),
+            (
+                header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            ),
+            (
+                header::CONTENT_SECURITY_POLICY,
+                HeaderValue::from_static("sandbox"),
+            ),
+            (
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("private, no-store"),
+            ),
+        ],
+        bytes,
+    )
+        .into_response())
+}
+
+/// `attachment` with an ASCII `filename` for old clients and the exact name as RFC 5987's
+/// `filename*` (UTF-8, percent-encoded), which browsers prefer.
+fn content_disposition(name: &str) -> String {
+    let ascii: String = name
+        .chars()
+        .map(|c| match c {
+            ' ' | '!'..='~' if !matches!(c, '"' | '\\') => c,
+            _ => '_',
+        })
+        .collect();
+    let mut encoded = String::with_capacity(name.len() * 3);
+    for b in name.bytes() {
+        if b.is_ascii_alphanumeric() || b"!#$&+-.^_`|~".contains(&b) {
+            encoded.push(b as char);
+        } else {
+            encoded.push_str(&format!("%{b:02X}"));
+        }
+    }
+    format!("attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}")
 }
 
 pub async fn patch_message(

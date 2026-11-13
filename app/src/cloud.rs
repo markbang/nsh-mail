@@ -50,6 +50,12 @@ impl Api {
         parse(if text.is_empty() { "null" } else { &text })
     }
 
+    async fn bytes(&self, path: &str) -> Result<Vec<u8>> {
+        Ok(send(&self.server, Some(&self.token), "GET", path, None)
+            .await?
+            .body)
+    }
+
     /// The event stream's URL: the token goes in the query, as browsers
     /// cannot set headers on a WebSocket.
     fn events_url(&self, device: Option<&str>) -> String {
@@ -72,6 +78,16 @@ async fn request(
     path: &str,
     body: Option<Value>,
 ) -> Result<String> {
+    Ok(send(server, token, method, path, body).await?.text())
+}
+
+async fn send(
+    server: &str,
+    token: Option<&str>,
+    method: &str,
+    path: &str,
+    body: Option<Value>,
+) -> Result<HttpResponse> {
     let mut req =
         HttpRequest::new(method, format!("{server}/v1{path}")).header("Accept", "application/json");
     if let Some(token) = token {
@@ -85,19 +101,20 @@ async fn request(
     let res = fetch(req)
         .await
         .map_err(|e| Error::new(ErrorCode::Network, format!("cannot reach {server}: {e}")))?;
-    let text = res.text();
     if res.ok() {
-        return Ok(text);
+        return Ok(res);
     }
     // The server's errors are mail-core's `{code, message}`.
-    Err(serde_json::from_str::<Error>(&text).unwrap_or_else(|_| {
-        let code = if res.status() == 401 {
-            ErrorCode::Auth
-        } else {
-            ErrorCode::Protocol
-        };
-        Error::new(code, format!("{server} answered HTTP {}", res.status()))
-    }))
+    Err(
+        serde_json::from_slice::<Error>(&res.body).unwrap_or_else(|_| {
+            let code = if res.status() == 401 {
+                ErrorCode::Auth
+            } else {
+                ErrorCode::Protocol
+            };
+            Error::new(code, format!("{server} answered HTTP {}", res.status()))
+        }),
+    )
 }
 
 fn parse<T: DeserializeOwned>(text: &str) -> Result<T> {
@@ -503,6 +520,13 @@ impl Backend for CloudBackend {
         Box::pin(async move {
             let path = format!("/messages/{}", enc(&id));
             self.api().call("GET", &path, None).await
+        })
+    }
+
+    fn attachment(&self, id: String, index: u32) -> MailFuture<'_, Vec<u8>> {
+        Box::pin(async move {
+            let path = format!("/messages/{}/attachments/{index}", enc(&id));
+            self.api().bytes(&path).await
         })
     }
 
