@@ -128,12 +128,6 @@ def launch():
 apk = sorted(glob.glob(os.path.join(apk_dir, "*.apk")))[0]
 adb("install", "-r", "-g", apk)
 adb("shell", "settings", "put", "system", "font_scale", "1.0")
-# SystemUI demo mode: a fixed status bar (clock, full battery and signal, no notification icons).
-adb("shell", "settings", "put", "global", "sysui_demo_allowed", "1")
-for extra in (["clock", "-e", "hhmm", "0930"], ["battery", "-e", "level", "100", "-e", "plugged", "false"],
-              ["network", "-e", "wifi", "show", "-e", "level", "4", "-e", "mobile", "show", "-e", "level", "4"],
-              ["notifications", "-e", "visible", "false"]):
-    adb("shell", "am", "broadcast", "-a", "com.android.systemui.demo", "-e", "command", *extra)
 size = adb("shell", "wm", "size").split()[-1]
 w, h = map(int, size.split("x"))
 
