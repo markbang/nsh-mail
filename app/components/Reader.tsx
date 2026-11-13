@@ -4,9 +4,9 @@
 import { createMotion, reduceMotion, Scroll, signal, Text, View } from "nsh";
 import { t } from "nsh/i18n";
 import { Mail, type Attachment, type Message } from "nsh-mail/native";
-import { AccountMark, Avatar, Button, FileTile, Icon, IconButton, Divider, touch } from "../ui";
+import { AccountMark, Avatar, Button, FileTile, FloatingToolbar, Icon, IconButton, Divider, material, Menu, ToolbarButton, touch } from "../ui";
 import { displayName, fileSize, fullDate, type ComposeMode } from "../lib/format";
-import { accountById, accountIndex, accounts, errorText, setFlags, showToast } from "../store";
+import { accountById, accountIndex, accounts, errorText, moveMessages, setFlags, showToast } from "../store";
 import { MailView, webViewAvailable } from "./MailView";
 
 export interface ReaderProps {
@@ -14,10 +14,57 @@ export interface ReaderProps {
   onCompose: (mode: ComposeMode) => void;
   /** Wide layouts put the actions in the reader's own toolbar. */
   toolbar?: boolean;
+  /** Phones: the actions are in the system header and at the bottom (Android's floating toolbar). */
+  phone?: boolean;
+  /** Leaves the page (a phone, after archiving or deleting). */
+  onLeave?: () => void;
 }
 
 // Per message: the reader chose to load its images.
 const imagesShown = signal<Record<string, boolean>>({});
+
+/** Archive or delete the message: `before` runs first (a phone leaves the page). */
+function move(m: Message, folder: "archive" | "trash", before?: () => void) {
+  before?.();
+  moveMessages([m.id], folder);
+}
+
+/** The phone's header actions: archive, delete, unread, and the rest under More. */
+export function PhoneReaderActions(props: { message: Message; onLeave: () => void }) {
+  const m = () => props.message;
+  return (
+    <>
+      {/* Android has them in the floating toolbar. */}
+      <If when={!material && m().folder !== "archive" && m().folder !== "trash"}>
+        <IconButton icon="archive" label={t("actions.archive")} onPress={() => move(m(), "archive", props.onLeave)} testID="archive" />
+      </If>
+      <If when={!material && m().folder !== "trash"}>
+        <IconButton icon="trash" label={t("actions.delete")} onPress={() => move(m(), "trash", props.onLeave)} testID="delete" />
+      </If>
+      <IconButton
+        icon="mail"
+        label={t("actions.markUnread")}
+        onPress={() => {
+          void setFlags(m().id, { seen: false });
+          props.onLeave();
+        }}
+        testID="toggle-seen"
+      />
+      <Menu
+        label={t("actions.more")}
+        trigger={<IconButton icon="more" label={t("actions.more")} testID="reader-more" />}
+        actions={[
+          {
+            id: "flag",
+            label: m().flagged ? t("actions.unflag") : t("actions.flag"),
+            icon: m().flagged ? "flagFilled" : "flag",
+            onSelect: () => void setFlags(m().id, { flagged: !m().flagged }),
+          },
+        ]}
+      />
+    </>
+  );
+}
 
 export function ReaderActions(props: { message: Message; onCompose: (mode: ComposeMode) => void }) {
   const m = () => props.message;
@@ -43,9 +90,51 @@ export function ReaderActions(props: { message: Message; onCompose: (mode: Compo
         onPress={() => void setFlags(m().id, { flagged: !m().flagged })}
         testID="toggle-flag"
       />
+      <If when={m().folder !== "archive" && m().folder !== "trash"}>
+        <IconButton size={touch ? "md" : "sm"} icon="archive" label={t("actions.archive")} shortcut="E" onPress={() => move(m(), "archive")} testID="archive" />
+      </If>
+      <If when={m().folder !== "trash"}>
+        <IconButton size={touch ? "md" : "sm"} icon="trash" label={t("actions.delete")} shortcut="#" onPress={() => move(m(), "trash")} testID="delete" />
+      </If>
     </View>
   );
 }
+
+/** Android: M3E's floating toolbar, vibrant, over the end of the message: reply first. */
+function ReaderToolbar(props: { message: Message; onCompose: (mode: ComposeMode) => void; onLeave?: () => void }) {
+  const m = () => props.message;
+  return (
+    <View class="absolute inset-x-0 bottom-0 items-center pb-[env(safe-area-inset-bottom)]" style={{ pointerEvents: "box-none" }}>
+      <View class="mb-4">
+        <FloatingToolbar label={t("reader.actions")} vibrant testID="reader-toolbar">
+          <ToolbarButton icon="reply" label={t("actions.reply")} emphasized vibrant onPress={() => props.onCompose("reply")} testID="reply" />
+          <ToolbarButton icon="replyAll" label={t("actions.replyAll")} vibrant onPress={() => props.onCompose("replyAll")} testID="reply-all" />
+          <ToolbarButton icon="forward" label={t("actions.forward")} vibrant onPress={() => props.onCompose("forward")} testID="forward" />
+          <If when={m().folder !== "archive" && m().folder !== "trash"}>
+            <ToolbarButton icon="archive" label={t("actions.archive")} vibrant onPress={() => move(m(), "archive", props.onLeave)} testID="archive" />
+          </If>
+          <If when={m().folder !== "trash"}>
+            <ToolbarButton icon="trash" label={t("actions.delete")} vibrant onPress={() => move(m(), "trash", props.onLeave)} testID="delete" />
+          </If>
+        </FloatingToolbar>
+      </View>
+    </View>
+  );
+}
+
+/** Replying on a phone: a bar at the bottom of the message, over the gesture area. */
+function ReplyBar(props: { onCompose: (mode: ComposeMode) => void }) {
+  return (
+    <View class="border-t border-divider bg-background pb-[env(safe-area-inset-bottom)]">
+      <View class="flex-row gap-2 px-4 py-3">
+        <Button variant="bordered" radius="full" icon="reply" label={t("actions.reply")} onPress={() => props.onCompose("reply")} class="flex-1" testID="reply" />
+        <Button variant="bordered" radius="full" icon="replyAll" label={t("actions.replyAll")} onPress={() => props.onCompose("replyAll")} class="flex-1" testID="reply-all" />
+        <Button variant="bordered" radius="full" icon="forward" label={t("actions.forward")} onPress={() => props.onCompose("forward")} class="flex-1" testID="forward" />
+      </View>
+    </View>
+  );
+}
+
 
 export function Reader(props: ReaderProps) {
   const m = () => props.message;
@@ -57,9 +146,22 @@ export function Reader(props: ReaderProps) {
   const pad = touch ? "px-4" : "px-6";
   const header = () => (
     <View class="gap-3">
-      <Text role="header" class={`font-semibold text-foreground ${touch ? "text-xl" : "text-large"}`}>
-        {m().subject || t("reader.noSubject")}
-      </Text>
+      <View class="flex-row items-start gap-2">
+        <Text role="header" class={`flex-1 ${material ? "text-headline-s font-medium text-md-on-surface" : `font-semibold text-foreground ${touch ? "text-xl" : "text-large"}`}`}>
+          {m().subject || t("reader.noSubject")}
+        </Text>
+        <If when={props.phone}>
+          <IconButton
+            icon={m().flagged ? "flagFilled" : "flag"}
+            tone={m().flagged ? "flag" : "default-500"}
+            selected={m().flagged}
+            label={m().flagged ? t("actions.unflag") : t("actions.flag")}
+            onPress={() => void setFlags(m().id, { flagged: !m().flagged })}
+            class="-me-2 -mt-1.5"
+            testID="toggle-flag"
+          />
+        </If>
+      </View>
       <View class="flex-row items-start gap-3">
         <Avatar name={displayName(m().from)} />
         <View class="min-w-0 flex-1 gap-0.5">
@@ -80,7 +182,7 @@ export function Reader(props: ReaderProps) {
           </View>
         </View>
       </View>
-      <If when={!props.toolbar}>
+      <If when={!props.toolbar && !props.phone}>
         <ReaderActions message={m()} onCompose={props.onCompose} />
       </If>
     </View>
@@ -91,13 +193,16 @@ export function Reader(props: ReaderProps) {
       {(x) => <AttachmentTile messageId={x().id} attachment={x().attachment} />}
     </Each>
   );
+  // Android's floating toolbar covers the end of the page: room is kept for it.
+  const end = material && props.phone ? "pb-28" : touch ? "pb-8" : "pb-10";
   // A mail's HTML scrolls in its own view, under the header and over the attachments: one scrollbar.
   return (
+    <View class="flex-1">
     <If
       when={html()}
       else={
         <Scroll class="flex-1" style={enter.style} testID="reader">
-          <View selectable class={`gap-4 ${pad} ${touch ? "pb-8 pt-4" : "pb-10 pt-5"}`}>
+          <View selectable class={`gap-4 ${pad} ${end} ${touch ? "pt-4" : "pt-5"}`}>
             {header()}
             <Divider />
             <Text class={`text-foreground ${touch ? "text-medium leading-6" : "text-small leading-6"}`} testID="body-text">
@@ -114,7 +219,7 @@ export function Reader(props: ReaderProps) {
       }
     >
       {(source) => (
-        <View class={`flex-1 gap-3 ${touch ? "pb-4 pt-4" : "pb-5 pt-5"}`} style={enter.style} testID="reader">
+        <View class={`flex-1 gap-3 ${material && props.phone ? "pb-24" : touch ? "pb-4" : "pb-5"} ${touch ? "pt-4" : "pt-5"}`} style={enter.style} testID="reader">
           <View selectable class={`gap-4 ${pad}`}>
             {header()}
             <If when={m().remoteImages.length > 0 && !showImages()}>
@@ -130,7 +235,7 @@ export function Reader(props: ReaderProps) {
               </View>
             </If>
           </View>
-          <View class={`min-h-48 flex-1 overflow-hidden rounded-medium border border-divider bg-white ${touch ? "mx-2" : "mx-6"}`}>
+          <View class={`min-h-48 flex-1 overflow-hidden border border-divider bg-white ${material ? "rounded-shape-lg" : "rounded-medium"} ${touch ? "mx-2" : "mx-6"}`}>
             <MailView html={source()} remote={showImages()} onUnavailable={() => webViewAvailable.set(false)} class="flex-1" />
           </View>
           <If when={m().attachments.length}>
@@ -141,6 +246,13 @@ export function Reader(props: ReaderProps) {
         </View>
       )}
     </If>
+    <If when={props.phone && material}>
+      <ReaderToolbar message={m()} onCompose={props.onCompose} onLeave={props.onLeave} />
+    </If>
+    <If when={props.phone && !material}>
+      <ReplyBar onCompose={props.onCompose} />
+    </If>
+    </View>
   );
 }
 
