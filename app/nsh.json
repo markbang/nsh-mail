@@ -7,6 +7,16 @@
   "theme": "theme.json",
   "icon": "icon.png",
   "schemes": ["nshmail"],
+  "capabilities": {
+    "network": { "hosts": ["*"] },
+    "webview": { "hosts": [] },
+    "statusBar": true,
+    "clipboard": true,
+    "picker": true,
+    "notifications": true,
+    "openUrl": true,
+    "windows": true
+  },
   "tailwind": {
     "radius": { "small": 8, "medium": 12, "large": 14 },
     "fontSize": { "tiny": [12, 1.3333], "small": [14, 1.4286], "medium": [16, 1.5], "large": [18, 1.5556] },

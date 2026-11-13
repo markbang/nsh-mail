@@ -332,9 +332,7 @@ impl Mail {
 
     /// A whole message.
     pub async fn get(id: String) -> Result<Js<Message>, JsError> {
-        let mut message = backend()?.get(id).await.map_err(js)?;
-        message.html = message.html.as_deref().map(crate::layout::reading_html);
-        Ok(Js(message))
+        backend()?.get(id).await.map(Js).map_err(js)
     }
 
     /// Opens attachment `attachment` of message `id`: in a new tab (images, PDFs) or as a

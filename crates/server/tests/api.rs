@@ -407,6 +407,64 @@ async fn attachment_download() {
     assert_eq!(other.status(), StatusCode::NOT_FOUND);
 }
 
+/// The reader's HTML over the API: the HTML part, not the text one, its inline image a `data:` URI.
+#[tokio::test(flavor = "multi_thread")]
+async fn html_mail_with_an_inline_image() {
+    use lettre::address::Envelope;
+    use lettre::transport::smtp::client::{AsyncSmtpConnection, TlsParameters};
+
+    let s = start(config(temp_dir())).await;
+    let alice = s.user("alice").await;
+    let host = std::env::var("GREENMAIL_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+    let tls = TlsParameters::builder(host.clone())
+        .dangerous_accept_invalid_certs(true)
+        .dangerous_accept_invalid_hostnames(true)
+        .build_rustls()
+        .unwrap();
+    let mut smtp = AsyncSmtpConnection::connect_tokio1(
+        (host, 3465),
+        None,
+        &Default::default(),
+        Some(tls),
+        None,
+    )
+    .await
+    .unwrap();
+    let raw = String::from_utf8_lossy(include_bytes!("../../mail-core/tests/mail/related-cid.eml"))
+        .replace("{to}", &alice.email);
+    let envelope = Envelope::new(
+        Some("shop@test.local".parse().unwrap()),
+        vec![alice.email.parse().unwrap()],
+    )
+    .unwrap();
+    smtp.send(&envelope, raw.as_bytes()).await.unwrap();
+    s.http
+        .post(format!("{}/sync", s.base))
+        .bearer_auth(&alice.token)
+        .send()
+        .await
+        .unwrap();
+    let id = s.inbox(&alice, 1).await[0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let m: Value = s
+        .get(&alice.token, &format!("/messages/{id}"))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let html = m["html"].as_str().unwrap();
+    assert!(
+        html.contains(r#"<img src="data:image/png;base64,iVBORw0KGgo"#),
+        "{html}"
+    );
+    assert!(html.contains("サイン") && !html.contains("cid:"), "{html}");
+    assert_eq!(m["text"].as_str().map(str::trim), Some("Logo below"));
+    assert_eq!(m["remoteImages"], json!([]));
+}
+
 #[derive(Clone, Default)]
 struct Captured(Arc<Mutex<Vec<(String, HeaderMap, Bytes)>>>);
 

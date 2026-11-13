@@ -142,9 +142,9 @@ async fn sync_send_search_flags_and_pagination() {
     let first = engine.get(&page2[0].id).await.unwrap();
     assert!(first.text.as_deref().unwrap().contains("body 0"));
     let html = first.html.as_deref().unwrap();
-    assert!(
-        !html.contains("script") && !html.contains("tracker.example"),
-        "html: {html}"
+    assert_eq!(
+        html,
+        r#"<p>hi<img src="https://tracker.example/p.gif"></p>"#
     );
     assert_eq!(first.remote_images, ["https://tracker.example/p.gif"]);
 
@@ -745,4 +745,100 @@ async fn large_mail_stored_during_a_sync_arrives() {
     delivered.await.unwrap().unwrap();
     assert!(inbox_shows(&engine, &account, &["large"]).await);
     engine.stop();
+}
+
+async fn deliver_raw(to: &str, eml: &[u8]) {
+    let raw = String::from_utf8_lossy(eml).replace("{to}", to);
+    let envelope = lettre::address::Envelope::new(
+        Some("sender@test.local".parse().unwrap()),
+        vec![to.parse().unwrap()],
+    )
+    .unwrap();
+    smtp().await.send(&envelope, raw.as_bytes()).await.unwrap();
+}
+
+/// HTML mail as it arrives: the HTML part over the text one, decoded from its charset, with its
+/// styles and layout, without anything active, inline (`cid:`) images as `data:` URIs and remote
+/// images listed for the reader to block; a body over the sync limit is fetched on open.
+#[tokio::test(flavor = "multi_thread")]
+async fn html_mail_keeps_its_layout_and_inline_images() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let email = unique("html");
+    let newsletter = include_bytes!("mail/newsletter-gbk.eml");
+    deliver_raw(&email, newsletter).await;
+    deliver_raw(&email, include_bytes!("mail/related-cid.eml")).await;
+    let big = String::from_utf8_lossy(newsletter)
+        .replace("newsletter-gbk", "newsletter-big")
+        .replace(
+            "--alt1--",
+            &format!("--alt1--\r\n{}", "x".repeat(40 * 1024)),
+        );
+    deliver_raw(&email, big.as_bytes()).await;
+    let account = engine.add_imap_account(input(&email)).await.unwrap();
+    engine.sync(&account.id).await.unwrap();
+    let inbox = engine
+        .list(query(FolderKind::Inbox, &account, None, 10))
+        .await
+        .unwrap();
+    let open = async |subject: &str| {
+        let s = inbox.iter().find(|s| s.subject == subject).unwrap();
+        engine.get(&s.id).await.unwrap()
+    };
+
+    for subject in ["newsletter-gbk", "newsletter-big"] {
+        let m = open(subject).await;
+        let html = m.html.unwrap();
+        assert!(m.text.unwrap().contains("你好，这是一封HTML邮件。"));
+        for kept in [
+            "<style>.hero{color:#c00;font-size:24px}",
+            r##"<table width="600" bgcolor="#f4f4f4" cellpadding="0" cellspacing="0" align="center">"##,
+            r#"<td class="hero" style="background-color:#ffffff;color:#333333"><h1>本周新闻</h1>"#,
+            r#"<img src="https://cdn.example/banner.png" alt="banner">"#,
+            r#"<a href="https://example.com/article?id=1" rel="noopener noreferrer">阅读全文</a>"#,
+        ] {
+            assert!(html.contains(kept), "{subject}: {kept} missing from {html}");
+        }
+        for gone in [
+            "<script",
+            "alert",
+            "onclick",
+            "onload",
+            "javascript:",
+            "<form",
+            "<input",
+            "<iframe",
+            "<object",
+            "<embed",
+            "<meta",
+            "refresh",
+            "周报标题",
+        ] {
+            assert!(!html.contains(gone), "{subject}: {gone} left in {html}");
+        }
+        assert_eq!(
+            m.remote_images,
+            [
+                "https://tracker.example/open.gif",
+                "https://cdn.example/banner.png"
+            ]
+        );
+    }
+
+    let m = open("related-cid").await;
+    let html = m.html.unwrap();
+    assert!(
+        html.contains(r#"<img src="data:image/png;base64,iVBORw0KGgo"#),
+        "{html}"
+    );
+    assert!(
+        html.contains("<p>サイン</p>") && !html.contains("cid:"),
+        "{html}"
+    );
+    assert!(m.remote_images.is_empty());
+    assert_eq!(m.text.as_deref().map(str::trim), Some("Logo below"));
+    // Shown in the HTML, so not listed; still attachment 0 to download.
+    assert!(m.attachments.is_empty());
+    let (logo, _) = engine.attachment(&m.summary.id, 0).await.unwrap();
+    assert_eq!(logo.content_id.as_deref(), Some("logo@example.com"));
 }

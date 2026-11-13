@@ -7,7 +7,6 @@ mod cloud;
 #[cfg(any(debug_assertions, nshmail_demo))]
 mod demo;
 mod drop;
-mod layout;
 #[cfg(not(target_arch = "wasm32"))]
 mod local;
 mod mail;

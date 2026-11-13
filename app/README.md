@@ -30,6 +30,11 @@ web it subscribes to Web Push once notifications are allowed. It does not cache 
 builds do not contain it. Gmail and Outlook sign-in in local mode need `NSHMAIL_GOOGLE_CLIENT_ID` (and
 `NSHMAIL_GOOGLE_CLIENT_SECRET`) and `NSHMAIL_MS_CLIENT_ID` at build time; without them, pressing one says so.
 
+HTML mail shows in NSH's `WebView` (`components/MailView.tsx`), so where the app runs it needs a web engine: WebKitGTK
+6.0 on Linux (`libwebkitgtk-6.0-4` on Debian and Ubuntu; GNOME desktops have it), the WebView2 Runtime on Windows
+(part of Windows 11; Edge installs it on Windows 10) and the system WebView on Android. Without one the reader shows
+the mail's text.
+
 ```sh
 nsh check                   # cargo check, then tsc against the generated declarations
 nsh test                    # cargo test, then App.test.tsx headless
