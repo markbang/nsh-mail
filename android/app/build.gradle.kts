@@ -29,6 +29,16 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 
+    // One APK per ABI prepare.sh built (same NSH_ABIS and default); the AAB keeps them all and Play splits it.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include(*(System.getenv("NSH_ABIS") ?: "arm64-v8a").split(",").toTypedArray())
+            isUniversalApk = false
+        }
+    }
+
     // The upload key CI decodes from its secrets (app.yml), with the one password `nsh package --keystore` takes too.
     val keystore = System.getenv("ANDROID_KEYSTORE_FILE")
     if (keystore != null) {

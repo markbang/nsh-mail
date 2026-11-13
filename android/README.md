@@ -6,13 +6,17 @@
 
 ## Build / 构建
 
-Needs nsh, JDK 17, the Android SDK (`platforms;android-35`, build tools, an NDK) and the Rust targets `aarch64-linux-android` and `armv7-linux-androideabi`.
+Needs nsh, JDK 17, the Android SDK (`platforms;android-35`, build tools, an NDK) and the Rust target `aarch64-linux-android` (`armv7-linux-androideabi` too for a release).
 
 ```sh
 android/prepare.sh                         # nsh.aar + libnsh.so with the app's crate, and the bundle
-                                           # NSH_ABIS=x86_64 for an emulator (default arm64-v8a,armeabi-v7a)
-cd android && ./gradlew assembleDebug      # app/build/outputs/apk/debug/app-debug.apk
+                                           # NSH_ABIS=x86_64 for an emulator (default arm64-v8a)
+cd android && ./gradlew assembleDebug      # app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
 ```
+
+Each ABI adds a whole `libnsh.so` (about 32 MB), so APKs carry one: Gradle splits them per ABI in `NSH_ABIS`. Releases ship the AAB (`bundleRelease`, CI sets `NSH_ABIS=arm64-v8a,armeabi-v7a`); Play gives each phone only its own library.
+
+每个 ABI 都是一整份 `libnsh.so`（约 32 MB），所以每个 APK 只带一个：Gradle 按 `NSH_ABIS` 分 ABI 出包。正式发布用 AAB（`bundleRelease`，CI 设 `NSH_ABIS=arm64-v8a,armeabi-v7a`），Play 只给每台手机下发它自己的那份。
 
 `prepare.sh` downloads `nsh.aar` from the NSH release matching `nsh --version` (checksum verified), replaces its `libnsh.so` with the one `nsh package` builds for this app (it holds the `nsh-mail/native` module), and writes the bundle with `nsh build --release`. Both outputs are git-ignored.
 

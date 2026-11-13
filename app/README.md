@@ -38,8 +38,11 @@ nsh test                    # cargo test, then App.test.tsx headless
 nsh run                     # this machine; --target web needs wasm32-unknown-unknown, clang and llvm-ar
 nsh package --target web    # needs wasm-bindgen-cli of the version Cargo.toml pins
 cp web/sw.js .nsh/out/nsh-mail/  # nsh ships no extra files; the server serves it as /sw.js
+nsh package --target android --abi arm64-v8a  # preview APK; releases are the AAB (--format aab), see android/README.md
 GREENMAIL_JAR=… .e2e/run.sh # cloud mode end to end; or with GreenMail already on 3993 / 3465
 ```
+
+Run `nsh package` from this directory: release builds take their size profile from `.cargo/config.toml` (z, fat LTO).
 
 The web client is meant to be served by its server (`NSHMAIL_WEB_DIR`), so it signs in to the page's own origin by
 default and needs no CORS.
