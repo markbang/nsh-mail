@@ -708,3 +708,40 @@ async fn attachments_round_trip_forward_and_limit() {
         1
     );
 }
+
+/// GreenMail gives a message its UID before it shows in the mailbox (UIDNEXT moves first), and
+/// storing a large message takes a while (hundreds of milliseconds for 5000 parts). A sync in
+/// between used to take that UIDNEXT as its watermark, so the message, once visible, was never
+/// fetched: neither by the sync that IDLE starts nor by any later one.
+#[tokio::test(flavor = "multi_thread")]
+async fn large_mail_stored_during_a_sync_arrives() {
+    use lettre::message::{Attachment, MultiPart, SinglePart, header::ContentType};
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let email = unique("large");
+    let mut rx = engine.subscribe();
+    engine.run().await.unwrap();
+    let account = engine.add_imap_account(input(&email)).await.unwrap();
+    idling(&mut rx, &account).await;
+
+    let mut parts = MultiPart::mixed().singlepart(SinglePart::plain("see attached".to_string()));
+    for i in 0..5000 {
+        parts = parts.singlepart(
+            Attachment::new(format!("{i}.txt")).body(format!("part {i}"), ContentType::TEXT_PLAIN),
+        );
+    }
+    let m = lettre::Message::builder()
+        .from("carol@test.local".parse().unwrap())
+        .to(email.parse().unwrap())
+        .subject("large")
+        .multipart(parts)
+        .unwrap();
+    let mut mta = smtp().await;
+    let delivered = tokio::spawn(async move { mta.send(m.envelope(), &m.formatted()).await });
+    while !delivered.is_finished() {
+        engine.sync(&account.id).await.unwrap();
+    }
+    delivered.await.unwrap().unwrap();
+    assert!(inbox_shows(&engine, &account, &["large"]).await);
+    engine.stop();
+}

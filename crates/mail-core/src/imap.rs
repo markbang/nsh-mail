@@ -389,7 +389,8 @@ pub(crate) struct FolderSync {
 }
 
 /// Brings one folder up to date: UIDVALIDITY check, flags of known messages (CONDSTORE when
-/// available), removed messages, then new messages by UIDNEXT, capped to the newest `WINDOW`.
+/// available), removed messages, then messages above the highest UID held, capped to the newest
+/// `WINDOW`.
 pub(crate) async fn sync_folder(
     conn: &mut Conn,
     store: &Arc<Store>,
@@ -413,10 +414,13 @@ pub(crate) async fn sync_folder(
     }
     f.uidvalidity = mbox.uid_validity;
     let initial = f.uidnext.is_none();
-    let known_next = f.uidnext.unwrap_or(1);
 
     let folder_id = f.id;
     let local: Vec<u32> = store.run(move |s| s.uids(folder_id)).await?;
+    // New mail is what lies above the highest UID held (RFC 4549 §4.3.1), never the server's
+    // UIDNEXT: a server may hand out a UID before the message shows (GreenMail does while it
+    // stores a large one), and a sync in between would skip that message for good.
+    let known_next = local.last().map_or(1, |u| u + 1);
     let mut flag_updates = Vec::new();
     let mut vanished = Vec::new();
     if let Some(&min) = local.first() {
@@ -459,26 +463,30 @@ pub(crate) async fn sync_folder(
     let mut new_messages = Vec::new();
     let mut max_uid = known_next.saturating_sub(1);
     if mbox.exists > 0 {
-        let delta = mbox
+        let unseen = mbox
             .uid_next
             .map_or(u32::MAX, |n| n.saturating_sub(known_next));
-        let count = WINDOW.min(mbox.exists).min(delta);
-        if count > 0 {
-            let start = mbox.exists - count + 1;
-            let mut metas = Vec::new();
-            let items = "(UID FLAGS INTERNALDATE RFC822.SIZE BODYSTRUCTURE)";
-            for fetch in collect(session.fetch(format!("{start}:*"), items).await?).await? {
-                let Some(uid) = fetch.uid else { continue };
-                if uid < known_next || local.binary_search(&uid).is_ok() {
-                    continue;
-                }
-                max_uid = max_uid.max(uid);
-                metas.push(Meta::from_fetch(uid, &fetch));
+        let items = "(UID FLAGS INTERNALDATE RFC822.SIZE BODYSTRUCTURE)";
+        let fetched = if initial || unseen > WINDOW {
+            let start = mbox.exists - WINDOW.min(mbox.exists) + 1;
+            collect(session.fetch(format!("{start}:*"), items).await?).await?
+        } else if unseen > 0 {
+            collect(session.uid_fetch(format!("{known_next}:*"), items).await?).await?
+        } else {
+            Vec::new()
+        };
+        let mut metas = Vec::new();
+        for fetch in fetched {
+            let Some(uid) = fetch.uid else { continue };
+            if uid < known_next || local.binary_search(&uid).is_ok() {
+                continue;
             }
-            new_messages = fetch_new(session, metas).await?;
+            max_uid = max_uid.max(uid);
+            metas.push(Meta::from_fetch(uid, &fetch));
         }
+        new_messages = fetch_new(session, metas).await?;
     }
-    f.uidnext = Some(mbox.uid_next.unwrap_or(0).max(max_uid + 1).max(known_next));
+    f.uidnext = Some(max_uid + 1);
     f.highestmodseq = mbox.highest_modseq;
 
     let state = f.clone();

@@ -681,18 +681,6 @@ impl Server {
             .unwrap()
     }
 
-    /// Syncs `user`'s accounts now, as pull to refresh does, rather than wait for IDLE.
-    async fn sync(&self, user: &User) {
-        let res = self
-            .http
-            .post(format!("{}/sync", self.base))
-            .bearer_auth(&user.token)
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(res.status(), StatusCode::NO_CONTENT);
-    }
-
     /// The attachments of message `id`: names, types and sizes.
     async fn attachments(&self, user: &User, id: &str) -> Vec<(String, String, u64)> {
         let m: Value = self
@@ -759,7 +747,6 @@ async fn attachments_upload_send_forward_and_limit() {
             png.len() as u64,
         ),
     ];
-    s.sync(&bob).await;
     let received = s.inbox(&bob, 1).await;
     let id = received[0]["id"].as_str().unwrap();
     assert_eq!(s.attachments(&bob, id).await, expected, "received");
@@ -775,7 +762,6 @@ async fn attachments_upload_send_forward_and_limit() {
         );
     }
 
-    s.sync(&alice).await;
     let sent: Vec<Value> = s
         .get(&alice.token, "/messages?folder=sent")
         .await
@@ -813,7 +799,6 @@ async fn attachments_upload_send_forward_and_limit() {
         "{:?}",
         res.text().await
     );
-    s.sync(&alice).await;
     let inbox = s.inbox(&alice, 1).await;
     assert_eq!(
         s.attachments(&alice, inbox[0]["id"].as_str().unwrap())
