@@ -1,5 +1,5 @@
-// Android phones get Material 3 Expressive's own components (ui/m3.tsx) where the
-// shared screens keep their pointer-first ones; the tokens are everyone's (ui/tokens.ts).
+// Android phones lay some screens out their own way (`material`: a swipeable
+// list, a top app bar); the components and tokens are everyone's.
 import { platform } from "nsh";
 import { springTo, transition as springTransition } from "./tokens";
 
@@ -21,6 +21,3 @@ export const transition = {
   fastEffects: `${springTransition("effects", "fast", "transition-colors")}`,
   effects: `${springTransition("effects", "default")}`,
 } as const;
-
-/** A pressed button's shape morph: from its resting corners to Material's pressed `small`, on the fast spatial spring. */
-export const pressMorph = `${transition.fastSpatial} active:rounded-small`;

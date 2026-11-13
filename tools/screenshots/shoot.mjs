@@ -133,5 +133,17 @@ for (const theme of ["light", "dark"]) {
   await id("add-imap").waitFor();
   await shot("add-account", theme);
 }
+// The narrow web layout (navigation bar, one stack) at a phone's 412×915.
+await page.setViewportSize({ width: 412, height: 915 });
+for (const theme of ["light", "dark"]) {
+  await page.emulateMedia({ colorScheme: theme });
+  await page.goto(origin + "/");
+  for (const text of synced) await page.getByText(text).first().waitFor({ timeout: 90_000 });
+  await shot("narrow-inbox", theme);
+  await page.getByText("Booking confirmed: Shanghai").first().click();
+  await id("reader").waitFor();
+  await page.getByText("E-ticket-K7Q2XM.pdf").first().waitFor();
+  await shot("narrow-reader", theme);
+}
 await browser.close();
 log("done");

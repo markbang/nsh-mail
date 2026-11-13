@@ -1,66 +1,37 @@
-// HeroUI's Switch, Checkbox and Tabs on nsh/base's behaviour.
+// M3E selection controls on nsh/base's behaviour: the switch (its handle
+// grows from 16 to 24pt when on and to 28pt while pressed, on the fast spatial
+// curve) and the checkbox (18pt, 2pt corners).
 import { Text, View } from "nsh";
-import { Checkbox as BaseCheckbox, Switch as BaseSwitch, Tab, Tabs as BaseTabs } from "nsh/base";
-import { Icon, type IconTone } from "./icon";
+import { Checkbox as BaseCheckbox, Switch as BaseSwitch } from "nsh/base";
+import { Icon } from "./icon";
 import { focusRing } from "./tokens";
-import { roles, shadow, type Color, type Size } from "./variants";
 
-const track: Record<Size, string> = { sm: "w-10 h-6", md: "w-12 h-7", lg: "w-14 h-8" };
-const thumb: Record<Size, string> = {
-  sm: "size-4 checked:translate-x-4",
-  md: "size-5 checked:translate-x-5",
-  lg: "size-6 checked:translate-x-6",
-};
-const labelText: Record<Size, string> = { sm: "text-body-medium", md: "text-body-large", lg: "text-title-large" };
+const spatial = "transition-all duration-350 ease-spatial-fast motion-reduce:transition-none";
+const effects = "transition-colors duration-150 ease-effects-fast motion-reduce:transition-none";
 
-/** HeroUI's Switch: a default-200 track that fills with the color, a white thumb with a small shadow. */
-export function Switch(props: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  label: string;
-  description?: string;
-  disabled?: boolean;
-  color?: Color;
-  size?: Size;
-  testID?: string;
-}) {
-  const size = () => props.size ?? "md";
-  const c = () => props.color ?? "primary";
+/** Compose SwitchTokens: a 52×32 track, outlined off, primary on. */
+export function Switch(props: { checked: boolean; onChange: (checked: boolean) => void; label: string; description?: string; disabled?: boolean; testID?: string }) {
   return (
     <BaseSwitch
       checked={props.checked}
       disabled={props.disabled}
       onChange={({ checked }) => props.onChange(checked)}
       testID={props.testID}
-      class={`group flex-row items-center gap-3 disabled:opacity-50 ${focusRing} rounded-medium`}
-      trackClass={`${track[size()]} shrink-0 justify-center rounded-full bg-surface-container-highest px-1 transition-colors duration-200 checked:bg-${roles[c()].fill}`}
-      thumbClass={`${thumb[size()]} rounded-full bg-white ${shadow.sm} transition duration-200 ease-effects-default motion-reduce:transition-none`}
+      class={`group flex-row-reverse items-center gap-4 rounded-medium disabled:opacity-38 ${focusRing}`}
+      trackClass={`h-8 w-[52px] shrink-0 justify-center rounded-full border-2 border-outline bg-surface-container-highest px-[6px] checked:border-primary checked:bg-primary ${effects}`}
+      thumbClass={`size-4 rounded-full bg-outline group-hover:bg-on-surface-variant checked:translate-x-5 checked:scale-150 checked:bg-on-primary group-hover:checked:bg-primary-container group-active:scale-[1.75] group-active:checked:scale-[1.75] ${spatial}`}
     >
       <View class="flex-1 gap-0.5">
-        <Text class={`text-on-surface ${props.description ? "text-body-medium" : labelText[size()]}`}>{props.label}</Text>
+        <Text class="text-body-large tracking-body-large text-on-surface">{props.label}</Text>
         <If when={props.description}>
-          <Text class="text-body-small text-on-surface-variant">{props.description}</Text>
+          <Text class="text-body-medium tracking-body-medium text-on-surface-variant">{props.description}</Text>
         </If>
       </View>
     </BaseSwitch>
   );
 }
 
-const box: Record<Size, string> = { sm: "size-4 rounded-[4px]", md: "size-5 rounded-[7px]", lg: "size-6 rounded-[9px]" };
-
-/** HeroUI's Checkbox: a 2px default border that fills with the color and shows a check. */
-export function Checkbox(props: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  label: string;
-  indeterminate?: boolean;
-  disabled?: boolean;
-  color?: Color;
-  size?: Size;
-  testID?: string;
-}) {
-  const size = () => props.size ?? "md";
-  const c = () => props.color ?? "primary";
+export function Checkbox(props: { checked: boolean; onChange: (checked: boolean) => void; label: string; indeterminate?: boolean; disabled?: boolean; error?: boolean; testID?: string }) {
   return (
     <BaseCheckbox
       checked={props.checked}
@@ -68,65 +39,15 @@ export function Checkbox(props: {
       disabled={props.disabled}
       onChange={({ checked }) => props.onChange(checked)}
       testID={props.testID}
-      class={`group flex-row items-center gap-2 self-start rounded-small disabled:opacity-50 ${focusRing}`}
-      indicatorClass={`${box[size()]} items-center justify-center border-2 border-outline transition-colors duration-200 group-hover:bg-surface-container-high checked:border-${roles[c()].fill} checked:bg-${roles[c()].fill} indeterminate:border-${roles[c()].fill} indeterminate:bg-${roles[c()].fill}`}
+      class={`group flex-row items-center gap-3 self-start rounded-small disabled:opacity-38 ${focusRing}`}
+      indicatorClass={`size-[18px] items-center justify-center rounded-[2px] border-2 ${props.error ? "border-error checked:bg-error indeterminate:bg-error" : "border-on-surface-variant checked:border-primary checked:bg-primary indeterminate:border-primary indeterminate:bg-primary"} ${effects}`}
       indicator={
         <If when={props.checked || props.indeterminate}>
-          <Icon name={props.indeterminate ? "minus" : "check"} size="sm" tone={roles[c()].on as IconTone} />
+          <Icon name={props.indeterminate ? "minus" : "check"} size="sm" tone={props.error ? "on-error" : "on-primary"} />
         </If>
       }
     >
-      <Text class={`text-on-surface ${labelText[size()]}`}>{props.label}</Text>
+      <Text class="text-body-large tracking-body-large text-on-surface">{props.label}</Text>
     </BaseCheckbox>
   );
-}
-
-const tabHeight: Record<Size, string> = { sm: "h-7 text-body-small", md: "h-8 text-body-medium", lg: "h-9 text-body-large" };
-
-/** HeroUI's Tabs (solid): a default-100 list whose cursor, a background pill with a small shadow, slides to the selected tab. */
-export function Tabs<T extends string>(props: {
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (value: T) => void;
-  size?: Size;
-  variant?: "solid" | "light" | "underlined" | "bordered";
-  fullWidth?: boolean;
-  class?: string;
-}) {
-  const size = () => props.size ?? "md";
-  const variant = () => props.variant ?? "solid";
-  const list = () =>
-    ({
-      solid: "bg-surface-container-high",
-      light: "",
-      underlined: "",
-      bordered: `border-2 border-outline-variant ${shadow.sm}`,
-    })[variant()];
-  const cursor = () =>
-    variant() === "underlined"
-      ? "bottom-0 h-[2px] bg-on-surface"
-      : `inset-y-1 rounded-small bg-surface dark:bg-surface-container-highest ${shadow.sm}`;
-  return (
-    <BaseTabs
-      class={`flex-row gap-2 p-1 ${size() === "lg" ? "rounded-large" : "rounded-medium"} ${list()} ${props.fullWidth ? "self-stretch" : "self-start"} ${props.class ?? ""}`}
-      indicatorClass={`${cursor()} transition-all duration-200 ease-out motion-reduce:transition-none`}
-    >
-      <Each of={props.options} key={(o) => o.value}>
-        {(option) => (
-          <Tab
-            selected={props.value === option().value}
-            onPress={() => props.onChange(option().value)}
-            class={`group ${props.fullWidth ? "flex-1" : ""} items-center justify-center rounded-small px-3 ${tabHeight[size()]} transition-opacity ${props.value === option().value ? "" : "hover:opacity-50"} ${focusRing}`}
-          >
-            <Text class="text-on-surface-variant transition-colors group-selected:text-on-surface">{option().label}</Text>
-          </Tab>
-        )}
-      </Each>
-    </BaseTabs>
-  );
-}
-
-/** Earlier name: full-width solid Tabs. */
-export function Segmented<T extends string>(props: { value: T; options: { value: T; label: string }[]; onChange: (value: T) => void; class?: string }) {
-  return <Tabs value={props.value} options={props.options} onChange={props.onChange} fullWidth class={props.class} />;
 }

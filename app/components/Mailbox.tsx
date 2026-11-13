@@ -1,7 +1,7 @@
 // The chosen mailbox's messages, or the search's results while a search runs.
 import { View } from "nsh";
 import { t } from "nsh/i18n";
-import { Button, Empty, Spinner } from "../ui";
+import { Button, Empty, LoadingIndicator } from "../ui";
 import { MessageList } from "./MessageList";
 import {
   accountName,
@@ -68,7 +68,7 @@ export function MailboxList(props: { onOpen: (id: string) => void; onAddAccount:
               when={listStatus() !== "loading"}
               else={
                 <View class="flex-1 items-center justify-center p-8">
-                  <Spinner label={t("reader.loading")} />
+                  <LoadingIndicator label={t("reader.loading")} contained />
                 </View>
               }
             >
@@ -82,7 +82,7 @@ export function MailboxList(props: { onOpen: (id: string) => void; onAddAccount:
                         icon="inbox"
                         title={t("empty.noAccounts")}
                         description={t("empty.noAccountsHint")}
-                        action={<Button color="primary" icon="plus" label={t("accounts.add")} onPress={props.onAddAccount} />}
+                        action={<Button icon="plus" label={t("accounts.add")} onPress={props.onAddAccount} />}
                       />
                     }
                   >
@@ -90,7 +90,7 @@ export function MailboxList(props: { onOpen: (id: string) => void; onAddAccount:
                   </If>
                 }
               >
-                <Empty icon="inbox" title={t("empty.loadFailed")} action={<Button variant="flat" icon="refresh" label={t("actions.retry")} onPress={() => void reload()} />} />
+                <Empty icon="inbox" title={t("empty.loadFailed")} action={<Button variant="tonal" icon="refresh" label={t("actions.retry")} onPress={() => void reload()} />} />
               </If>
             </If>
           }

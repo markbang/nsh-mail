@@ -7,7 +7,7 @@ import { createAnimatedValue, effect, List, reduceMotion, signal, Text, View, ty
 import { Haptics } from "nsh/mobile";
 import { t } from "nsh/i18n";
 import type { Summary } from "nsh-mail/native";
-import { AccountMark, Icon, initials, LoadingIndicator, material, Row, Spinner, springs, touch, transition } from "../ui";
+import { AccountMark, Icon, initials, LoadingIndicator, material, Row, springs, touch, transition } from "../ui";
 import { displayName, listDate } from "../lib/format";
 import { wide } from "../layout";
 import { accountIndex, accounts } from "../store";
@@ -53,7 +53,7 @@ export function MessageList(props: MessageListProps) {
       contentStyle={m3() ? { paddingTop: 4, paddingBottom: 96 } : undefined}
       each={props.items}
       keyExtractor={(m) => m.id}
-      estimatedItemSize={dense() ? (touch ? 82 : 76) : 104}
+      estimatedItemSize={dense() ? (touch ? 84 : 80) : 106}
       refreshing={props.refreshing ?? false}
       onRefresh={props.onRefresh}
       onLoadMore={props.onLoadMore}
@@ -62,11 +62,12 @@ export function MessageList(props: MessageListProps) {
       footer={
         <If when={props.loadingMore}>
           <View class="items-center py-3">
-            <Spinner label={t("list.loadingMore")} size="sm" />
+            <LoadingIndicator label={t("list.loadingMore")} size={40} />
           </View>
         </If>
       }
       class="flex-1"
+      contentClass={m3() ? undefined : "px-2 pb-2"}
     >
       {(m) => (
         <Swipe id={m().id} onArchive={props.picking ? undefined : props.onArchive} onDelete={props.picking ? undefined : props.onDelete}>
@@ -306,7 +307,7 @@ function Marked(props: { text: string; terms: string[]; class: string }) {
     <If when={props.terms.length} else={<Text class={props.class}>{props.text}</Text>}>
       <Text class={props.class}>
         <Each of={parts()} key={(p) => p.key}>
-          {(p) => <Text class={p().hit ? "bg-flag/25 font-semibold text-on-surface" : ""}>{p().text}</Text>}
+          {(p) => <Text class={p().hit ? "bg-tertiary-container font-bold text-on-tertiary-container" : ""}>{p().text}</Text>}
         </Each>
       </Text>
     </If>
@@ -338,7 +339,7 @@ function MessageRow(props: {
       onLongPress={props.onLongPress}
       accessibilityLabel={label()}
       testID={`message-${m().id}`}
-      class={`flex-row border-b border-outline-variant pe-3 ${props.dense ? (touch ? "py-1.5" : "py-2") : "py-3"}`}
+      class={`mb-0.5 flex-row pe-4 ${props.dense ? (touch ? "py-2" : "py-2.5") : "py-3"}`}
     >
       <If when={props.showAccount}>
         <AccountMark index={accountIndex(m().accountId)} shape="bar" />
@@ -363,12 +364,10 @@ function MessageRow(props: {
       </If>
       <View class={`min-w-0 flex-1 ${touch && props.dense ? "" : "gap-0.5"}`}>
         <View class="flex-row items-center gap-1.5">
-          <Text
-            class={`line-clamp-1 flex-1 text-on-surface ${touch ? "text-body-large" : "text-body-medium"} ${m().seen ? "" : "font-semibold"}`}
-          >
+          <Text class={`line-clamp-1 flex-1 text-on-surface ${m().seen ? "text-body-large tracking-body-large" : "text-body-large font-bold tracking-body-large-emphasized"}`}>
             {who()}
           </Text>
-          <Text class={`tabular-nums ${touch ? "text-body-medium" : "text-body-small"} ${m().seen ? "text-on-surface-variant" : "font-medium text-on-surface"}`}>
+          <Text class={`text-label-medium tabular-nums tracking-label-medium ${m().seen ? "text-on-surface-variant" : "font-bold text-primary"}`}>
             {listDate(m().date)}
           </Text>
         </View>
@@ -376,7 +375,7 @@ function MessageRow(props: {
           <Marked
             text={m().subject || t("reader.noSubject")}
             terms={props.terms}
-            class={`line-clamp-1 flex-1 text-on-surface ${touch ? "text-body-large" : "text-body-medium"} ${m().seen ? "" : "font-medium"}`}
+            class={`line-clamp-1 flex-1 text-body-medium text-on-surface ${m().seen ? "tracking-body-medium" : "font-medium tracking-body-medium-emphasized"}`}
           />
           <If when={m().hasAttachments}>
             <Icon name="paperclip" size="sm" tone="on-surface-variant" />
@@ -390,7 +389,7 @@ function MessageRow(props: {
         <Marked
           text={m().snippet}
           terms={props.terms}
-          class={`${props.dense ? "line-clamp-1" : "line-clamp-2"} text-on-surface-variant ${touch ? "text-body-medium" : "text-body-small"}`}
+          class={`${props.dense ? "line-clamp-1" : "line-clamp-2"} text-body-medium tracking-body-medium text-on-surface-variant`}
         />
       </View>
     </Row>

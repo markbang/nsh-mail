@@ -1,15 +1,10 @@
-// Status pieces in HeroUI's look: account marks, Avatar, Badge, Chip, Kbd,
-// Divider, empty states, Spinner and the toast.
+// M3E status pieces: account marks, avatars, badges, chips, dividers, empty
+// states and the snackbar.
 import { createMotion, reduceMotion, Text, View, type JSX } from "nsh";
 import { Avatar as BaseAvatar, Button as BaseButton } from "nsh/base";
 import { tip } from "./tooltip";
 import { Icon, type IconName } from "./icon";
-import { press } from "./motion";
 import { focusRing } from "./tokens";
-import { touch } from "./density";
-import { material } from "./material";
-import { LoadingIndicator } from "./m3";
-import { look, roles, rounded, shadow, type Color, type Radius, type Size, type Variant } from "./variants";
 
 const marks = ["bg-chart-1", "bg-chart-2", "bg-chart-3", "bg-chart-4", "bg-chart-5"];
 
@@ -22,7 +17,7 @@ export function AccountMark(props: { index: number; size?: "sm" | "md"; shape?: 
       accessibilityElementsHidden
       class={
         props.shape === "bar"
-          ? `absolute inset-y-0 start-0 w-[3px] ${color()}`
+          ? `absolute inset-y-2 start-0 w-1 rounded-e-full ${color()}`
           : `rounded-full ${props.size === "md" ? "size-2.5" : "size-2"} ${color()}`
       }
     />
@@ -37,97 +32,66 @@ export function initials(name: string) {
   return ((first[0] ?? "") + (words[1]?.[0] ?? "")).toUpperCase();
 }
 
-const avatarBox: Record<Size, string> = { sm: "size-8", md: "size-10", lg: "size-14" };
-const avatarText: Record<Size, string> = { sm: "text-body-small", md: "text-body-small", lg: "text-body-medium" };
+const avatarBox = { sm: "size-8", md: "size-10", lg: "size-14" } as const;
+const avatarText = { sm: "text-label-medium", md: "text-title-medium", lg: "text-title-large" } as const;
 
-/** HeroUI's Avatar: a picture over initials on a solid color, full radius by default. */
-export function Avatar(props: {
-  name: string;
-  src?: string;
-  size?: Size;
-  color?: Color;
-  radius?: Radius;
-  bordered?: boolean;
-  /** Screen readers skip it by default: the name is next to it. */
-  label?: string;
-}) {
+/** A picture over initials on primary-container (Compose ListTokens' leading avatar). */
+export function Avatar(props: { name: string; src?: string; size?: "sm" | "md" | "lg"; label?: string }) {
   const size = () => props.size ?? "md";
-  const c = () => props.color ?? "default";
-  const ring = () => (props.bordered ? `outline-2 outline-offset-2 outline-${roles[c()].fill}` : "");
   return (
     <BaseAvatar
       name={props.name}
       src={props.src ?? ""}
       accessibilityLabel={props.label ?? ""}
       fallbackDelay={0}
-      class={`${avatarBox[size()]} ${rounded[props.radius ?? "full"]} overflow-hidden ${ring()}`}
-      fallbackClass={`items-center justify-center bg-${roles[c()].fill}`}
+      class={`${avatarBox[size()]} overflow-hidden rounded-full`}
+      fallbackClass="items-center justify-center bg-primary-container"
       imageClass="size-full"
-      fallback={<Text class={`${avatarText[size()]} text-${roles[c()].on}`}>{initials(props.name)}</Text>}
+      fallback={<Text class={`${avatarText[size()]} font-medium text-on-primary-container`}>{initials(props.name)}</Text>}
     />
   );
 }
 
-const badgeSize: Record<Size, string> = {
-  sm: "min-w-4 h-4 px-1 text-body-small",
-  md: "min-w-5 h-5 px-1 text-body-medium",
-  lg: "min-w-6 h-6 px-1 text-body-medium",
-};
-
 /**
- * HeroUI's Badge: a count or a dot. With children it sits on their top end
- * corner, outlined in the background; without, it's an inline pill.
+ * M3's badge: a 6pt dot, or a 16pt pill with a count (label-small) on error.
+ * `quiet` is for counts that are no alert, such as unread mail in a list of
+ * mailboxes: the count alone in on-surface-variant.
  */
-export function Badge(props: {
-  label?: string;
-  color?: Color;
-  variant?: "solid" | "flat" | "faded" | "shadow";
-  size?: Size;
-  dot?: boolean;
-  invisible?: boolean;
-  /** Earlier name for `color`: `neutral` is flat default, `primary` solid primary. */
-  tone?: "neutral" | "primary";
-  children?: JSX.Element;
-}) {
-  const c = (): Color => props.color ?? (props.tone === "primary" ? "primary" : "default");
-  const v = (): Variant => props.variant ?? (props.tone === "neutral" || (!props.tone && !props.color) ? "flat" : "solid");
-  const l = () => look(v(), c());
-  const pill = () =>
-    `items-center justify-center rounded-full ${l().frame} ${l().text} ${props.dot ? "size-2.5" : badgeSize[props.size ?? "sm"]} transition duration-200 ${props.invisible ? "scale-0 opacity-0" : ""}`;
-  const content = () => (
-    <View class={pill()}>
-      <If when={!props.dot}>
-        <Text class="font-normal tabular-nums">{props.label}</Text>
-      </If>
-    </View>
-  );
+export function Badge(props: { label?: string; dot?: boolean; quiet?: boolean; children?: JSX.Element }) {
+  const content = () =>
+    props.quiet ? (
+      <Text class="text-label-large tabular-nums text-on-surface-variant">{props.label}</Text>
+    ) : (
+      <View class={`items-center justify-center rounded-full bg-error ${props.dot ? "size-1.5" : "h-4 min-w-4 px-1"}`}>
+        <If when={!props.dot}>
+          <Text class="text-label-small tabular-nums text-on-error">{props.label}</Text>
+        </If>
+      </View>
+    );
   return (
     <If when={props.children} else={content()}>
       <View class="relative">
         {props.children}
-        <View class="absolute -end-1.5 -top-1.5 rounded-full border-2 border-surface">{content()}</View>
+        <View class={`absolute ${props.dot ? "end-0 top-0" : "-end-1.5 -top-1"}`} style={{ pointerEvents: "none" }}>
+          {content()}
+        </View>
       </View>
     </If>
   );
 }
 
-const chipBox: Record<Size, string> = { sm: "h-6 px-1 gap-0.5", md: "h-7 px-1 gap-1", lg: "h-8 px-2 gap-1" };
-const chipText: Record<Size, string> = { sm: "px-1 text-body-small", md: "px-2 text-body-medium", lg: "px-2 text-body-large" };
-
 export interface ChipProps {
   label: string;
-  variant?: Variant | "dot";
-  color?: Color;
-  size?: Size;
-  radius?: Radius;
+  /** assist (default), filter (toggles `selected`), input (removable), suggestion. */
+  kind?: "assist" | "filter" | "input" | "suggestion";
+  selected?: boolean;
   icon?: IconName;
   /** Content before the label in place of an icon: an avatar, a thumbnail. */
   start?: JSX.Element;
   /** Content after the label: a size, a count. */
   end?: JSX.Element;
-  /** A press opens what the chip stands for (an attachment). */
   onPress?: () => void;
-  /** Shows HeroUI's close button; `closeLabel` names it for screen readers. */
+  /** An input chip's remove button; `closeLabel` names it. */
   onClose?: () => void;
   closeLabel?: string;
   accessibilityLabel?: string;
@@ -136,28 +100,26 @@ export interface ChipProps {
   testID?: string;
 }
 
-/** HeroUI's Chip: a compact label, optionally pressable and closable. */
+/**
+ * M3E chips: 32pt, small corners; a selected filter chip fills with
+ * secondary-container. The chip squares to small while pressed.
+ */
 export function Chip(props: ChipProps) {
-  const size = () => props.size ?? "md";
-  const dot = () => props.variant === "dot";
-  const l = () => (dot() ? look("bordered", "default") : look(props.variant as Variant ?? "solid", props.color ?? "default"));
+  const on = () => !!props.selected;
   const frame = () =>
-    `flex-row items-center self-start ${chipBox[size()]} ${rounded[props.radius ?? "full"]} ${dot() ? "border-2 border-outline bg-transparent" : l().frame} ${dot() ? "text-on-surface" : l().text} ${props.class ?? ""}`;
+    `group flex-row items-center self-start gap-2 h-8 rounded-small overflow-hidden ${props.start || props.icon || on() ? "ps-2" : "ps-4"} ${props.onClose ? "pe-2" : "pe-4"} ${
+      on() ? "bg-secondary-container" : "border border-outline-variant"
+    } ${props.class ?? ""}`;
+  const ink = () => (on() ? "on-secondary-container" : "on-surface-variant");
   const inner = () => (
     <>
-      <If when={dot()}>
-        <View class={`ms-1 size-2 rounded-full ${props.color && props.color !== "default" ? `bg-${roles[props.color].fill}` : "bg-outline"}`} />
-      </If>
-      {props.start ?? (props.icon ? <Icon name={props.icon} size="sm" class={l().tint} /> : null)}
-      <Text class={`line-clamp-1 shrink font-normal ${chipText[size()]}`}>{props.label}</Text>
+      <View accessibilityElementsHidden class={`absolute inset-0 bg-${ink()} opacity-0 transition-opacity duration-150 group-hover:opacity-8 group-active:opacity-10`} style={{ pointerEvents: "none" }} />
+      {props.start ?? (on() && props.kind === "filter" ? <Icon name="check" size="sm" tone="on-secondary-container" /> : props.icon ? <Icon name={props.icon} size="sm" tone={on() ? "on-secondary-container" : "primary"} /> : null)}
+      <Text class={`line-clamp-1 shrink text-label-large font-medium tracking-label-large ${on() ? "text-on-secondary-container" : "text-on-surface"}`}>{props.label}</Text>
       {props.end}
       <If when={props.onClose}>
-        <BaseButton
-          onPress={() => props.onClose?.()}
-          accessibilityLabel={props.closeLabel ?? "Remove"}
-          class={`rounded-full opacity-70 transition-opacity hover:opacity-100 active:opacity-50 ${focusRing}`}
-        >
-          <Icon name="close" size="sm" class={l().tint} />
+        <BaseButton onPress={() => props.onClose?.()} accessibilityLabel={props.closeLabel ?? "Remove"} class={`size-6 items-center justify-center rounded-full hover:bg-on-surface/8 ${focusRing}`}>
+          <Icon name="close" size="sm" tone={ink()} />
         </BaseButton>
       </If>
     </>
@@ -173,10 +135,11 @@ export function Chip(props: ChipProps) {
     >
       <BaseButton
         onPress={() => props.onPress?.()}
+        selected={props.kind === "filter" ? on() : undefined}
         accessibilityLabel={props.accessibilityLabel}
         tooltip={tip(props.tooltip)}
         testID={props.testID}
-        class={`${frame()} ${press} ${focusRing} ${l().hover}`}
+        class={`${frame()} transition-all duration-350 ease-spatial-fast motion-reduce:transition-none ${focusRing}`}
       >
         {inner()}
       </BaseButton>
@@ -184,38 +147,28 @@ export function Chip(props: ChipProps) {
   );
 }
 
-/** HeroUI's Kbd: a key or shortcut. */
-export function Kbd(props: { keys: string; label?: string }) {
-  return (
-    <View accessibilityLabel={props.label} class={`self-start rounded-small bg-surface-container-high px-1.5 py-0.5 ${shadow.sm}`}>
-      <Text class="text-body-medium text-on-surface-variant">{props.keys}</Text>
-    </View>
-  );
-}
-
-/** HeroUI's Divider: a 1px rule in the divider color. */
-export function Divider(props: { orientation?: "horizontal" | "vertical"; class?: string }) {
+/** A 1pt rule in outline-variant. `inset` keeps 16pt clear at both ends (list dividers). */
+export function Divider(props: { orientation?: "horizontal" | "vertical"; inset?: boolean; class?: string }) {
   return (
     <View
       accessibilityElementsHidden
-      class={`shrink-0 bg-outline-variant ${props.orientation === "vertical" ? "h-full w-px" : "h-px w-full"} ${props.class ?? ""}`}
+      class={`shrink-0 bg-outline-variant ${props.orientation === "vertical" ? "h-full w-px" : `h-px ${props.inset ? "mx-4" : "w-full"}`} ${props.class ?? ""}`}
     />
   );
 }
-
-/** Earlier name of `Divider`. */
-export const Separator = Divider;
 
 /** What a region shows with nothing in it, and the next step. */
 export function Empty(props: { icon: IconName; title: string; description?: string; action?: JSX.Element }) {
   const enter = createMotion({ enter: reduceMotion() ? undefined : "fadeIn" });
   return (
-    <View class="flex-1 items-center justify-center gap-3 p-8" style={enter.style}>
-      <Icon name={props.icon} size="lg" tone="on-surface-variant" />
+    <View class="flex-1 items-center justify-center gap-4 p-8" style={enter.style}>
+      <View class="size-16 items-center justify-center rounded-extra-large bg-surface-container-high">
+        <Icon name={props.icon} size="lg" tone="on-surface-variant" />
+      </View>
       <View class="items-center gap-1">
-        <Text class="text-center text-body-large font-medium text-on-surface">{props.title}</Text>
+        <Text class="text-center text-title-medium font-medium tracking-title-medium text-on-surface">{props.title}</Text>
         <If when={props.description}>
-          <Text class="max-w-80 text-center text-body-medium text-on-surface-variant">{props.description}</Text>
+          <Text class="max-w-80 text-center text-body-medium tracking-body-medium text-on-surface-variant">{props.description}</Text>
         </If>
       </View>
       {props.action}
@@ -223,64 +176,27 @@ export function Empty(props: { icon: IconName; title: string; description?: stri
   );
 }
 
-const spinnerBox: Record<Size, string> = { sm: "size-5 border-2", md: "size-8 border-3", lg: "size-10 border-3" };
-
 /**
- * HeroUI's Spinner: two arcs turning at 0.8s, one easing and one linear and
- * dotted. Reduced motion leaves them resting.
+ * M3's snackbar: inverse-surface, extra-small corners, body-medium; an
+ * optional action in inverse-primary. It rises from the bottom edge.
  */
-export function Spinner(props: { label: string; size?: Size; color?: Color | "current"; class?: string; showLabel?: boolean }) {
-  const arc = () =>
-    props.class ?? (props.color === "current" ? "border-b-current" : `border-b-${roles[props.color ?? "primary"].fill}`);
-  const ring = () => `absolute inset-0 rounded-full border-t-transparent border-l-transparent border-r-transparent ${spinnerBox[props.size ?? "md"]} ${arc()}`;
-  // Android: Material's loading indicator, where it has room (not inside a small button).
-  if (material && props.size !== "sm" && !props.class && (props.color ?? "primary") === "primary")
-    return <LoadingIndicator label={props.label} size={props.size === "lg" ? 56 : 48} />;
-  const turn = (easing: "ease" | "linear") =>
-    reduceMotion()
-      ? undefined
-      : ({ animationName: "spin", animationDuration: 800, animationIterationCount: "infinite", animationTimingFunction: easing } as const);
-  return (
-    <View accessibilityLabel={props.label} role="progressbar" class="items-center gap-2">
-      <View class={`relative ${spinnerBox[props.size ?? "md"].split(" ")[0]}`}>
-        <View class={`${ring()} border-solid`} style={turn("ease")} />
-        <View class={`${ring()} border-dotted opacity-75`} style={turn("linear")} />
-      </View>
-      <If when={props.showLabel}>
-        <Text class="text-body-medium text-on-surface">{props.label}</Text>
-      </If>
-    </View>
-  );
-}
-
-/** One message at the bottom edge that rises in and leaves on its own. */
-/** A short message at the bottom, with at most one action (Undo). Touch screens get Material's
- * snackbar (the inverse surface). */
-export function Toast(props: { text: string; tone?: "neutral" | "error"; action?: { label: string; run: () => void } }) {
-  const enter = createMotion({ enter: reduceMotion() ? undefined : "slideInUp", duration: 250 });
+export function Snackbar(props: { text: string; tone?: "neutral" | "error"; action?: { label: string; run: () => void } }) {
+  const enter = createMotion({ enter: reduceMotion() ? undefined : "slideInUp", duration: 300 });
   return (
     <View
       role="alert"
       android={{ elevation: 3 }}
-      class={
-        touch
-          ? "min-h-12 w-full max-w-[560px] flex-row items-center gap-3 rounded-extra-small bg-inverse-surface py-1.5 ps-4 pe-2"
-          : `max-w-[440px] flex-row items-center gap-3 rounded-large border border-outline-variant bg-surface-container-low px-4 py-3 ${shadow.sm}`
-      }
+      class="min-h-12 w-full max-w-[560px] flex-row items-center gap-2 rounded-extra-small bg-inverse-surface py-1 pe-2 ps-4 shadow-elevation-3 android:shadow-none"
       style={enter.style}
     >
-      <If when={props.tone === "error" && !touch}>
-        <Icon name="close" size="sm" tone="error" />
+      <If when={props.tone === "error"}>
+        <Icon name="close" size="sm" tone="inverse-on-surface" />
       </If>
-      <Text class={`flex-1 text-body-medium ${touch ? "py-2 text-inverse-on-surface" : "text-on-surface"}`}>{props.text}</Text>
+      <Text class="flex-1 py-2 text-body-medium tracking-body-medium text-inverse-on-surface">{props.text}</Text>
       <If when={props.action}>
         {(action) => (
-          <BaseButton
-            onPress={() => action().run()}
-            class={`min-h-10 items-center justify-center rounded-full px-3 ${touch ? "active:bg-inverse-primary/10" : "active:bg-primary/10"} ${focusRing}`}
-            testID="toast-action"
-          >
-            <Text class={`text-label-large font-medium ${touch ? "text-inverse-primary" : "text-primary"}`}>{action().label}</Text>
+          <BaseButton onPress={() => action().run()} class={`h-10 justify-center rounded-full px-3 hover:bg-inverse-primary/8 active:bg-inverse-primary/10 ${focusRing}`} testID="toast-action">
+            <Text class="text-label-large font-medium text-inverse-primary">{action().label}</Text>
           </BaseButton>
         )}
       </If>

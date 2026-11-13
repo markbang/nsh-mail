@@ -60,33 +60,29 @@ export function SettingsPage() {
     await setNotificationsEnabled(on);
   };
 
-  const text = touch ? "text-body-large" : "text-body-medium";
-  const note = touch ? "text-body-medium" : "text-body-small";
   return (
     <Page title={t("settings.title")} header={<PageHeader title={t("settings.title")} />} root={systemHeader} appBar={<AppBar title={t("settings.title")} />}>
       <PageScroll contentClass={touch ? "gap-6 p-4" : "gap-6 p-5"} testID="settings">
         <View class="gap-1">
-          <SectionLabel label={t("settings.accounts")} class="px-0" />
-          <Card shadow="sm">
+          <SectionLabel label={t("settings.accounts")} class="px-1" />
+          <Card>
             <Each of={accounts()} key={(a) => a.id}>
               {(a, index) => (
                 <>
                   <If when={index() > 0}>
-                    <Divider />
+                    <Divider inset />
                   </If>
-                  <View class={`flex-row items-center gap-3 ps-3 pe-1 ${touch ? "min-h-14 py-2" : "min-h-12 py-1.5"}`}>
+                  <View class="min-h-[72px] flex-row items-center gap-4 py-2 pe-2 ps-4">
                     <AccountMark index={index()} size="md" />
                     <View class="min-w-0 flex-1">
-                      <Text class={`line-clamp-1 text-on-surface ${text}`}>
-                        {a().email}
-                      </Text>
-                      <Text class={`line-clamp-1 text-on-surface-variant ${note}`}>
+                      <Text class="line-clamp-1 text-body-large tracking-body-large text-on-surface">{a().email}</Text>
+                      <Text class="line-clamp-1 text-body-medium tracking-body-medium text-on-surface-variant">
                         {a().name ? `${a().name} · ${providerName(a())}` : providerName(a())}
                       </Text>
                     </View>
                     <Menu
                       label={t("accounts.actions", { email: a().email })}
-                      trigger={<IconButton icon="more" label={t("accounts.actions", { email: a().email })} size="sm" />}
+                      trigger={<IconButton icon="more" label={t("accounts.actions", { email: a().email })} />}
                       actions={[{ id: "remove", label: t("accounts.removeMenu"), icon: "trash", destructive: true, onSelect: () => void remove(a()) }]}
                     />
                   </View>
@@ -94,43 +90,43 @@ export function SettingsPage() {
               )}
             </Each>
             <If when={accounts().length}>
-              <Divider />
+              <Divider inset />
             </If>
-            <View class="p-2">
-              <Button variant="light" color="primary" icon="plus" label={t("accounts.add")} onPress={() => nav.stack.push({ name: "addAccount" })} class="self-start" testID="add-account" />
+            <View class="p-3">
+              <Button variant="text" icon="plus" label={t("accounts.add")} onPress={() => nav.stack.push({ name: "addAccount" })} class="self-start" testID="add-account" />
             </View>
           </Card>
         </View>
 
         <View class="gap-1">
-          <SectionLabel label={t("settings.sync")} class="px-0" />
-          <Card shadow="sm" class="gap-3 p-3">
+          <SectionLabel label={t("settings.sync")} class="px-1" />
+          <Card class="gap-4 p-4">
             <View class="flex-row items-center gap-3">
               <Icon name={mailStatus().mode === "cloud" ? "cloud" : "device"} tone="on-surface-variant" />
               <View class="flex-1 gap-0.5">
-                <Text class={`text-on-surface ${text}`}>{t(`mode.${mailStatus().mode}`)}</Text>
+                <Text class="text-body-large tracking-body-large text-on-surface">{t(`mode.${mailStatus().mode}`)}</Text>
                 <If when={mailStatus().mode === "cloud" && mailStatus().user}>
                   {(user) => (
-                    <Text class={`text-on-surface ${note}`} testID="signed-in-as">
+                    <Text class="text-body-medium tracking-body-medium text-on-surface" testID="signed-in-as">
                       {t("settings.signedInAs", { email: user() })}
                     </Text>
                   )}
                 </If>
-                <Text class={`text-on-surface-variant ${note}`}>
+                <Text class="text-body-medium tracking-body-medium text-on-surface-variant">
                   {mailStatus().mode === "cloud" ? (mailStatus().server ?? "") : t("settings.localDetail")}
                 </Text>
               </View>
             </View>
             <If when={mailStatus().mode === "local" && platform.os === "android"}>
-              <Text class={`text-on-surface-variant ${note}`}>{t("settings.androidLocal")}</Text>
+              <Text class="text-body-medium tracking-body-medium text-on-surface-variant">{t("settings.androidLocal")}</Text>
             </If>
-            <Button variant="flat" color="danger" icon="logOut" label={t("settings.signOut")} onPress={() => void signOut()} class="self-start" testID="sign-out" />
+            <Button variant="outlined" tone="error" icon="logOut" label={t("settings.signOut")} onPress={() => void signOut()} class="self-start" testID="sign-out" />
           </Card>
         </View>
 
         <View class="gap-1">
-          <SectionLabel label={t("settings.notifications")} class="px-0" />
-          <Card shadow="sm" class="px-3 py-2">
+          <SectionLabel label={t("settings.notifications")} class="px-1" />
+          <Card class="px-4 py-3">
             <Switch
               checked={notificationsEnabled()}
               onChange={(on) => void toggleNotifications(on)}
@@ -141,7 +137,7 @@ export function SettingsPage() {
           </Card>
         </View>
 
-        <Text class={`text-center text-on-surface-variant ${note}`}>{t("settings.about")}</Text>
+        <Text class="text-center text-body-small tracking-body-small text-on-surface-variant">{t("settings.about")}</Text>
       </PageScroll>
     </Page>
   );

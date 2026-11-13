@@ -1,14 +1,15 @@
-// The shell: onboarding until a mode is chosen, then three panes on wide
-// windows, the system's tab bar on iOS and Android phones, or one stack in a
-// narrow browser; the toast, keys and the tray.
+// The shell: onboarding until a mode is chosen, then the navigation rail and
+// two panes on wide windows, the system's tab bar on iOS and Android phones,
+// or the navigation bar in a narrow browser; the snackbar, keys and the tray.
 import { keymap, mount, View, type InputRef } from "nsh";
 import { NavStack } from "nsh/base";
 import { Dialog, systemHeader } from "./ui";
 import { Toasts } from "./components/Toasts";
 import { PhoneTabs } from "./components/PhoneTabs";
+import { WebTabs } from "./components/WebTabs";
 import { Workspace } from "./components/Workspace";
 import { wide } from "./layout";
-import { closeModal, isModalOpen, modalFit, modalNavigator, modalStack, NavContext, phoneNavigator, phoneStack, selectTab, show, type Route } from "./nav";
+import { closeModal, isModalOpen, modalFit, modalNavigator, modalStack, NavContext, phoneStack, selectTab, show, type Route } from "./nav";
 import { AddAccountPage } from "./pages/AddAccountPage";
 import { ComposePage } from "./pages/ComposePage";
 import { FoldersPage } from "./pages/FoldersPage";
@@ -67,7 +68,7 @@ function Main() {
     {
       c: key(() => compose("new")),
       r: key(() => wide() && selectedId() && compose("reply")),
-      "/": key(() => (wide() ? search?.focus() : systemHeader ? selectTab(1) : phoneStack.push({ name: "search" }))),
+      "/": key(() => (wide() ? search?.focus() : selectTab(1))),
       e: key(() => wide() && selectedId() && moveMessages([selectedId()!], "archive")),
       "shift+3": key(() => wide() && selectedId() && moveMessages([selectedId()!], "trash")),
       j: key(() => wide() && stepMessage(1)),
@@ -82,13 +83,7 @@ function Main() {
       else={
         <If
           when={systemHeader}
-          else={
-            <NavContext.Provider value={phoneNavigator}>
-              <NavStack state={phoneStack} class="flex-1">
-                {page}
-              </NavStack>
-            </NavContext.Provider>
-          }
+          else={<WebTabs page={page} onCompose={() => compose("new")} onAddAccount={() => show({ name: "addAccount" }, false)} />}
         >
           <PhoneTabs page={page} onCompose={() => compose("new")} onAddAccount={() => phoneStack.push({ name: "addAccount" })} />
         </If>
@@ -125,7 +120,8 @@ function App() {
       </If>
       {/* Phones show it over the tab's content (PhoneTabs). */}
       <If when={!(systemHeader && !wide() && isStarted() && mailStatus().mode !== "none")}>
-        <Toasts class="bottom-6 pb-[env(safe-area-inset-bottom)]" />
+        {/* Above the reader's floating toolbar (wide) and the navigation bar (narrow web), never over them. */}
+        <Toasts class={`pb-[env(safe-area-inset-bottom)] ${!wide() && systemHeader ? "bottom-6" : "bottom-24"}`} />
       </If>
     </View>
   );

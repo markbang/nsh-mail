@@ -1,48 +1,38 @@
-// HeroUI's Card: a content1 surface with a large radius and a medium shadow,
-// header, body and footer padded 12pt; pressable cards sink like buttons.
+// M3 cards: filled (surface-container-highest), outlined (outline-variant) or
+// elevated (surface-container-low, level 1), medium corners. A pressable card
+// takes the state layer and rounds to large while pressed.
 import { View, type JSX } from "nsh";
 import { Button as BaseButton } from "nsh/base";
-import { press } from "./motion";
 import { focusRing } from "./tokens";
-import { rounded, shadow, type Radius } from "./variants";
 
 export interface CardProps {
   children?: JSX.Element;
-  shadow?: "none" | "sm" | "md" | "lg";
-  radius?: Radius;
-  /** A hairline instead of a shadow, for cards inside panes. */
-  bordered?: boolean;
+  variant?: "filled" | "outlined" | "elevated";
   onPress?: () => void;
   accessibilityLabel?: string;
   class?: string;
   testID?: string;
 }
 
+const look = {
+  filled: "bg-surface-container-highest",
+  outlined: "border border-outline-variant bg-surface",
+  elevated: "bg-surface-container-low shadow-elevation-1",
+} as const;
+
 export function Card(props: CardProps) {
-  const frame = () =>
-    `overflow-hidden bg-surface-container-low text-on-surface ${rounded[props.radius ?? "lg"]} ${props.bordered ? "border border-outline-variant" : shadow[props.shadow ?? "md"]} ${props.class ?? ""}`;
+  const frame = () => `overflow-hidden rounded-medium text-on-surface ${look[props.variant ?? "filled"]} ${props.class ?? ""}`;
   return (
     <If when={props.onPress} else={<View class={frame()} testID={props.testID} accessibilityLabel={props.accessibilityLabel}>{props.children}</View>}>
       <BaseButton
         onPress={() => props.onPress?.()}
         accessibilityLabel={props.accessibilityLabel}
         testID={props.testID}
-        class={`${frame()} ${press} ${focusRing} hover:bg-surface-container-high`}
+        class={`group ${frame()} transition-all duration-350 ease-spatial-fast active:rounded-large motion-reduce:transition-none ${focusRing}`}
       >
+        <View accessibilityElementsHidden class="absolute inset-0 bg-on-surface opacity-0 transition-opacity duration-150 group-hover:opacity-8 group-active:opacity-10" style={{ pointerEvents: "none" }} />
         {props.children}
       </BaseButton>
     </If>
   );
-}
-
-export function CardHeader(props: { children?: JSX.Element; class?: string }) {
-  return <View class={`flex-row items-center gap-3 p-3 ${props.class ?? ""}`}>{props.children}</View>;
-}
-
-export function CardBody(props: { children?: JSX.Element; class?: string }) {
-  return <View class={`gap-3 p-3 ${props.class ?? ""}`}>{props.children}</View>;
-}
-
-export function CardFooter(props: { children?: JSX.Element; class?: string }) {
-  return <View class={`flex-row items-center gap-2 p-3 ${props.class ?? ""}`}>{props.children}</View>;
 }

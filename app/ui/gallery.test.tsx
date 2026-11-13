@@ -10,11 +10,13 @@ test("ui components keep their states and open their overlays", async () => {
   await app.press("id:switch");
   await app.press("id:checkbox");
   await app.press("id:nav-sent");
-  await app.press("role:tab[Drafts] >> nth=0");
+  await app.press("id:choice-drafts");
   await app.waitFor("text:off unchecked sent drafts");
+  await app.press("id:fab-menu");
+  await app.waitFor("text:Add account");
   await app.press("id:menu-trigger");
   await app.waitFor("text:Mark as read");
-  await app.press("text:Archive");
+  await app.press("text:Mark as read");
   await app.waitFor("text:Mark as read", { state: "gone" });
   await app.press("id:open-modal");
   await app.waitFor("text:Discard draft?");
