@@ -230,6 +230,12 @@ reader.untitledAttachment:
 reader.attachments:
   en: Attachments
   zh-CN: 附件
+reader.openingAttachment:
+  en: Opening attachment
+  zh-CN: 正在打开附件
+reader.savedTo:
+  en: "Saved to %{path}"
+  zh-CN: 已保存到 %{path}
 
 compose.new:
   en: New message

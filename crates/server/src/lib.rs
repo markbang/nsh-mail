@@ -101,6 +101,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/messages/{id}",
             get(api::get_message).patch(api::patch_message),
         )
+        .route(
+            "/messages/{id}/attachments/{index}",
+            get(api::get_attachment),
+        )
         .route("/send", post(api::send))
         .route("/search", get(api::search))
         .route("/unread", get(api::unread))

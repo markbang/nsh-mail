@@ -31,6 +31,7 @@ macro_rules! ts {
 ts! {
     Account => "Account",
     Address => "Address",
+    Attachment => "Attachment",
     Draft => "Draft",
     Flags => "Flags",
     FolderKind => "Folder",

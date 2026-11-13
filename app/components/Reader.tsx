@@ -4,10 +4,10 @@
 import { createMotion, Image, openUrl, reduceMotion, Scroll, signal, Text, View } from "nsh";
 import { TextView } from "nsh/base";
 import { t } from "nsh/i18n";
-import type { Message } from "nsh-mail/native";
-import { AccountMark, Avatar, Button, Icon, IconButton, Separator, touch } from "../ui";
+import { Mail, type Attachment, type Message } from "nsh-mail/native";
+import { AccountMark, Avatar, Button, FileTile, Icon, IconButton, Separator, touch } from "../ui";
 import { displayName, fileSize, fullDate, type ComposeMode } from "../lib/format";
-import { accountById, accountIndex, accounts, setFlags } from "../store";
+import { accountById, accountIndex, accounts, errorText, setFlags, showToast } from "../store";
 
 export interface ReaderProps {
   message: Message;
@@ -119,7 +119,10 @@ export function Reader(props: ReaderProps) {
             html={html()}
             selectable
             links="report"
-            onLinkPress={({ url }) => void openUrl(url)}
+            onLinkPress={({ url }) => {
+              // Links to other sites and apps; anchors (`#…`) and relative links lead nowhere in mail.
+              if (/^[a-z][a-z0-9+.-]*:/i.test(url)) void openUrl(url);
+            }}
             renderImage={(image) =>
               image.src ? (
                 <Image src={image.src} accessibilityLabel={image.alt} class="max-w-full rounded-(--radius)" style={{ width: "100%", aspectRatio: 16 / 9 }} />
@@ -139,20 +142,49 @@ export function Reader(props: ReaderProps) {
       <If when={m().attachments.length}>
         <View class="gap-2">
           <Text class="text-xs font-medium text-muted-foreground">{t("reader.attachments")}</Text>
-          <View class="flex-row flex-wrap gap-2">
-            <Each of={m().attachments} key={(a) => a.index}>
-              {(a) => (
-                <View class="flex-row items-center gap-2 rounded-(--radius) border border-border px-3 py-2">
-                  <Icon name="paperclip" size="sm" tone="muted-foreground" />
-                  <Text class="text-sm text-foreground">{a().filename ?? t("reader.untitledAttachment")}</Text>
-                  <Text class="text-xs tabular-nums text-muted-foreground">{fileSize(a().size)}</Text>
-                </View>
-              )}
+          <View class="flex-row flex-wrap items-end gap-2">
+            <Each of={m().attachments.map((attachment) => ({ id: m().id, attachment }))} key={(x) => `${x.id}:${x.attachment.index}`}>
+              {(x) => <AttachmentTile messageId={x().id} attachment={x().attachment} />}
             </Each>
           </View>
         </View>
       </If>
       </View>
     </Scroll>
+  );
+}
+
+// Keyed by message and index: one tile per attachment, its preview fetched once.
+function AttachmentTile(props: { messageId: string; attachment: Attachment }) {
+  const a = () => props.attachment;
+  const busy = signal(false);
+  const thumbnail = signal<string | null>(null);
+  if (a().mimeType.startsWith("image/")) {
+    Mail.attachmentPreview(props.messageId, a()).then(
+      (uri) => thumbnail.set(uri),
+      () => {},
+    );
+  }
+  const open = async () => {
+    busy.set(true);
+    try {
+      const saved = await Mail.openAttachment(props.messageId, a());
+      if (saved) showToast(t("reader.savedTo", { path: saved }));
+    } catch (e) {
+      showToast(errorText(e), "error");
+    } finally {
+      busy.set(false);
+    }
+  };
+  return (
+    <FileTile
+      name={a().filename ?? t("reader.untitledAttachment")}
+      detail={fileSize(a().size)}
+      thumbnail={thumbnail()}
+      busy={busy()}
+      busyLabel={t("reader.openingAttachment")}
+      onPress={() => void open()}
+      testID={`attachment-${a().index}`}
+    />
   );
 }

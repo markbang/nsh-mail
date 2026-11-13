@@ -19,7 +19,7 @@ use crate::oauth::{self, LoopbackAuthorization, OAuthApps, OAuthGrant, OAuthToke
 use crate::provider;
 use crate::secrets::SecretStore;
 use crate::smtp::{self, SmtpAuth};
-use crate::store::{Store, new_id};
+use crate::store::{Store, StoredMessage, new_id};
 use crate::types::*;
 
 const IDLE_RENEW: Duration = Duration::from_secs(29 * 60);
@@ -562,28 +562,7 @@ impl Engine {
 
     /// The full message; the body is downloaded on first open and cached.
     pub async fn get(&self, id: &str) -> Result<Message> {
-        let mid = id.to_string();
-        let mut stored = self.store().run(move |s| s.message(&mid)).await?;
-        let raw = match stored.body.take() {
-            Some(raw) => raw,
-            None => {
-                let account = self.account(&stored.summary.account_id).await?;
-                let (folder, uid) = (stored.folder_name.clone(), stored.uid);
-                let raw = self
-                    .with_imap(&account, async |conn| {
-                        imap::fetch_body(&mut conn.session, &folder, uid).await
-                    })
-                    .await?;
-                let parsed = mime::parse_body(&raw);
-                let has_attachments = !parsed.attachments.is_empty();
-                stored.summary.has_attachments = has_attachments;
-                let (mid, raw2, text) = (id.to_string(), raw.clone(), parsed.index_text);
-                self.store()
-                    .run(move |s| s.set_body(&mid, &raw2, &text, has_attachments))
-                    .await?;
-                raw
-            }
-        };
+        let (mut stored, raw) = self.body(id).await?;
         let body = tokio::task::spawn_blocking(move || mime::parse_body(&raw)).await?;
         stored.summary.has_attachments = !body.attachments.is_empty();
         Ok(Message {
@@ -598,6 +577,46 @@ impl Engine {
             remote_images: body.remote_images,
             attachments: body.attachments,
         })
+    }
+
+    /// Attachment `index` of a message (`Message::attachments`) and its decoded bytes; the
+    /// body is downloaded and cached as `get` does.
+    pub async fn attachment(&self, id: &str, index: u32) -> Result<(Attachment, Vec<u8>)> {
+        let (_, raw) = self.body(id).await?;
+        tokio::task::spawn_blocking(move || mime::attachment(&raw, index))
+            .await?
+            .ok_or_else(|| {
+                Error::new(
+                    ErrorCode::NotFound,
+                    format!("no attachment {index} in this message"),
+                )
+            })
+    }
+
+    /// The stored message and its raw body, downloaded and cached on first use.
+    async fn body(&self, id: &str) -> Result<(StoredMessage, Vec<u8>)> {
+        let mid = id.to_string();
+        let mut stored = self.store().run(move |s| s.message(&mid)).await?;
+        let raw = match stored.body.take() {
+            Some(raw) => raw,
+            None => {
+                let account = self.account(&stored.summary.account_id).await?;
+                let (folder, uid) = (stored.folder_name.clone(), stored.uid);
+                let raw = self
+                    .with_imap(&account, async |conn| {
+                        imap::fetch_body(&mut conn.session, &folder, uid).await
+                    })
+                    .await?;
+                let parsed = mime::parse_body(&raw);
+                let has_attachments = !parsed.attachments.is_empty();
+                let (mid, raw2, text) = (id.to_string(), raw.clone(), parsed.index_text);
+                self.store()
+                    .run(move |s| s.set_body(&mid, &raw2, &text, has_attachments))
+                    .await?;
+                raw
+            }
+        };
+        Ok((stored, raw))
     }
 
     /// Writes flags to the server, then to the local copy.

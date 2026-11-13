@@ -337,6 +337,74 @@ async fn auth_accounts_and_messages() {
     );
 }
 
+/// An attachment with a Chinese name, fetched from IMAP on demand and served as a download.
+#[tokio::test(flavor = "multi_thread")]
+async fn attachment_download() {
+    use lettre::message::{Attachment, MultiPart, SinglePart, header::ContentType};
+    use lettre::transport::smtp::client::{Tls, TlsParameters};
+    use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor};
+
+    let s = start(config(temp_dir())).await;
+    let alice = s.user("alice").await;
+    let host = std::env::var("GREENMAIL_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+    let pdf = b"%PDF-1.4 statement".to_vec();
+    let message = lettre::Message::builder()
+        .from("Bank <bank@test.local>".parse().unwrap())
+        .to(alice.email.parse().unwrap())
+        .subject("statement")
+        .multipart(
+            MultiPart::mixed()
+                .singlepart(SinglePart::plain("Attached.".to_string()))
+                .singlepart(
+                    Attachment::new("10月账单 \"final\".pdf".into())
+                        .body(pdf.clone(), ContentType::parse("application/pdf").unwrap()),
+                ),
+        )
+        .unwrap();
+    let tls = TlsParameters::builder(host.clone())
+        .dangerous_accept_invalid_certs(true)
+        .dangerous_accept_invalid_hostnames(true)
+        .build_rustls()
+        .unwrap();
+    AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host)
+        .port(3465)
+        .tls(Tls::Wrapper(tls))
+        .build()
+        .send(message)
+        .await
+        .unwrap();
+    s.http
+        .post(format!("{}/sync", s.base))
+        .bearer_auth(&alice.token)
+        .send()
+        .await
+        .unwrap();
+    let inbox = s.inbox(&alice, 1).await;
+    let id = inbox[0]["id"].as_str().unwrap();
+
+    let res = s
+        .get(&alice.token, &format!("/messages/{id}/attachments/0"))
+        .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let header = |name: &str| res.headers()[name].to_str().unwrap().to_string();
+    assert_eq!(header("content-type"), "application/pdf");
+    assert_eq!(
+        header("content-disposition"),
+        "attachment; filename=\"10___ _final_.pdf\"; \
+         filename*=UTF-8''10%E6%9C%88%E8%B4%A6%E5%8D%95%20%22final%22.pdf"
+    );
+    assert_eq!(header("content-security-policy"), "sandbox");
+    assert_eq!(res.bytes().await.unwrap(), pdf);
+
+    let missing = s
+        .get(&alice.token, &format!("/messages/{id}/attachments/1"))
+        .await;
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+    let bob = s.signup(&unique("bob")).await;
+    let other = s.get(&bob, &format!("/messages/{id}/attachments/0")).await;
+    assert_eq!(other.status(), StatusCode::NOT_FOUND);
+}
+
 #[derive(Clone, Default)]
 struct Captured(Arc<Mutex<Vec<(String, HeaderMap, Bytes)>>>);
 

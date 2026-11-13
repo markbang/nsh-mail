@@ -25,6 +25,8 @@ pub trait Backend {
     fn remove_account(&self, id: String) -> MailFuture<'_, ()>;
     fn list(&self, query: ListQuery) -> MailFuture<'_, Vec<Summary>>;
     fn get(&self, id: String) -> MailFuture<'_, Message>;
+    /// The decoded bytes of attachment `index` of message `id`.
+    fn attachment(&self, id: String, index: u32) -> MailFuture<'_, Vec<u8>>;
     fn set_flags(&self, id: String, flags: Flags) -> MailFuture<'_, ()>;
     fn send(&self, draft: Draft) -> MailFuture<'_, ()>;
     fn search(&self, text: String, limit: u32) -> MailFuture<'_, Vec<Summary>>;

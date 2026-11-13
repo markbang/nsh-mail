@@ -28,5 +28,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 web-push-native = "0.5"
 
 [dev-dependencies]
+# Delivers a message with an attachment to GreenMail (the API sends none).
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls", "ring", "webpki-roots"] }
 mail-core = { path = "../mail-core", features = ["insecure-test-tls"] }
 tokio-tungstenite = "0.29"

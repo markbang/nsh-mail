@@ -294,6 +294,20 @@ impl Backend for DemoBackend {
         })
     }
 
+    fn attachment(&self, id: String, index: u32) -> MailFuture<'_, Vec<u8>> {
+        Box::pin(async move {
+            latency(80).await;
+            let data = self.data.borrow();
+            let message = data.messages.iter().find(|m| m.summary.id == id);
+            message
+                .and_then(|m| m.attachments.get(index as usize))
+                .map(|a| {
+                    format!("{} (demo)", a.filename.as_deref().unwrap_or_default()).into_bytes()
+                })
+                .ok_or_else(|| not_found("attachment"))
+        })
+    }
+
     fn set_flags(&self, id: String, flags: Flags) -> MailFuture<'_, ()> {
         let mut data = self.data.borrow_mut();
         let result = match data.messages.iter_mut().find(|m| m.summary.id == id) {
