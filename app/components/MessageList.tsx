@@ -222,7 +222,8 @@ const tones = [
   "bg-md-secondary-container text-md-on-secondary-container",
   "bg-md-tertiary-container text-md-on-tertiary-container",
 ];
-const toneOf = (key: string) => tones[[...key].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % tones.length];
+// FNV-1a: one sender, one tone.
+const toneOf = (key: string) => tones[[...key].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261) % tones.length];
 
 /** Android's row: the sender's initials in a tonal circle that morphs into a checked rounded square when
  * picked (a tap on it picks, as in Gmail), unread in emphasized type, a picked row in the secondary container. */

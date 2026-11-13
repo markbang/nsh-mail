@@ -94,12 +94,15 @@ function Main() {
         </If>
       }
     >
-      <Workspace
-        onCompose={compose}
-        onSettings={() => show({ name: "settings" }, true)}
-        onAddAccount={() => show({ name: "addAccount" }, true)}
-        searchRef={(ref) => (search = ref)}
-      />
+      {/* Tablets draw edge to edge: the panes stay clear of the status bar and the taskbar. */}
+      <View class="flex-1 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] ps-[env(safe-area-inset-left)] pe-[env(safe-area-inset-right)]">
+        <Workspace
+          onCompose={compose}
+          onSettings={() => show({ name: "settings" }, true)}
+          onAddAccount={() => show({ name: "addAccount" }, true)}
+          searchRef={(ref) => (search = ref)}
+        />
+      </View>
       <Dialog open={isModalOpen()} onClose={closeModal} label="nsh-mail" size="3xl" height={modalFit()} bare testID="modal">
         <NavContext.Provider value={modalNavigator}>
           <NavStack state={modalStack} class="flex-1">

@@ -119,18 +119,21 @@ for mode in ("light", "dark"):
     wait("id:messages", 60)
     shot(f"{mode}-inbox")
 
-    # Swipe the first row right: Archive, with Undo.
+    # Swipe the first row right: Archive, with Undo. Swipes start mid-row: the screen's edges are the system's back gesture.
     row = bounds("id:message-.*")
     if row:
         x1, y1, x2, y2 = row
         y = (y1 + y2) // 2
-        during(["swipe", str(x1 + 40), str(y), str(x1 + (x2 - x1) * 3 // 10), str(y), "1500"], f"{mode}-swipe-archive", 1.0)
-        adb("shell", "input", "swipe", str(x1 + 40), str(y), str(x2 - 20), str(y), "200")
+        mid = (x1 + x2) // 2
+        quarter = (x2 - x1) // 4
+        during(["swipe", str(mid - quarter), str(y), str(mid), str(y), "1500"], f"{mode}-swipe-archive", 1.0)
+        time.sleep(1)
+        adb("shell", "input", "swipe", str(mid - quarter), str(y), str(x2 - 60), str(y), "150")
         wait("id:toast-action", 5)
         shot(f"{mode}-archived-snackbar")
         tap("id:toast-action", 5)
         time.sleep(1)
-        during(["swipe", str(x2 - 40), str(y), str(x2 - (x2 - x1) * 3 // 10), str(y), "1500"], f"{mode}-swipe-delete", 1.0)
+        during(["swipe", str(mid + quarter), str(y), str(mid), str(y), "1500"], f"{mode}-swipe-delete", 1.0)
         time.sleep(1)
 
         # Long-press selects; a tap adds the next row; back ends it.
