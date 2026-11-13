@@ -19,7 +19,8 @@ export function InboxPage() {
     openMessage(id);
     nav.stack.push({ name: "message", id });
   };
-  BackHandler.on("press", () => {
+  // Android back ends a selection; a browser has no BackHandler (it throws there).
+  if (systemHeader) BackHandler.on("press", () => {
     if (!picking()) return false;
     clearPicked();
     return true;
