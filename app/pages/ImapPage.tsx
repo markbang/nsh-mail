@@ -3,7 +3,7 @@
 import { openUrl, signal, Text, View } from "nsh";
 import { t } from "nsh/i18n";
 import { Mail, type Endpoint, type Security, type ServerSettings } from "nsh-mail/native";
-import { Button, Field, Icon, Page, SectionLabel, SelectField, TextField, touch } from "../ui";
+import { Button, Icon, Page, SectionLabel, SelectField, TextField, touch } from "../ui";
 import { PageHeader, PageScroll } from "../components/PageHeader";
 import { NavContext } from "../nav";
 import { isAddress, providerName } from "../lib/format";
@@ -80,13 +80,12 @@ export function ImapPage() {
     }
   };
 
-  const note = touch ? "text-body-medium" : "text-body-small";
+  const note = "text-body-medium tracking-body-medium";
   const provider = () => providerName(settings().provider, settings().displayName ?? "");
   return (
     <Page title={t("accounts.other")} header={<PageHeader title={t("accounts.other")} />}>
-      <PageScroll contentClass={touch ? "gap-5 p-4" : "gap-5 p-6"} testID="imap">
-        <Field label={t("imap.email")}>
-          <TextField
+      <PageScroll contentClass={touch ? "gap-4 p-4" : "gap-4 p-6"} testID="imap">
+        <TextField
             value={email()}
             onChange={(v) => {
               email.set(v);
@@ -98,12 +97,8 @@ export function ImapPage() {
             label={t("imap.email")}
             returnKey="next"
             autoFocus
-            testID="imap-email"
-          />
-        </Field>
-        <Field label={t("imap.name")} description={t("imap.nameHint")}>
-          <TextField value={name()} onChange={(v) => name.set(v)} label={t("imap.name")} testID="imap-name" />
-        </Field>
+            testID="imap-email" />
+        <TextField value={name()} onChange={(v) => name.set(v)} label={t("imap.name")} testID="imap-name" supporting={t("imap.nameHint")} />
 
         <If when={step() === "servers"}>
           <View class="gap-4">
@@ -115,45 +110,29 @@ export function ImapPage() {
                 {t("imap.useOAuth", { provider: provider() })}
               </Text>
             </If>
-            <SectionLabel label={t("imap.incoming")} class="px-0" />
+            <SectionLabel label={t("imap.incoming")} class="px-0 pb-0" />
             <View class="flex-row gap-2">
-              <Field label={t("imap.host")} class="flex-1">
-                <TextField value={settings().imap.host} onChange={(v) => set("imap", { host: v.trim() })} kind="url" label={t("imap.imapHost")} testID="imap-host" />
-              </Field>
-              <Field label={t("imap.port")} class="w-20">
-                <TextField value={String(settings().imap.port || "")} onChange={(v) => set("imap", { port: port(v) })} kind="number" label={t("imap.imapPort")} testID="imap-port" />
-              </Field>
+              <TextField class="flex-1" value={settings().imap.host} onChange={(v) => set("imap", { host: v.trim() })} kind="url" label={t("imap.imapHost")} testID="imap-host" />
+              <TextField class="w-20" value={String(settings().imap.port || "")} onChange={(v) => set("imap", { port: port(v) })} kind="number" label={t("imap.imapPort")} testID="imap-port" />
             </View>
-            <Field label={t("imap.security")}>
-              <SelectField value={settings().imap.security} items={security} onChange={(v) => set("imap", { security: v as Security })} label={t("imap.imapSecurity")} />
-            </Field>
-            <SectionLabel label={t("imap.outgoing")} class="px-0" />
+            <SelectField value={settings().imap.security} items={security} onChange={(v) => set("imap", { security: v as Security })} label={t("imap.security")} />
+            <SectionLabel label={t("imap.outgoing")} class="px-0 pb-0" />
             <View class="flex-row gap-2">
-              <Field label={t("imap.host")} class="flex-1">
-                <TextField value={settings().smtp.host} onChange={(v) => set("smtp", { host: v.trim() })} kind="url" label={t("imap.smtpHost")} testID="smtp-host" />
-              </Field>
-              <Field label={t("imap.port")} class="w-20">
-                <TextField value={String(settings().smtp.port || "")} onChange={(v) => set("smtp", { port: port(v) })} kind="number" label={t("imap.smtpPort")} testID="smtp-port" />
-              </Field>
+              <TextField class="flex-1" value={settings().smtp.host} onChange={(v) => set("smtp", { host: v.trim() })} kind="url" label={t("imap.smtpHost")} testID="smtp-host" />
+              <TextField class="w-20" value={String(settings().smtp.port || "")} onChange={(v) => set("smtp", { port: port(v) })} kind="number" label={t("imap.smtpPort")} testID="smtp-port" />
             </View>
-            <Field label={t("imap.security")}>
-              <SelectField value={settings().smtp.security} items={security} onChange={(v) => set("smtp", { security: v as Security })} label={t("imap.smtpSecurity")} />
-            </Field>
-            <Field label={t("imap.username")}>
-              <TextField value={settings().username} onChange={(v) => settings.update((s) => ({ ...s, username: v.trim() }))} kind="email" label={t("imap.username")} />
-            </Field>
-            <Field label={t("imap.password")}>
-              <TextField value={password()} onChange={(v) => password.set(v)} masked label={t("imap.password")} onSubmit={() => void add()} returnKey="done" testID="imap-password" />
-            </Field>
-            <View class="flex-row items-start gap-2 rounded-medium bg-surface-container-high p-3">
+            <SelectField value={settings().smtp.security} items={security} onChange={(v) => set("smtp", { security: v as Security })} label={t("imap.security")} />
+            <TextField value={settings().username} onChange={(v) => settings.update((s) => ({ ...s, username: v.trim() }))} kind="email" label={t("imap.username")} />
+            <TextField value={password()} onChange={(v) => password.set(v)} masked label={t("imap.password")} onSubmit={() => void add()} returnKey="done" testID="imap-password" />
+            <View class="flex-row items-start gap-3 rounded-large bg-surface-container-high p-4">
               <Icon name="key" size="sm" tone="on-surface-variant" />
               <View class="flex-1 gap-2">
                 <Text class={`text-on-surface-variant ${note}`}>{t("imap.appPasswordHint")}</Text>
                 <If when={settings().helpUrl}>
                   {(url) => (
                     <Button
-                      size="sm"
-                      variant="flat"
+                      size="xs"
+                      variant="tonal"
                       icon="external"
                       label={t("imap.appPasswordLink", { provider: provider() })}
                       onPress={() => void openUrl(url())}
@@ -174,9 +153,9 @@ export function ImapPage() {
 
         <If
           when={step() === "servers"}
-          else={<Button color="primary" label={t("imap.continue")} loading={busy()} onPress={() => void detect()} class="self-start" testID="imap-continue" />}
+          else={<Button label={t("imap.continue")} loading={busy()} onPress={() => void detect()} class="self-start" testID="imap-continue" />}
         >
-          <Button color="primary" label={busy() ? t("imap.connecting") : t("imap.add")} loading={busy()} onPress={() => void add()} class="self-start" testID="imap-add" />
+          <Button label={busy() ? t("imap.connecting") : t("imap.add")} loading={busy()} onPress={() => void add()} class="self-start" testID="imap-add" />
         </If>
       </PageScroll>
     </Page>

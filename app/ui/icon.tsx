@@ -1,7 +1,6 @@
 // One line-icon family (Lucide's geometry, ISC), drawn as SVG and tinted
 // with a theme token, so icons follow the appearance.
 import { Image, type ImageAsset } from "nsh";
-import { touch } from "./density";
 import type { ColorRole } from "./tokens";
 
 const paths = {
@@ -59,7 +58,8 @@ const source = (name: IconName) => {
 export type IconTone = ColorRole | "unread" | "flag";
 
 export type IconSize = "sm" | "md" | "lg";
-const iconPx = (size: IconSize = "md") => ({ sm: touch ? 16 : 14, md: touch ? 20 : 16, lg: touch ? 28 : 24 })[size];
+// M3 icon sizes: 24pt, 18pt beside small text (chips, list metadata), 32pt for empty states.
+const iconPx = (size: IconSize = "md") => ({ sm: 18, md: 24, lg: 32 })[size];
 
 /** A brand's mark (an SVG asset) in its own colors, at an icon's size. */
 export function BrandMark(props: { src: ImageAsset; size?: IconSize }) {

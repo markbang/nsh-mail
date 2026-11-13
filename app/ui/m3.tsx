@@ -1,9 +1,11 @@
 // Material 3 Expressive components NSH has no native counterpart for, drawn from its
 // primitives to the M3E specs (m3.material.io; sizes from Compose Material3's tokens):
 // the loading indicator, the short navigation bar, the FAB menu, the floating toolbar
-// and the top app bar of a tab's first page. Android only (`material`).
+// and the top app bar of a tab's first page. Every platform draws them.
 import { createAnimatedValue, Image, reduceMotion, Shader, shadersAvailable, Text, token, View, type AnimatedNode, type JSX } from "nsh";
 import { Icon, type IconName } from "./icon";
+import { tip } from "./tooltip";
+import type { ColorRole } from "./tokens";
 import { springs, transition } from "./material";
 
 // The loading indicator's shapes from the M3E shape library, as polar outlines: a cookie of
@@ -63,9 +65,9 @@ const cookie = `data:image/svg+xml,${encodeURIComponent(
 /** M3E's loading indicator: a shape morphing through the shape library while it turns (indeterminate),
  * or growing and turning with `progress` (0..1, a pull). `contained` puts it in a primary-container circle.
  * Where the platform draws no shaders, a turning 9-sided cookie. */
-export function LoadingIndicator(props: { label: string; contained?: boolean; size?: number; progress?: AnimatedNode | number; testID?: string }) {
+export function LoadingIndicator(props: { label: string; contained?: boolean; size?: number; progress?: AnimatedNode | number; tone?: ColorRole; testID?: string }) {
   const size = () => props.size ?? 48;
-  const color = () => token(props.contained ? "on-primary-container" : "primary");
+  const color = () => token(props.tone ?? (props.contained ? "on-primary-container" : "primary"));
   return (
     <View
       role="progressbar"
@@ -221,7 +223,7 @@ export function FloatingToolbar(props: { label: string; vibrant?: boolean; child
       accessibilityLabel={props.label}
       testID={props.testID}
       android={{ elevation: 3 }}
-      class={`h-16 flex-row items-center gap-1 self-center rounded-full px-2 ${props.vibrant ? "bg-primary-container" : "bg-surface-container"}`}
+      class={`h-16 flex-row items-center gap-1 self-center rounded-full px-2 shadow-elevation-3 android:shadow-none ${props.vibrant ? "bg-primary-container" : "bg-surface-container"}`}
     >
       {props.children}
     </View>
@@ -236,7 +238,7 @@ export function ToolbarButton(props: { icon: IconName; label: string; onPress: (
     <View
       role="button"
       accessibilityLabel={props.label}
-      tooltip={props.label}
+      tooltip={tip(props.label)}
       onPress={props.onPress}
       testID={props.testID}
       android={{ ripple: { color: `${token("on-surface").slice(0, 7)}1f` } }}

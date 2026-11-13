@@ -137,6 +137,9 @@ sync.failed:
   en: Couldn't check for mail
   zh-CN: 收取邮件失败
 
+actions.new:
+  en: New
+  zh-CN: 新建
 actions.compose:
   en: New message
   zh-CN: 写邮件

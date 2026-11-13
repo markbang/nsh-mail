@@ -5,12 +5,14 @@ screen; color is spent on unread, flags, the account a message belongs to, and t
 
 ## Targets
 
+One design language everywhere: Material 3 Expressive. Layouts follow M3's window classes.
+
 | Family | Layout | Sizes |
 | --- | --- | --- |
-| Linux, Windows, web (desktop idiom) | Three resizable panes from 840pt wide: mailboxes, list, reader. Compose, settings and adding an account open in a dialog with its own stack | Controls 28–32pt, rows about 76pt, text 12–14pt |
+| Linux, Windows, web from 840pt (expanded, large) | Navigation rail (collapsed 96pt; expanded 256pt from 1200pt, with sections and counts) and two panes on surface-container, 12pt apart with M3's drag handle: the list (fixed, 320–560pt) and the reader (flexible). The reader's actions float in a toolbar at its bottom. Compose, settings and adding an account open in a dialog with its own stack | M3 sizes: 40pt buttons and icon buttons, 56pt fields and search bar, list rows about 80pt |
 | Android phones | Material 3 Expressive (below): a `NavStack` per tab (Mail with the unread count, Search, Mailboxes, Settings) over M3E's short navigation bar; tab roots draw their own top app bar (search bar + emphasized headline), pushed pages the system toolbar and cover the bar; the FAB menu (New message, Add account) over Mail; the reader's floating toolbar | Controls 40dp with 48dp targets, body 16sp |
 | iOS phones | The same tabs on the system tab bar (`nsh/mobile` `TabBar`), a reply bar under the message | Controls 44pt+, body 16pt |
-| Web on phones, narrow windows | One `NavStack`: inbox → message → compose; the mailbox list in a left `Sheet` | Controls 44pt+, body 16pt |
+| Web below 840pt (compact, medium) | M3's navigation bar (Mail with the unread count, Search, Mailboxes, Settings) over a `NavStack` per section; the FAB menu (compose, add an account) over Mail; pushed pages cover the bar, the reader keeps its floating toolbar | 48pt targets |
 
 ## Tokens
 
@@ -40,12 +42,14 @@ One design language on every platform: Material 3 Expressive (M3E). The values c
 
 ## The `ui` layer
 
-`ui/` is the only place that styles `nsh/base`: `Button` (solid, bordered, light, flat, faded, shadow, ghost × the six
-colors, sm/md/lg), `IconButton`, `ButtonGroup`, `TextField` / `Textarea` (flat, faded, bordered, underlined; `plain` for the composer body), `Field`,
-`SelectField`, `Card`, `Listbox` / `NavItem`, `Row`, `Dialog` (Modal, `DialogBody`, `DialogFooter`), `Menu` (Dropdown),
-`Popover`, `Tooltip`, `Sheet`, `Tabs`, `Switch`, `Checkbox`, `Chip`, `Avatar`, `Badge`, `Divider`, `Spinner`, `Kbd`,
-`Toast`, `Empty`, `AccountMark`, `Icon` (Lucide geometry, tinted with `tint-*`). Features pass variants, colors,
-sizes and states, never raw colors or radii. `ui/Gallery.tsx` shows every one; `ui/gallery.test.tsx` drives it.
+`ui/` is the only place that styles `nsh/base`. Sizes and colors come from Compose Material3's component tokens.
+
+- Actions: `Button` (filled, tonal, outlined, elevated, text; xs/sm/md; round or square; toggle via `selected`; `tone="error"`), `IconButton` (standard, filled, tonal, outlined; xs/sm/md; narrow/default/wide), `ButtonGroup` (standard or connected), `Choice` (a connected group choosing one option), `SplitButton`, `Fab` (sm/md/lg, extended), `FabMenu`.
+- Containers and navigation: `NavigationRail` (collapsed or expanded), `NavBar`, `FloatingToolbar` with `ToolbarButton`, `AppBar`, `Row` and `ListItem` (expressive shapes), `SectionLabel`, `Card` (filled, outlined, elevated), `Dialog` / `DialogBody` / `DialogFooter`, `Menu`, `Popover`, `Sheet`, `Panes` / `Pane`.
+- Inputs: `TextField` / `Textarea` (filled, outlined, search, plain; floating label, supporting text, error), `SelectField` (exposed dropdown), `Field`, `Chip` (assist, filter, input, suggestion), `Switch`, `Checkbox`.
+- Feedback: `LoadingIndicator` (M3E's morphing shape, a shader, or a turning cookie where there are no shaders), `LinearProgress`, `CircularProgress`, `Snackbar`, `Tooltip` (plain), `Badge`, `Avatar`, `AccountMark`, `Divider`, `Empty`, `FileTile`, `Icon` (Lucide geometry, tinted with `tint-*`).
+
+Every pressable draws M3's state layer (the content color at 8% hovered, 10% pressed or focused) and morphs its corners while pressed. Features pass variants, sizes and states, never raw colors or radii. `ui/Gallery.tsx` shows every component; `ui/gallery.test.tsx` drives it.
 
 ## Motion tokens
 
@@ -62,40 +66,39 @@ Reduced motion: transitions off (`motion-reduce:`), motions not started (`reduce
 
 | Screen | Change | Motion |
 | --- | --- | --- |
-| All | Button / icon button press | Scale 0.97, 250ms `ease`; solid surfaces dim to 0.8 on hover |
-| All | Hover on buttons, rows, nav items | Wash in, 250ms `ease` |
-| Mailboxes | Current mailbox changes | Selected fill (default-100) on the new item, 250ms color transition |
-| List | Rows arrive (mailbox opened, page loaded) | No motion: rows are recycled data; pull to refresh uses the platform's indicator |
-| List | Load more | Spinner in the footer while the next page loads |
-| List | Unread → read, flag toggled | Weight and icon change in place, no motion (data ticks) |
-| Reader | Another message opens | The reader fades in |
-| Reader | Remote images loaded | Notice leaves, images replace their placeholders in place |
-| Reader | Attachment pressed | Tile press scale; a spinner replaces its icon until the file opens or downloads |
-| Reader | Image thumbnail arrives | The tile grows its preview in place, no motion |
-| Compose / settings (wide) | Dialog opens / closes | Scrim and card fade (`Dialog` `fade`) |
-| Phones | Pages push / pop | The platform's stack transition |
-| Phones | Mailbox sheet | Slides from the start edge over the scrim |
-| Menus | Account menu opens | Grows from 0.8 and fades in at the trigger (300ms); leaves at 0.96 (150ms) |
-| Onboarding | Sign in ↔ create account | Tabs cursor slides, 250ms ease-out |
-| Settings | Notifications switch | Track fills, thumb slides, 250ms |
-| All | Toast | Rises from the bottom edge (`slideInUp`), leaves after 3.2s |
-| All | Sync running | Refresh glyph turns until the sync ends; rests with reduced motion |
+| All | Button / icon button / FAB press | Corners morph to the pressed shape (small for 32–40pt, medium for 56pt): spatial fast (350ms `ease-spatial-fast`). The state layer fades in: effects fast (150ms) |
+| All | Toggle button selected | Round → square (square → round), with the selected colors: spatial fast |
+| All | List row hover / press / select | Extra-small → medium (hover) → large (pressed, selected), fill secondary-container: spatial fast |
+| Rail, nav bar | Destination changes | The active indicator pill grows from the icon (scale-x 0.5 → 1) and fills: spatial fast |
+| List | Rows arrive, unread → read | No motion: rows are recycled data |
+| List | Refresh, load more | M3E loading indicator in the list header / footer, morphing through soft burst → cookie 9 → pentagon → pill → sunny → cookie 4 → oval while it turns |
+| Reader | Another message opens | The reader fades in (150ms) |
+| Reader | Floating toolbar | Stays at the bottom center; its buttons square up while pressed |
+| Inbox (narrow) | FAB menu opens | The FAB morphs to a round primary close button; the items rise one after another on the fast spatial spring (40ms apart) |
+| Fields | Focus, typing | The label floats up and shrinks to body-small, the indicator thickens to 2pt primary: spatial fast / effects fast |
+| Menus, popovers | Open / close | Grow from 0.8 at the trigger (spatial fast); leave at 0.96 (effects fast) |
+| Tooltips | Show / hide | Fade, effects fast |
+| Dialogs | Open / close | Scrim and container fade (platform `fade`) |
+| Settings | Switch | Handle grows 16 → 24pt and slides; 28pt while pressed: spatial fast. Track recolors: effects fast |
+| Panes | Drag handle | Appears under the pointer, grows while dragged: spatial fast |
+| All | Snackbar | Rises from the bottom edge (`slideInUp`, 300ms), leaves after 3.2s |
 
-Checked on still screenshots of the web build (`nsh test --target web`) in light and dark, English and Chinese:
-layout, colors and states at rest. The motions themselves have not been watched frame by frame, and nothing has
-been seen on Android or the Linux and Windows desktops yet (no device or GTK in the sandbox).
+Reduced motion: transitions off (`motion-reduce:`), motions and springs not started (`reduceMotion()`), indicators rest.
 
-## Android: Material 3 Expressive
+Checked on still screenshots of the web build in light and dark (`nsh test --target web` on the demo backend, and the
+PR screenshot workflow on a real server). The motions have not been watched frame by frame, and the Linux and Windows
+desktops have not been seen (no GTK in the sandbox).
+
+## Android
 
 Sources: m3.material.io ("Start building with M3 Expressive", motion physics "How it works" and "Specs", shape
 "Corner radius scale", type scale tokens, component specs: FAB menu, toolbars, loading indicator, navigation bar) and
 Compose Material3's tokens (`ExpressiveMotionTokens`, `TypeScaleTokens`, `FabMenuBaselineTokens`,
 `FloatingToolbarTokens`, `LoadingIndicatorTokens`, `NavigationBarTokens`, `ButtonSmallTokens`).
 
-The tokens are the shared M3E ones (Tokens above, `ui/tokens.ts`); Android phones add M3E's components that the
-pointer-first screens do not use (`ui/m3.tsx`: short navigation bar, top app bar with search bar, FAB menu,
-floating toolbar, loading indicator) and turn the shared ones Material where `material` is set (`ui/material.ts`):
-round buttons that square up to `small` while pressed, filled search fields, pill drawer items, the snackbar.
+The tokens and components are the shared M3E ones (Tokens and the `ui` layer above). Where `material` is set
+(`ui/material.ts`), Android phones lay a few screens out their own way: tab roots draw M3E's top app bar with the
+search bar, the message list swipes and picks rows.
 NSH 0.5 gives apps no access to the system's dynamic (wallpaper) palette, so the seed stands in for it.
 
 - Shape: message rows are `large` cards, `extra-large` while swiped; a picked row's avatar morphs from a circle to

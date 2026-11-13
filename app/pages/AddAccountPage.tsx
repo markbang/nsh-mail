@@ -29,13 +29,13 @@ export function AddAccountPage() {
     <Page title={t("accounts.add")} header={<PageHeader title={t("accounts.add")} />}>
       <PageScroll contentClass={touch ? "gap-6 p-4" : "gap-6 p-6"}>
         <View class="gap-1">
-          <Text class={`font-semibold text-on-surface ${touch ? "text-xl" : "text-body-large"}`}>{t("accounts.addTitle")}</Text>
-          <Text class={`text-on-surface-variant ${touch ? "text-body-medium" : "text-body-small"}`}>{t("accounts.addHint")}</Text>
+          <Text class="text-headline-small text-on-surface">{t("accounts.addTitle")}</Text>
+          <Text class="text-body-medium tracking-body-medium text-on-surface-variant">{t("accounts.addHint")}</Text>
         </View>
-        <View class="gap-2">
-          <Button size="lg" variant="bordered" fullWidth mark={google} label={t("accounts.google")} loading={busy() === "google"} disabled={!!busy()} onPress={() => void oauth("google")} testID="add-google" />
-          <Button size="lg" variant="bordered" fullWidth mark={microsoft} label={t("accounts.microsoft")} loading={busy() === "microsoft"} disabled={!!busy()} onPress={() => void oauth("microsoft")} testID="add-microsoft" />
-          <Button size="lg" variant="bordered" fullWidth icon="mail" label={t("accounts.other")} disabled={!!busy()} onPress={() => nav.stack.push({ name: "imap" })} testID="add-imap" />
+        <View class="gap-3">
+          <Button size="md" variant="outlined" fullWidth mark={google} label={t("accounts.google")} loading={busy() === "google"} disabled={!!busy()} onPress={() => void oauth("google")} testID="add-google" />
+          <Button size="md" variant="outlined" fullWidth mark={microsoft} label={t("accounts.microsoft")} loading={busy() === "microsoft"} disabled={!!busy()} onPress={() => void oauth("microsoft")} testID="add-microsoft" />
+          <Button size="md" variant="outlined" fullWidth icon="mail" label={t("accounts.other")} disabled={!!busy()} onPress={() => nav.stack.push({ name: "imap" })} testID="add-imap" />
         </View>
       </PageScroll>
     </Page>

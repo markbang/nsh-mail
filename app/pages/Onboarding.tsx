@@ -3,7 +3,7 @@
 import { Notifications, platform, Scroll, signal, Text, UrlScheme, View } from "nsh";
 import { t } from "nsh/i18n";
 import { Mail } from "nsh-mail/native";
-import { Button, Field, Icon, Row, Segmented, TextField, touch, type IconName } from "../ui";
+import { Button, Choice, Icon, Row, TextField, type IconName } from "../ui";
 import { errorText, sessionChanged } from "../store";
 
 const web = platform.os === "web";
@@ -20,18 +20,18 @@ function pageOrigin() {
   }
 }
 
-function Choice(props: { icon: IconName; title: string; detail: string; selected: boolean; onPress: () => void; testID: string }) {
+function Mode(props: { icon: IconName; title: string; detail: string; selected: boolean; onPress: () => void; testID: string }) {
   return (
     <Row
       selected={props.selected}
       onPress={props.onPress}
       testID={props.testID}
-      class={`flex-row items-start gap-3 rounded-large border-2 p-4 ${props.selected ? "border-primary" : "border-outline-variant"}`}
+      class={`flex-row items-start gap-4 !rounded-large p-4 ${props.selected ? "" : "border border-outline-variant"}`}
     >
-      <Icon name={props.icon} tone={props.selected ? "primary" : "on-surface-variant"} />
+      <Icon name={props.icon} tone={props.selected ? "on-secondary-container" : "on-surface-variant"} />
       <View class="flex-1 gap-1">
-        <Text class={`font-medium text-on-surface ${touch ? "text-body-large" : "text-body-medium"}`}>{props.title}</Text>
-        <Text class={`text-on-surface-variant ${touch ? "text-body-medium" : "text-body-small"}`}>{props.detail}</Text>
+        <Text class={`text-title-medium font-medium tracking-title-medium ${props.selected ? "text-on-secondary-container" : "text-on-surface"}`}>{props.title}</Text>
+        <Text class={`text-body-medium tracking-body-medium ${props.selected ? "text-on-secondary-container" : "text-on-surface-variant"}`}>{props.detail}</Text>
       </View>
     </Row>
   );
@@ -69,16 +69,18 @@ export function Onboarding() {
     <Scroll class="flex-1 bg-surface" contentClass="grow items-center justify-center p-6 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       <View class="w-full max-w-[420px] gap-6 py-8" testID="onboarding">
         <View class="gap-2">
-          <Icon name="inboxes" size="lg" tone="primary" />
-          <Text role="header" class={`font-semibold text-on-surface ${touch ? "text-2xl" : "text-xl"}`}>
+          <View class="mb-2 size-16 items-center justify-center rounded-extra-large bg-primary-container">
+            <Icon name="inboxes" size="lg" tone="on-primary-container" />
+          </View>
+          <Text role="header" class="text-headline-medium font-medium text-on-surface">
             {t("onboarding.title")}
           </Text>
-          <Text class={`text-on-surface-variant ${touch ? "text-body-large" : "text-body-medium"}`}>{web ? t("onboarding.subtitleWeb") : t("onboarding.subtitle")}</Text>
+          <Text class="text-body-large tracking-body-large text-on-surface-variant">{web ? t("onboarding.subtitleWeb") : t("onboarding.subtitle")}</Text>
         </View>
 
-        <If when={!web} else={<Text class={`text-on-surface-variant ${touch ? "text-body-medium" : "text-body-small"}`}>{t("onboarding.webOnlyCloud")}</Text>}>
+        <If when={!web} else={<Text class="text-body-medium tracking-body-medium text-on-surface-variant">{t("onboarding.webOnlyCloud")}</Text>}>
           <View class="gap-2">
-            <Choice
+            <Mode
               icon="device"
               title={t("onboarding.local")}
               detail={t("onboarding.localDetail")}
@@ -86,7 +88,7 @@ export function Onboarding() {
               onPress={() => mode.set("local")}
               testID="mode-local"
             />
-            <Choice
+            <Mode
               icon="cloud"
               title={t("onboarding.cloud")}
               detail={t("onboarding.cloudDetail")}
@@ -99,7 +101,9 @@ export function Onboarding() {
 
         <If when={mode() === "cloud"}>
           <View class="gap-4">
-            <Segmented
+            <Choice
+              label={t("onboarding.signIn")}
+              fullWidth
               value={signUp() ? "up" : "in"}
               options={[
                 { value: "in", label: t("onboarding.signIn") },
@@ -107,27 +111,20 @@ export function Onboarding() {
               ]}
               onChange={(v) => signUp.set(v === "up")}
             />
-            <Field label={t("onboarding.server")} description={t("onboarding.serverHint")}>
-              <TextField value={server()} onChange={(v) => server.set(v)} kind="url" placeholder="https://mail.example.com" label={t("onboarding.server")} testID="server" />
-            </Field>
-            <Field label={t("onboarding.email")}>
-              <TextField value={email()} onChange={(v) => email.set(v)} kind="email" label={t("onboarding.email")} testID="cloud-email" />
-            </Field>
-            <Field label={t("onboarding.password")} description={signUp() ? t("onboarding.passwordHint") : undefined}>
-              <TextField value={password()} onChange={(v) => password.set(v)} masked label={t("onboarding.password")} onSubmit={() => void go()} returnKey="go" testID="cloud-password" />
-            </Field>
+            <TextField value={server()} onChange={(v) => server.set(v)} kind="url" placeholder="https://mail.example.com" label={t("onboarding.server")} testID="server" supporting={t("onboarding.serverHint")} />
+            <TextField value={email()} onChange={(v) => email.set(v)} kind="email" label={t("onboarding.email")} testID="cloud-email" />
+            <TextField value={password()} onChange={(v) => password.set(v)} masked label={t("onboarding.password")} onSubmit={() => void go()} returnKey="go" testID="cloud-password" supporting={signUp() ? t("onboarding.passwordHint") : undefined} />
           </View>
         </If>
 
         <If when={error()}>
-          <Text class={`text-error ${touch ? "text-body-medium" : "text-body-small"}`} testID="onboarding-error">
+          <Text class="text-body-medium tracking-body-medium text-error" testID="onboarding-error">
             {error()}
           </Text>
         </If>
 
         <Button
-          color="primary"
-          size="lg"
+          size="md"
           fullWidth
           label={mode() === "local" ? t("onboarding.useLocal") : signUp() ? t("onboarding.createAccount") : t("onboarding.signIn")}
           loading={busy()}

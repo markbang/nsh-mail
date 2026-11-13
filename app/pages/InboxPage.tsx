@@ -1,36 +1,28 @@
 // The phone's first page: the chosen mailbox. iOS and Android reach search,
 // the mailboxes and compose from the tab bar and its button, and turn the top
 // bar into the selection's actions while rows are selected; a narrow browser
-// has search and compose in the header, the mailbox list in a sheet.
-import { signal, Text, View } from "nsh";
+// reaches them from the navigation bar and the FAB menu.
+import { Text, View } from "nsh";
 import { BackHandler } from "nsh/mobile";
 import { t } from "nsh/i18n";
-import { AppBar, IconButton, Menu, Page, Sheet, systemHeader } from "../ui";
+import { AppBar, IconButton, Menu, Page, systemHeader } from "../ui";
 import { MailboxList, mailboxTitle } from "../components/Mailbox";
-import { Mailboxes } from "../components/Mailboxes";
 import { PageHeader } from "../components/PageHeader";
 import { NavContext, selectTab } from "../nav";
 import { clearPicked, mailbox, messages, moveMessages, openMessage, pickedIds, picking, refresh, setFlags } from "../store";
 
 export function InboxPage() {
   const nav = NavContext();
-  const sheet = signal(false);
   const open = (id: string) => {
     openMessage(id);
     nav.stack.push({ name: "message", id });
   };
-  BackHandler.on("press", () => {
+  // Android back ends a selection; a browser has no BackHandler (it throws there).
+  if (systemHeader) BackHandler.on("press", () => {
     if (!picking()) return false;
     clearPicked();
     return true;
   });
-  const menu = () => <IconButton icon="menu" label={t("mailbox.choose")} onPress={() => sheet.set(true)} testID="mailboxes" />;
-  const actions = () => (
-    <>
-      <IconButton icon="search" label={t("search.label")} onPress={() => nav.stack.push({ name: "search" })} testID="open-search" />
-      <IconButton icon="compose" label={t("actions.compose")} onPress={() => nav.stack.push({ name: "compose", init: { mode: "new" } })} testID="compose" />
-    </>
-  );
   // The top bar of iOS and Android: search and more, or the selection's actions.
   const picked = () => messages().filter((m) => pickedIds().includes(m.id));
   const move = (folder: "archive" | "trash") => {
@@ -103,7 +95,7 @@ export function InboxPage() {
   return (
     <Page
       title={picking() ? t("actions.selected", { count: pickedIds().length }) : mailboxTitle()}
-      header={<PageHeader title={mailboxTitle()} leading={menu()} actions={actions()} />}
+      header={<PageHeader title={mailboxTitle()} />}
       headerLeft={picking() ? endSelection() : undefined}
       headerRight={barActions()}
       appBar={appBar()}
@@ -112,17 +104,6 @@ export function InboxPage() {
       <View class="flex-1 bg-surface">
         <MailboxList onOpen={open} onAddAccount={() => nav.stack.push({ name: "addAccount" })} searchable={false} touchActions={systemHeader} />
       </View>
-      <If when={!systemHeader}>
-        <Sheet open={sheet()} onClose={() => sheet.set(false)} side="left" label={t("mailbox.choose")}>
-          <Mailboxes
-            onSettings={() => {
-              sheet.set(false);
-              nav.stack.push({ name: "settings" });
-            }}
-            onChosen={() => sheet.set(false)}
-          />
-        </Sheet>
-      </If>
     </Page>
   );
 }
