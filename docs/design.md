@@ -201,8 +201,9 @@ GitHub Actions, on every PR:
 | core + server | ubuntu-24.04 | `cargo test`, `clippy`; server Docker image (pushed to ghcr on main) |
 | linux | ubuntu-24.04 (GTK 4.14) | `nsh package --target linux` → `.tar.gz` |
 | windows | windows-latest (only on `v*` tags and manual runs) | `nsh package --target windows` → `.zip` + installer; signed with signtool (timestamped) when the certificate secret exists |
-| android | ubuntu-24.04 + SDK/NDK | `nsh package`'s `.apk` and the Gradle host's (FCM) `.apk`, arm64-v8a only; PRs and main use debug signing. `v*` tags and manual runs use release signing when the key secrets exist, and the release artifacts are two `.aab`s (arm64-v8a + armeabi-v7a; Play delivers only one `libnsh.so` per device), next to the `nsh package` `.apk`, still arm64-v8a only, and one Gradle host `.apk` per ABI |
+| android | ubuntu-24.04 + SDK/NDK | `nsh package`'s `.apk` and the Gradle host's (FCM) `.apk`, arm64-v8a only, all signed with the release key (forks' PRs, which get no secrets: debug key). `v*` tags and manual runs add two `.aab`s (arm64-v8a + armeabi-v7a; Play delivers only one `libnsh.so` per device), next to the `nsh package` `.apk`, still arm64-v8a only, and one Gradle host `.apk` per ABI |
 | web | ubuntu-24.04 + wasm32 | static site `.zip` |
+| release | ubuntu-24.04 (only on `v*` tags) | GitHub Release: Android `.apk` + `.aab`, Linux `.tar.gz`, Windows `.zip` + installer, `SHA256SUMS.txt`; notes from `docs/releases/<version>.md` and `.zh-CN.md` |
 
 ## 9. First version scope
 

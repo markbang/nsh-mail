@@ -18,6 +18,12 @@ cd android && ./gradlew assembleDebug      # app/build/outputs/apk/debug/app-arm
 
 `prepare.sh` 从与 `nsh --version` 相同的 NSH 版本下载 `nsh.aar`（校验 sha256），把其中的 `libnsh.so` 换成 `nsh package` 为本应用构建的那份（含 `nsh-mail/native` 模块），并用 `nsh build --release` 生成 bundle。产物都不进 git。
 
+## 签名
+
+CI 用同一把正式密钥签所有 APK 和 AAB（`nsh package` 的和这个宿主的），证书 SHA-256 `F3:92:9A:E4:A1:E2:AF:07:03:AA:0C:E7:AC:E2:B5:6E:E9:9F:1E:B1:0B:B3:A4:1F:C8:11:07:DE:E4:6B:4B:42`，所以每次构建都能覆盖安装上一版。密钥来自仓库 secret `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEY_ALIAS` 和 `NSH_KEYSTORE_PASSWORD`（库和密钥同一个密码，`nsh package` 就是这样取的）；用别的密钥签出的构建会失败。fork 来的 PR 拿不到 secret，只出调试签名的包，仅供试用。`v*` 标签另出 AAB 并发布 GitHub Release。
+
+本地 `prepare.sh` 和 `assembleDebug` 用调试密钥。要出正式包，设好 `ANDROID_KEYSTORE_FILE`、`ANDROID_KEY_ALIAS` 和 `NSH_KEYSTORE_PASSWORD`，给 `prepare.sh` 加 `--keystore "$ANDROID_KEYSTORE_FILE" --key-alias "$ANDROID_KEY_ALIAS"`，再运行 `./gradlew assembleRelease bundleRelease`。
+
 ## Firebase
 
 没有 `app/google-services.json` 时 APK 照常构建运行，只是没有推送。开启步骤：
