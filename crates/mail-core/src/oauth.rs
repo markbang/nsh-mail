@@ -28,16 +28,22 @@ pub struct OAuthApps {
     pub microsoft: Option<OAuthApp>,
 }
 
+fn baked(v: Option<&'static str>) -> Option<&'static str> {
+    v.filter(|s| !s.is_empty())
+}
+
 impl OAuthApps {
     /// Client ids baked in at build time: `NSHMAIL_GOOGLE_CLIENT_ID`, `NSHMAIL_GOOGLE_CLIENT_SECRET`,
     /// `NSHMAIL_MS_CLIENT_ID`.
     pub fn builtin() -> Self {
         Self {
-            google: option_env!("NSHMAIL_GOOGLE_CLIENT_ID").map(|id| OAuthApp {
+            // CI sets unconfigured secrets to "": treat that as unset.
+            google: baked(option_env!("NSHMAIL_GOOGLE_CLIENT_ID")).map(|id| OAuthApp {
                 client_id: id.to_string(),
-                client_secret: option_env!("NSHMAIL_GOOGLE_CLIENT_SECRET").map(str::to_string),
+                client_secret: baked(option_env!("NSHMAIL_GOOGLE_CLIENT_SECRET"))
+                    .map(str::to_string),
             }),
-            microsoft: option_env!("NSHMAIL_MS_CLIENT_ID").map(|id| OAuthApp {
+            microsoft: baked(option_env!("NSHMAIL_MS_CLIENT_ID")).map(|id| OAuthApp {
                 client_id: id.to_string(),
                 client_secret: None,
             }),
