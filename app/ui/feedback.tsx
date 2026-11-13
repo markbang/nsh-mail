@@ -64,7 +64,7 @@ export function Badge(props: { label?: string; dot?: boolean; quiet?: boolean; c
     ) : (
       <View class={`items-center justify-center rounded-full bg-error ${props.dot ? "size-1.5" : "min-h-4 min-w-4 px-1"}`}>
         <If when={!props.dot}>
-          <Text class="text-label-small tabular-nums text-on-error">{props.label}</Text>
+          <Text class="whitespace-nowrap text-label-small tabular-nums text-on-error">{props.label}</Text>
         </If>
       </View>
     );

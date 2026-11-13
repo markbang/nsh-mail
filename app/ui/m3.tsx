@@ -136,7 +136,7 @@ export function NavBar(props: { items: NavBarItem[]; selected: number; onChange:
                   <Icon name={item().icon} class={`${transition.fastEffects} ${on() ? "tint-on-secondary-container" : "tint-on-surface-variant"}`} />
                   <If when={item().badge}>
                     <View class="absolute top-0.5 left-[30px] min-h-4 min-w-4 items-center justify-center rounded-full bg-error px-1">
-                      <Text class="text-[11px] font-medium leading-4 text-on-error">{item().badge}</Text>
+                      <Text class="whitespace-nowrap text-[11px] font-medium leading-4 text-on-error">{item().badge}</Text>
                     </View>
                   </If>
                 </View>

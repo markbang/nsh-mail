@@ -187,7 +187,7 @@ export function NavigationRail(props: {
                         {icon()}
                         <If when={item().badge}>
                           <View class="absolute start-[30px] top-0.5 min-h-4 min-w-4 items-center justify-center rounded-full bg-error px-1">
-                            <Text class="text-label-small tabular-nums text-on-error">{count(item().badge)}</Text>
+                            <Text class="whitespace-nowrap text-label-small tabular-nums text-on-error">{count(item().badge)}</Text>
                           </View>
                         </If>
                       </View>
