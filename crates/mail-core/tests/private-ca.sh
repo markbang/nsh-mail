@@ -16,7 +16,8 @@ openssl x509 -req -days 2 -in "$dir/server.csr" -CA "$dir/ca.pem" -CAkey "$dir/c
   -extfile "$dir/ext" -out "$dir/server.pem" 2>/dev/null
 openssl pkcs12 -export -name greenmail -passout pass:changeit -in "$dir/server.pem" -inkey "$dir/server.key" \
   -certfile "$dir/ca.pem" -out "$dir/server.p12"
-chmod a+r "$dir"/*
+# GreenMail's container user reads the keystore.
+chmod a+rx "$dir" && chmod a+r "$dir"/*
 
 opts="-Dgreenmail.auth.disabled -Dgreenmail.imaps.port=4993 -Dgreenmail.smtps.port=4465
   -Dgreenmail.tls.keystore.password=changeit -Dgreenmail.tls.key.password=changeit"
@@ -30,6 +31,11 @@ else
     greenmail/standalone:2.1.15 >/dev/null
 fi
 for _ in $(seq 60); do (echo > /dev/tcp/127.0.0.1/4993) 2>/dev/null && break; sleep 1; done
+(echo > /dev/tcp/127.0.0.1/4993) 2>/dev/null || {
+  echo "GreenMail did not start with the private CA's certificate" >&2
+  docker logs greenmail-private-ca 2>&1 | tail -30 >&2 || true
+  exit 1
+}
 
 cargo test -p mail-core --test private_ca --no-run
 PRIVATE_CA_TRUSTED=1 SSL_CERT_FILE="$dir/ca.pem" cargo test -p mail-core --test private_ca -- --ignored
