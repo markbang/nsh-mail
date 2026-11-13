@@ -16,6 +16,10 @@
 | 桌面常驻 | `nsh/desktop` 的 `Tray` + 主窗口 `closeOnPress: false` | 关窗后留在托盘继续同步 |
 | Android 打包 | `nsh package` 不经 Gradle，打包的应用不能加原生代码 | FCM 需要自有 Gradle 工程嵌入 NSH（见 §5） |
 | 打包机器 | Linux 包只能在 Linux 上打，Windows 包只能在 Windows 上打；Android、Web 任意 | CI 用对应 runner |
+| 选文件 | `Picker.pickFiles` 各平台都有（Web 为 `<input type=file>`），给出 `File`，整份读进内存（单个上限 512 MiB） | 附件按钮用它 |
+| 粘贴 | `Input` 的 `onPaste` 给出剪贴板里的图片等文件（`File`）和文件管理器复制的 `file:` URL（Web 上读不到） | 正文框监听粘贴 |
+| 拖放 | `View` 的 `onFileDrop` 只在桌面（GTK、Win32、AppKit）给出 `file:` URL；Web 没有，而 Web 上 TSX 跑在单独的 realm（同源 iframe）里，收不到页面的拖放事件 | 桌面用 `onFileDrop`，路径交给 Rust 读（TSX 的 `fs/promises` 要 `capabilities.fs` 授权）；Web 由 Rust 经 web-sys 在页面 `window` 上听 `dragover`/`drop`（`PageDrop.listen`） |
+| TSX ↔ Rust 传字节 | `Vec<u8>` 对应 `Uint8Array`，调用时复制 | 附件字节经 `Mail.stage` 一次过边界，之后只传 id |
 
 ## 2. Web 上的本地模式：不提供
 
@@ -64,7 +68,11 @@ Mail.openAttachment(id, attachment): Promise<string | null>  // Web：图片/PDF
                                                    // 没有保存对话框时（Android）存进应用目录再打开。返回已保存但没有程序打开的文件路径
 Mail.attachmentPreview(id, attachment): Promise<string>      // PNG/JPEG/GIF/WebP（≤ 8 MB）的 data: URI，阅读页缩略图
 Mail.setFlags(id, { seen?, flagged? }): Promise<void>
-Mail.send(draft: Draft): Promise<void>             // 回复时带 inReplyTo / references
+Mail.send(draft: Draft): Promise<void>             // 回复时带 inReplyTo / references；attachments 见 §4 附件
+Mail.stage(name, type, bytes: Uint8Array, onProgress: (sent) => void): Promise<Upload>   // 暂存附件，得到 id
+Mail.stageFile(path, type, onProgress): Promise<Upload>   // 本地文件（桌面拖放、文件管理器复制后粘贴），Rust 读；Web 上 reject
+Mail.unstage(id): Promise<void>
+Mail.attachmentLimit(): number                     // 一封信附件总大小上限（字节）
 Mail.search(text, limit): Promise<Summary[]>
 Mail.unread(): Promise<Record<accountId, number>>  // 各账号收件箱的未读数
 Mail.refresh(): Promise<void>
@@ -111,6 +119,16 @@ TSX ──Mail.*──▶ Rust LocalBackend ──tokio/rustls──▶ IMAP (99
 4. 新信：写库 → 通过 WebSocket 发给在线客户端 → 给不在线的设备发推送：Android 用 FCM，Web 用 Web Push；桌面端是常驻进程，挂着 WebSocket，收到事件后自己弹系统通知。
 5. 读、搜、发都走 REST。原生客户端在本地 SQLite 缓存列表和正文（离线可读）尚未实现，待 mail-core 提供写入接口。
 
+### 附件
+
+草稿的 `attachments` 是 `{kind: "upload", id}`（`Mail.stage` 暂存的文件）或 `{kind: "forward", messageId, index}`（已存邮件的附件，转发默认全带、可逐个去掉）。
+
+- 来源：附件按钮 `Picker.pickFiles`；正文框粘贴（`onPaste` 的 `files`，桌面上还有 `uris`）；拖放（桌面 `onFileDrop`，Web 用 `PageDrop.listen`）。`File` 的字节由 TSX 交给 `Mail.stage`，本地路径交给 `Mail.stageFile`。
+- 暂存：本地模式放在 Rust 内存里，发出后丢弃；云端模式 `POST /v1/uploads` 建档（名字、类型、大小），再按 1 MiB 分块 `PATCH /v1/uploads/{id}?offset=` 上传，每块之后报进度（NSH 的 Rust `fetch` 整体收发，没有上传进度）。关掉写信页时 `unstage` 未发出的文件。
+- 上限：附件合计默认 25 MB（Gmail、Outlook 的上限），按原始字节算。客户端加入文件时就检查（`Mail.attachmentLimit()`，云端模式取服务端 `/v1/me` 的 `maxAttachmentBytes`）；mail-core 发送前、服务端建档和发送时再检查，超限是 `ERR_TOO_LARGE`（HTTP 413）。
+- 编码：lettre 组 `multipart/mixed`，文件名在 `Content-Disposition` 里按 RFC 2231，`Content-Type` 的 `name` 按 RFC 2047（老客户端只认这个）。"已发送"里 `APPEND` 的就是发出的整封信，附件随之保存。
+- 服务端：分块存在 `data/uploads/<用户>/<id>`（元数据 `<id>.json`），发送成功即删除，其余 24 小时后由每小时一次的清理删除。
+
 ### 服务端 API
 
 ```
@@ -124,6 +142,8 @@ GET  /v1/messages/{id}/attachments/{index}  附件字节：Content-Type 为其�
                                             CSP sandbox + nosniff；本地没有正文时从 IMAP 取并缓存
 PATCH /v1/messages/{id}  {seen?, flagged?}
 POST /v1/send            GET /v1/search?q=&limit=      GET /v1/unread → {accountId: 未读数}
+POST /v1/uploads         {filename, mimeType, size} → Upload {id, filename, mimeType, size}
+PATCH /v1/uploads/{id}?offset=   分块原始字节（≤ 4 MiB）→ {received}      DELETE /v1/uploads/{id}
 POST /v1/devices         {kind: "fcm"|"webpush", token | subscription}     DELETE /v1/devices/{id}
 GET  /v1/push/vapid-key  GET /v1/events (WebSocket，Authorization 或 ?token=；带 ?device=<id> 时该设备在线期间不发推送)
 GET  /                   Web 客户端静态文件         GET /healthz
@@ -182,4 +202,4 @@ GitHub Actions，每个 PR 跑：
 
 ## 9. 第一版范围
 
-添加账号（IMAP + OAuth）、统一收件箱、读信、写信和回复、搜索、本地模式完整可用；云端模式能同步并推送；CI 出四个平台的产物。暂不做：附件上传、多选批量操作、文件夹管理、规则、PGP。
+添加账号（IMAP + OAuth）、统一收件箱、读信、写信和回复、搜索、本地模式完整可用；云端模式能同步并推送；CI 出四个平台的产物。暂不做：多选批量操作、文件夹管理、规则、PGP。

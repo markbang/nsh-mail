@@ -31,7 +31,7 @@ mod store;
 mod tls;
 
 #[cfg(feature = "engine")]
-pub use engine::{Engine, EngineOptions};
+pub use engine::{Engine, EngineOptions, StagedFile};
 #[cfg(feature = "engine")]
 pub use oauth::{OAuthApp, OAuthApps, OAuthGrant, OAuthTokens};
 #[cfg(feature = "engine")]

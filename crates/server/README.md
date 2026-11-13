@@ -28,6 +28,7 @@ Back up `data/` and the master key together; without the key the stored mail cre
 | `NSHMAIL_WEB_DIR` | unset / 不托管 | Web client build to serve at `/`, with `app/web/sw.js` copied next to its `index.html` (served with `Service-Worker-Allowed: /`; Web Push needs it). Web 客户端目录，需把 `app/web/sw.js` 复制到 `index.html` 旁边（Web Push 需要）。 |
 | `NSHMAIL_CORS_ORIGINS` | empty (same origin only) | Comma-separated origins allowed cross-origin, for development. 开发用跨域白名单，逗号分隔。 |
 | `NSHMAIL_ALLOW_SIGNUP` | `true` | `false` closes sign-up. 关闭注册。 |
+| `NSHMAIL_MAX_ATTACHMENTS_MB` | `25` | Most a message's attachments may add up to (1–1024); staged uploads (`uploads/`) expire after a day. 每封信附件总大小上限；暂存的上传一天后清理。 |
 | `NSHMAIL_GOOGLE_CLIENT_ID` / `_SECRET` | unset | Google OAuth web client; redirect URI `<PUBLIC_URL>/v1/oauth/google/callback`. |
 | `NSHMAIL_MS_CLIENT_ID` / `_SECRET` | unset | Microsoft OAuth web app; redirect URI `<PUBLIC_URL>/v1/oauth/microsoft/callback`. |
 | `NSHMAIL_FCM_SERVICE_ACCOUNT` | unset / 不发 FCM | Path to the Firebase service account JSON. Firebase 服务账号 JSON 路径。 |

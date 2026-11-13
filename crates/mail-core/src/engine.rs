@@ -39,6 +39,15 @@ pub struct EngineOptions {
     pub db_path: PathBuf,
     pub secrets: Arc<dyn SecretStore>,
     pub oauth: OAuthApps,
+    /// The most a message's attachments may add up to, in bytes ([`MAX_ATTACHMENTS`] by default).
+    pub max_attachments: u64,
+}
+
+/// The bytes of a draft's `upload` attachment, staged by the caller.
+pub struct StagedFile {
+    pub filename: String,
+    pub mime_type: String,
+    pub data: Vec<u8>,
 }
 
 #[derive(Clone)]
@@ -57,6 +66,7 @@ struct Inner {
     store: Arc<Store>,
     secrets: Arc<dyn SecretStore>,
     oauth: OAuthApps,
+    max_attachments: u64,
     http: reqwest::Client,
     events: broadcast::Sender<MailEvent>,
     /// One command connection per account, shared by sync, body fetch, flags and append. Holding
@@ -104,6 +114,7 @@ impl Engine {
             db_path: db_path.as_ref().to_path_buf(),
             secrets,
             oauth: OAuthApps::builtin(),
+            max_attachments: MAX_ATTACHMENTS,
         })
     }
 
@@ -113,6 +124,7 @@ impl Engine {
                 store: Arc::new(Store::open(&options.db_path)?),
                 secrets: options.secrets,
                 oauth: options.oauth,
+                max_attachments: options.max_attachments,
                 http: crate::tls::http_client(),
                 events: broadcast::channel(256).0,
                 pool: Mutex::new(HashMap::new()),
@@ -644,8 +656,43 @@ impl Engine {
     /// message this returns `Ok`; a failure to save the copy is reported as an `Error` event,
     /// so callers never resend a delivered message.
     pub async fn send(&self, draft: Draft) -> Result<()> {
+        self.send_with(draft, HashMap::new()).await
+    }
+
+    /// [`send`](Self::send) with attachments: a draft's `upload`s come from `staged` by id, its
+    /// `forward`s from the store.
+    pub async fn send_with(
+        &self,
+        draft: Draft,
+        mut staged: HashMap<String, StagedFile>,
+    ) -> Result<()> {
         let account = self.account(&draft.account_id).await?;
-        let message = smtp::build(&account, &draft)?;
+        let mut files = Vec::with_capacity(draft.attachments.len());
+        let mut total = 0u64;
+        for attachment in &draft.attachments {
+            let file = match attachment {
+                DraftAttachment::Upload { id } => staged.remove(id).ok_or_else(|| {
+                    err(
+                        ErrorCode::NotFound,
+                        "an attached file is gone (it expires a day after it was added); attach it again",
+                    )
+                })?,
+                DraftAttachment::Forward { message_id, index } => {
+                    let (meta, data) = self.attachment(message_id, *index).await?;
+                    StagedFile {
+                        filename: meta.filename.unwrap_or_else(|| "attachment".into()),
+                        mime_type: meta.mime_type,
+                        data,
+                    }
+                }
+            };
+            total += file.data.len() as u64;
+            if total > self.inner.max_attachments {
+                return Err(too_large(self.inner.max_attachments));
+            }
+            files.push(file);
+        }
+        let message = smtp::build(&account, &draft, files)?;
         let cred = self.credential(&account).await?;
         smtp::send(&account.smtp, smtp_auth(&account, &cred), &message).await?;
         let raw = message.formatted();
@@ -696,6 +743,16 @@ impl Engine {
         }
         Ok(())
     }
+}
+
+pub(crate) fn too_large(limit: u64) -> Error {
+    err(
+        ErrorCode::TooLarge,
+        format!(
+            "attachments can add up to {} MB; remove some or share a link instead",
+            limit / (1024 * 1024)
+        ),
+    )
 }
 
 fn is_gmail(a: &Account) -> bool {

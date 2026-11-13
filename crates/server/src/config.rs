@@ -20,6 +20,8 @@ pub struct Config {
     pub fcm_base_url: String,
     pub vapid_private_key: Option<String>,
     pub vapid_subject: String,
+    /// The most a message's attachments may add up to, in bytes.
+    pub max_attachments: u64,
 }
 
 fn var(name: &str) -> Option<String> {
@@ -71,7 +73,17 @@ impl Config {
             Some("false" | "0") => false,
             Some(other) => bail!("NSHMAIL_ALLOW_SIGNUP must be true or false, got {other:?}"),
         };
+        let max_attachments = match var("NSHMAIL_MAX_ATTACHMENTS_MB") {
+            None => mail_core::types::MAX_ATTACHMENTS,
+            Some(mb) => match mb.parse::<u64>() {
+                Ok(mb) if (1..=1024).contains(&mb) => mb * 1024 * 1024,
+                _ => bail!(
+                    "NSHMAIL_MAX_ATTACHMENTS_MB must be a whole number of MB from 1 to 1024, got {mb:?}"
+                ),
+            },
+        };
         Ok(Config {
+            max_attachments,
             bind,
             data_dir: var("NSHMAIL_DATA_DIR")
                 .unwrap_or_else(|| "data".into())

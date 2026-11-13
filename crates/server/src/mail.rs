@@ -17,6 +17,7 @@ pub struct Mailboxes {
     users_dir: PathBuf,
     master_key: [u8; 32],
     oauth: OAuthApps,
+    max_attachments: u64,
     push: Arc<Push>,
     open: Mutex<HashMap<i64, Engine>>,
 }
@@ -26,12 +27,14 @@ impl Mailboxes {
         users_dir: PathBuf,
         master_key: [u8; 32],
         oauth: OAuthApps,
+        max_attachments: u64,
         push: Arc<Push>,
     ) -> Self {
         Mailboxes {
             users_dir,
             master_key,
             oauth,
+            max_attachments,
             push,
             open: Mutex::default(),
         }
@@ -50,6 +53,7 @@ impl Mailboxes {
             db_path: self.users_dir.join(format!("{user_id}.sqlite")),
             secrets: Arc::new(secrets),
             oauth: self.oauth.clone(),
+            max_attachments: self.max_attachments,
         })?;
         // Subscribe before `run` so no NewMail from the first loops is missed.
         tokio::spawn(push_new_mail(

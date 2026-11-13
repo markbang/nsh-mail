@@ -12,20 +12,21 @@ use std::{
 };
 
 use mail_core::{
-    Engine,
+    Engine, StagedFile,
     secrets::{self, platform_store},
     types::*,
 };
 use nsh_core::prelude::*;
 use tokio::sync::broadcast::error::RecvError;
 
-use crate::backend::{Backend, Events, MailFuture};
+use crate::backend::{Backend, Events, File, MailFuture, Progress, Staged};
 
 type Slot = RefCell<Option<Engine>>;
 
 #[derive(Default)]
 pub struct LocalBackend {
     engine: Rc<Slot>,
+    staged: Staged,
 }
 
 /// Runs `work` on the tasks' runtime: the engine needs tokio's.
@@ -204,7 +205,38 @@ impl Backend for LocalBackend {
     }
 
     fn send(&self, draft: Draft) -> MailFuture<'_, ()> {
-        self.call(|e| async move { e.send(draft).await })
+        Box::pin(async move {
+            let staged: HashMap<String, StagedFile> = self
+                .staged
+                .of(&draft)?
+                .into_iter()
+                .map(|(id, f)| {
+                    let file = StagedFile {
+                        filename: f.name.clone(),
+                        mime_type: f.mime_type.clone(),
+                        data: f.data.clone(),
+                    };
+                    (id, file)
+                })
+                .collect();
+            let engine = self.engine()?;
+            let sending = draft.clone();
+            run(async move { engine.send_with(sending, staged).await }).await?;
+            self.staged.sent(&draft);
+            Ok(())
+        })
+    }
+
+    fn stage(&self, file: File, progress: Progress) -> MailFuture<'_, Upload> {
+        let size = file.data.len() as u64;
+        let upload = self.staged.add(file);
+        progress(size);
+        Box::pin(async move { Ok(upload) })
+    }
+
+    fn unstage(&self, id: String) -> MailFuture<'_, ()> {
+        self.staged.remove(&id);
+        Box::pin(async { Ok(()) })
     }
 
     fn search(&self, text: String, limit: u32) -> MailFuture<'_, Vec<Summary>> {

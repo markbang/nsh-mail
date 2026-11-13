@@ -11,7 +11,7 @@ use mail_core::types::*;
 use nsh_core::{prelude::*, storage::Storage};
 
 use crate::{
-    backend::{Backend, invalid, js},
+    backend::{Backend, File, invalid, js},
     cloud::CloudBackend,
     types::Js,
 };
@@ -162,6 +162,13 @@ fn remember(mode: Option<&str>, server: Option<&str>, user: Option<&str>) {
             None => Storage::remove_item(key),
         }
     }
+}
+
+fn too_large(name: &str, limit: u64) -> Error {
+    Error::new(
+        ErrorCode::TooLarge,
+        format!("{name} is larger than {} MB", limit / (1024 * 1024)),
+    )
 }
 
 fn valid_server(server: &str) -> Result<String, JsError> {
@@ -376,6 +383,94 @@ impl Mail {
         backend()?.send(draft.0).await.map_err(js)?;
         changed(account, FolderKind::Sent);
         Ok(())
+    }
+
+    /// Keeps a file for the draft being written: in the app in local mode, on
+    /// the server in cloud mode, where it goes in chunks. `onProgress` hears
+    /// how many bytes are there so far. Resolves with the id the draft's
+    /// attachments name it by.
+    pub async fn stage(
+        name: String,
+        mime_type: String,
+        data: Vec<u8>,
+        #[args(sent)] on_progress: Callback<f64>,
+    ) -> Result<Js<Upload>, JsError> {
+        let limit = backend()?.attachment_limit();
+        if data.len() as u64 > limit {
+            return Err(js(too_large(&name, limit)));
+        }
+        let file = File {
+            name,
+            mime_type,
+            data,
+        };
+        let progress = Rc::new(move |sent: u64| on_progress.post(sent as f64));
+        backend()?.stage(file, progress).await.map(Js).map_err(js)
+    }
+
+    /// `stage` for a local file, by path or `file:` URL: a desktop drop, or a
+    /// file manager's copy pasted. Read here, as the app's TSX may not read
+    /// files outside its own. Rejects with `ERR_UNSUPPORTED` on the web.
+    pub async fn stage_file(
+        path: String,
+        mime_type: String,
+        #[args(sent)] on_progress: Callback<f64>,
+    ) -> Result<Js<Upload>, JsError> {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (path, mime_type, on_progress);
+            Err(js(Error::new(
+                ErrorCode::Unsupported,
+                "a page cannot read local files by path",
+            )))
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let path = match url::Url::parse(&path) {
+                Ok(url) if url.scheme() == "file" => url
+                    .to_file_path()
+                    .map_err(|_| js(invalid(format!("not a local file: {path}"))))?,
+                _ => std::path::PathBuf::from(path),
+            };
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "file".into());
+            let limit = backend()?.attachment_limit();
+            let (shown, read) = (name.clone(), path.clone());
+            let data = blocking(move || {
+                if std::fs::metadata(&read)?.len() > limit {
+                    return Ok(None);
+                }
+                std::fs::read(&read).map(Some)
+            })
+            .await
+            .map_err(|e| js(Error::new(ErrorCode::Internal, e.to_string())))?
+            .map_err(|e| {
+                js(Error::new(
+                    ErrorCode::Storage,
+                    format!("cannot read {}: {e}", path.display()),
+                ))
+            })?
+            .ok_or_else(|| js(too_large(&shown, limit)))?;
+            let file = File {
+                name,
+                mime_type,
+                data,
+            };
+            let progress = Rc::new(move |sent: u64| on_progress.post(sent as f64));
+            backend()?.stage(file, progress).await.map(Js).map_err(js)
+        }
+    }
+
+    /// Drops a staged file the draft no longer sends.
+    pub async fn unstage(id: String) -> Result<(), JsError> {
+        backend()?.unstage(id).await.map_err(js)
+    }
+
+    /// The most a message's attachments may add up to, in bytes.
+    pub fn attachment_limit() -> f64 {
+        with(|s| s.backend.clone()).map_or(MAX_ATTACHMENTS, |b| b.attachment_limit()) as f64
     }
 
     /// Messages matching `text` in any folder, newest first.

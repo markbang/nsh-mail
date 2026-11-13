@@ -51,6 +51,7 @@ fn config(data_dir: PathBuf) -> Config {
         fcm_base_url: String::new(),
         vapid_private_key: None,
         vapid_subject: "mailto:test@example.com".into(),
+        max_attachments: 25 * 1024 * 1024,
     }
 }
 
@@ -633,4 +634,229 @@ fn sync_resumes_after_restart() {
         assert_eq!(data["subject"], "After restart");
         assert_eq!(data["account"], alice.account.as_str());
     });
+}
+
+impl Server {
+    /// Stages `data` in chunks, as the app does.
+    async fn upload(&self, user: &User, filename: &str, mime_type: &str, data: &[u8]) -> String {
+        let res = self
+            .http
+            .post(format!("{}/uploads", self.base))
+            .bearer_auth(&user.token)
+            .json(&json!({ "filename": filename, "mimeType": mime_type, "size": data.len() }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::CREATED);
+        let id = res.json::<Value>().await.unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let mut offset = 0;
+        for chunk in data.chunks(1024 * 1024) {
+            let res = self
+                .http
+                .patch(format!("{}/uploads/{id}?offset={offset}", self.base))
+                .bearer_auth(&user.token)
+                .body(chunk.to_vec())
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(res.status(), StatusCode::OK);
+            offset += chunk.len();
+            assert_eq!(res.json::<Value>().await.unwrap()["received"], offset);
+        }
+        id
+    }
+
+    async fn send_draft(&self, from: &User, draft: Value) -> reqwest::Response {
+        let mut draft = draft;
+        draft["accountId"] = json!(from.account);
+        self.http
+            .post(format!("{}/send", self.base))
+            .bearer_auth(&from.token)
+            .json(&draft)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    /// Syncs `user`'s accounts now, as pull to refresh does, rather than wait for IDLE.
+    async fn sync(&self, user: &User) {
+        let res = self
+            .http
+            .post(format!("{}/sync", self.base))
+            .bearer_auth(&user.token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    }
+
+    /// The attachments of message `id`: names, types and sizes.
+    async fn attachments(&self, user: &User, id: &str) -> Vec<(String, String, u64)> {
+        let m: Value = self
+            .get(&user.token, &format!("/messages/{id}"))
+            .await
+            .json()
+            .await
+            .unwrap();
+        m["attachments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| {
+                (
+                    a["filename"].as_str().unwrap_or_default().to_string(),
+                    a["mimeType"].as_str().unwrap().to_string(),
+                    a["size"].as_u64().unwrap(),
+                )
+            })
+            .collect()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn attachments_upload_send_forward_and_limit() {
+    let mut c = config(temp_dir());
+    c.max_attachments = 3 * 1024 * 1024;
+    let s = start(c).await;
+    let (alice, bob) = (s.user("alice").await, s.user("bob").await);
+    let me: Value = s.get(&alice.token, "/me").await.json().await.unwrap();
+    assert_eq!(me["maxAttachmentBytes"], 3 * 1024 * 1024);
+
+    let pdf: Vec<u8> = (0..2_500_000u32).map(|i| (i * 31 % 251) as u8).collect();
+    let png: Vec<u8> = b"\x89PNG\r\n\x1a\n"
+        .iter()
+        .copied()
+        .chain(0..200u8)
+        .collect();
+    let pdf_name = "2026年第三季度财务报告.pdf";
+    let a = s.upload(&alice, pdf_name, "application/pdf", &pdf).await;
+    let b = s.upload(&alice, "截图.png", "image/png", &png).await;
+    let res = s
+        .send_draft(
+            &alice,
+            json!({ "to": [{ "email": bob.email }], "subject": "附件", "text": "two files",
+                    "attachments": [{ "kind": "upload", "id": a }, { "kind": "upload", "id": b }] }),
+        )
+        .await;
+    assert_eq!(
+        res.status(),
+        StatusCode::NO_CONTENT,
+        "{:?}",
+        res.text().await
+    );
+    let expected = vec![
+        (
+            pdf_name.to_string(),
+            "application/pdf".to_string(),
+            pdf.len() as u64,
+        ),
+        (
+            "截图.png".to_string(),
+            "image/png".to_string(),
+            png.len() as u64,
+        ),
+    ];
+    s.sync(&bob).await;
+    let received = s.inbox(&bob, 1).await;
+    let id = received[0]["id"].as_str().unwrap();
+    assert_eq!(s.attachments(&bob, id).await, expected, "received");
+    for (index, data) in [&pdf, &png].into_iter().enumerate() {
+        let res = s
+            .get(&bob.token, &format!("/messages/{id}/attachments/{index}"))
+            .await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(
+            &res.bytes().await.unwrap()[..],
+            &data[..],
+            "bytes of {index}"
+        );
+    }
+
+    s.sync(&alice).await;
+    let sent: Vec<Value> = s
+        .get(&alice.token, "/messages?folder=sent")
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(
+        s.attachments(&alice, sent[0]["id"].as_str().unwrap()).await,
+        expected,
+        "Sent copy"
+    );
+
+    // A sent draft's uploads are gone.
+    let again = s
+        .send_draft(
+            &alice,
+            json!({ "to": [{ "email": bob.email }], "subject": "again", "text": "",
+                                     "attachments": [{ "kind": "upload", "id": a }] }),
+        )
+        .await;
+    assert_eq!(again.status(), StatusCode::NOT_FOUND);
+
+    // Bob forwards the PDF only.
+    let res = s
+        .send_draft(
+            &bob,
+            json!({ "to": [{ "email": alice.email }], "subject": "Fwd: 附件", "text": "fyi",
+                    "attachments": [{ "kind": "forward", "messageId": id, "index": 0 }] }),
+        )
+        .await;
+    assert_eq!(
+        res.status(),
+        StatusCode::NO_CONTENT,
+        "{:?}",
+        res.text().await
+    );
+    s.sync(&alice).await;
+    let inbox = s.inbox(&alice, 1).await;
+    assert_eq!(
+        s.attachments(&alice, inbox[0]["id"].as_str().unwrap())
+            .await,
+        expected[..1]
+    );
+
+    // Over the limit: one file at creation, several together at send.
+    let res = s
+        .http
+        .post(format!("{}/uploads", s.base))
+        .bearer_auth(&alice.token)
+        .json(&json!({ "filename": "huge.bin", "mimeType": "", "size": 4 * 1024 * 1024 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(res.json::<Value>().await.unwrap()["code"], "ERR_TOO_LARGE");
+    let c = s.upload(&alice, "c.pdf", "application/pdf", &pdf).await;
+    let d = s.upload(&alice, "d.pdf", "application/pdf", &pdf).await;
+    let res = s
+        .send_draft(
+            &alice,
+            json!({ "to": [{ "email": bob.email }], "subject": "too big", "text": "",
+                    "attachments": [{ "kind": "upload", "id": c }, { "kind": "upload", "id": d }] }),
+        )
+        .await;
+    assert_eq!(res.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(res.json::<Value>().await.unwrap()["code"], "ERR_TOO_LARGE");
+
+    let res = s
+        .http
+        .delete(format!("{}/uploads/{c}", s.base))
+        .bearer_auth(&alice.token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let left: Vec<_> = std::fs::read_dir(s.data_dir.join("uploads"))
+        .unwrap()
+        .flat_map(|u| std::fs::read_dir(u.unwrap().path()).unwrap())
+        .map(|f| f.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert_eq!(left.len(), 2, "only d stays staged: {left:?}");
+    assert!(left.iter().all(|f| f.starts_with(&d)));
 }

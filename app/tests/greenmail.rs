@@ -5,10 +5,13 @@
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use mail_core::{Engine, secrets::MemoryStore, types::*};
+use mail_core::{Engine, StagedFile, secrets::MemoryStore, types::*};
 use nsh_core::{
+    PasteEvent, PastedFile,
     element::Registry,
     geometry::{Points, Size},
+    image::ImageData,
+    picker::PickedFile,
     platform::{Environment, Idiom, Locale, Os},
 };
 use nsh_engine::EngineConfig;
@@ -31,38 +34,94 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
-/// Alice writes to `to` from an engine of her own.
+const MENU: &[u8] = b"%PDF-1.4 menu";
+const MAP: &[u8] = b"\x89PNG\r\n\x1a\n map";
+const REPORT: &[u8] = b"%PDF-1.4 report";
+const SHOT: &[u8] = b"\x89PNG\r\n\x1a\n shot";
+
+/// Alice's account on an engine of her own.
+async fn alice(host: &str, to: &str) -> (Engine, Account) {
+    let engine = Engine::open(
+        scratch("alice").join("mail.sqlite"),
+        Arc::new(MemoryStore::new()),
+    )
+    .unwrap();
+    let alice = engine
+        .add_imap_account(ImapInput {
+            email: format!("alice-{to}"),
+            name: Some("Alice".into()),
+            username: None,
+            password: "secret".into(),
+            imap: endpoint(host, 3993),
+            smtp: endpoint(host, 3465),
+            provider: None,
+        })
+        .await
+        .unwrap();
+    (engine, alice)
+}
+
+fn file(name: &str, mime_type: &str, data: &[u8]) -> StagedFile {
+    StagedFile {
+        filename: name.into(),
+        mime_type: mime_type.into(),
+        data: data.to_vec(),
+    }
+}
+
+/// Alice writes to `to`, with a menu and a map attached.
 fn deliver(host: &str, to: &str, subject: &str) {
-    let dir = scratch("alice");
-    let runtime = tokio::runtime::Runtime::new().unwrap();
-    runtime.block_on(async {
-        let engine = Engine::open(dir.join("mail.sqlite"), Arc::new(MemoryStore::new())).unwrap();
-        let alice = engine
-            .add_imap_account(ImapInput {
-                email: format!("alice-{to}"),
-                name: Some("Alice".into()),
-                username: None,
-                password: "secret".into(),
-                imap: endpoint(host, 3993),
-                smtp: endpoint(host, 3465),
-                provider: None,
-            })
-            .await
-            .unwrap();
-        engine
-            .send(Draft {
-                account_id: alice.id,
-                to: vec![Address {
-                    name: None,
-                    email: to.into(),
-                }],
-                subject: subject.into(),
-                text: "Shall we try the noodle place at noon?".into(),
-                ..Draft::default()
-            })
-            .await
-            .unwrap();
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let (engine, alice) = alice(host, to).await;
+        let attachments = vec![
+            DraftAttachment::Upload { id: "menu".into() },
+            DraftAttachment::Upload { id: "map".into() },
+        ];
+        let draft = Draft {
+            account_id: alice.id,
+            to: vec![Address {
+                name: None,
+                email: to.into(),
+            }],
+            subject: subject.into(),
+            text: "Shall we try the noodle place at noon?".into(),
+            attachments,
+            ..Draft::default()
+        };
+        let staged = [
+            ("menu".into(), file("菜单.pdf", "application/pdf", MENU)),
+            ("map".into(), file("map.png", "image/png", MAP)),
+        ];
+        engine.send_with(draft, staged.into()).await.unwrap();
     });
+}
+
+/// The attachments of the message `subject` in Alice's inbox: names and bytes.
+fn received(host: &str, to: &str, subject: &str) -> Vec<(String, Vec<u8>)> {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let (engine, alice) = alice(host, to).await;
+        engine.sync(&alice.id).await.unwrap();
+        let inbox = engine
+            .list(ListQuery {
+                folder: FolderKind::Inbox,
+                account: None,
+                before: None,
+                limit: 20,
+            })
+            .await
+            .unwrap();
+        let m = inbox
+            .iter()
+            .find(|m| m.subject == subject)
+            .unwrap_or_else(|| panic!("no {subject:?} in {inbox:?}"));
+        let m = engine.get(&m.id).await.unwrap();
+        let mut out = Vec::new();
+        for a in &m.attachments {
+            let (meta, data) = engine.attachment(&m.summary.id, a.index).await.unwrap();
+            out.push((meta.filename.unwrap_or_default(), data));
+        }
+        out
+    })
 }
 
 fn step(app: &mut Headless, what: impl FnOnce(&mut Headless) -> Result<(), String>) {
@@ -144,11 +203,57 @@ fn local_mode_reads_replies_and_searches_real_mail() {
     step(&mut app, |a| a.press("id:send"));
     step(&mut app, |a| a.wait_for_within("text:Message sent", WAIT));
 
+    // Forward it to Alice: the menu stays, the map goes, a picked report and
+    // a pasted screenshot join.
+    step(&mut app, |a| a.press("id:forward"));
+    step(&mut app, |a| {
+        a.wait_for_within("id:compose-attachments >> text:map.png", WAIT)
+    });
+    step(&mut app, |a| a.press("label:Remove map.png"));
+    app.on_pick(|_| {
+        vec![PickedFile::new(
+            "报告 2026.pdf",
+            "application/pdf",
+            ImageData::new(REPORT.to_vec()),
+        )]
+    });
+    step(&mut app, |a| a.press("id:compose-attach"));
+    let mut paste = PasteEvent::new(String::new());
+    paste
+        .files
+        .push(PastedFile::new("image.png", "image/png", SHOT.to_vec()));
+    step(&mut app, |a| a.paste("id:compose-body", &paste));
+    step(&mut app, |a| {
+        a.wait_for_within("id:compose-attachments >> text:image.png", WAIT)
+    });
+    step(&mut app, |a| {
+        a.type_text("id:compose-to", &format!("alice-{bob}"))
+    });
+    step(&mut app, |a| a.press("id:send"));
+    step(&mut app, |a| a.wait_for_within("text:Message sent", WAIT));
+    assert_eq!(
+        received(&host, &bob, "Fwd: Lunch on Friday?"),
+        vec![
+            ("菜单.pdf".to_string(), MENU.to_vec()),
+            ("报告 2026.pdf".to_string(), REPORT.to_vec()),
+            ("image.png".to_string(), SHOT.to_vec()),
+        ]
+    );
+
     // The reply is in Sent, and search finds it.
     step(&mut app, |a| a.press("text:Sent"));
     step(&mut app, |a| {
         a.wait_for_within("id:messages >> text:Re: Lunch on Friday?", WAIT)
     });
+    // So is the forward, with what it sent.
+    step(&mut app, |a| {
+        a.press("id:messages >> text:Fwd: Lunch on Friday?")
+    });
+    for name in ["菜单.pdf", "报告 2026.pdf", "image.png"] {
+        step(&mut app, |a| {
+            a.wait_for_within(&format!("id:reader >> text:{name}"), WAIT)
+        });
+    }
     step(&mut app, |a| a.type_text("id:search", "Lunch"));
     step(&mut app, |a| {
         a.wait_for_within("id:results >> text:Re: Lunch on Friday?", WAIT)

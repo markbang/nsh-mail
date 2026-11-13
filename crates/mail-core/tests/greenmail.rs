@@ -565,3 +565,146 @@ async fn changes_by_another_client_arrive_while_idle() {
     );
     engine.stop();
 }
+
+fn staged(id: &str, filename: &str, mime_type: &str, data: &[u8]) -> (String, StagedFile) {
+    (
+        id.into(),
+        StagedFile {
+            filename: filename.into(),
+            mime_type: mime_type.into(),
+            data: data.to_vec(),
+        },
+    )
+}
+
+async fn only_message(engine: &Engine, folder: FolderKind, account: &Account) -> Message {
+    engine.sync(&account.id).await.unwrap();
+    let list = engine.list(query(folder, account, None, 10)).await.unwrap();
+    assert_eq!(list.len(), 1, "{folder:?} of {}: {list:?}", account.email);
+    engine.get(&list[0].id).await.unwrap()
+}
+
+async fn files(engine: &Engine, m: &Message) -> Vec<(String, String, Vec<u8>)> {
+    let mut out = Vec::new();
+    for a in &m.attachments {
+        let (meta, data) = engine.attachment(&m.summary.id, a.index).await.unwrap();
+        assert_eq!(meta.size, data.len() as u64);
+        out.push((meta.filename.unwrap_or_default(), meta.mime_type, data));
+    }
+    out
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn attachments_round_trip_forward_and_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let (alice_email, bob_email) = (unique("alice"), unique("bob"));
+    let bob = engine.add_imap_account(input(&bob_email)).await.unwrap();
+    let pdf: Vec<u8> = b"%PDF-1.4\n"
+        .iter()
+        .copied()
+        .chain((0..60_000u32).map(|i| (i * 7 % 251) as u8))
+        .collect();
+    let png: Vec<u8> = b"\x89PNG\r\n\x1a\n"
+        .iter()
+        .copied()
+        .chain((0..3_000u32).map(|i| (i % 256) as u8))
+        .collect();
+    let pdf_name = "2026年第三季度财务报告（最终版）— 请查收.pdf";
+    let mut d = draft(&bob, &alice_email, "附件 attached", "two files");
+    d.attachments = vec![
+        DraftAttachment::Upload { id: "a".into() },
+        DraftAttachment::Upload { id: "b".into() },
+    ];
+    engine
+        .send_with(
+            d,
+            [
+                staged("a", pdf_name, "application/pdf", &pdf),
+                staged("b", "截图.png", "image/png", &png),
+            ]
+            .into(),
+        )
+        .await
+        .unwrap();
+
+    let expected = vec![
+        (
+            pdf_name.to_string(),
+            "application/pdf".to_string(),
+            pdf.clone(),
+        ),
+        ("截图.png".to_string(), "image/png".to_string(), png.clone()),
+    ];
+    let sent = only_message(&engine, FolderKind::Sent, &bob).await;
+    assert_eq!(files(&engine, &sent).await, expected, "Sent copy");
+
+    let alice = engine.add_imap_account(input(&alice_email)).await.unwrap();
+    let received = only_message(&engine, FolderKind::Inbox, &alice).await;
+    assert!(received.summary.has_attachments);
+    assert_eq!(received.text.as_deref().map(str::trim), Some("two files"));
+    assert_eq!(files(&engine, &received).await, expected, "received");
+
+    // Forward the PDF only (the image opted out), with a new file of its own.
+    let mut fwd = draft(&alice, &bob_email, "Fwd: 附件 attached", "see below");
+    fwd.attachments = vec![
+        DraftAttachment::Forward {
+            message_id: received.summary.id.clone(),
+            index: 0,
+        },
+        DraftAttachment::Upload { id: "n".into() },
+    ];
+    engine
+        .send_with(
+            fwd,
+            [staged("n", "notes.txt", "text/plain", b"hello")].into(),
+        )
+        .await
+        .unwrap();
+    engine.sync(&bob.id).await.unwrap();
+    let inbox = engine
+        .list(query(FolderKind::Inbox, &bob, None, 10))
+        .await
+        .unwrap();
+    let forwarded = engine.get(&inbox[0].id).await.unwrap();
+    assert_eq!(forwarded.summary.subject, "Fwd: 附件 attached");
+    assert_eq!(
+        files(&engine, &forwarded).await,
+        vec![
+            expected[0].clone(),
+            ("notes.txt".into(), "text/plain".into(), b"hello".to_vec()),
+        ]
+    );
+
+    // Over the limit: refused before anything is sent.
+    let small = Engine::open_with(EngineOptions {
+        db_path: dir.path().join("small.sqlite"),
+        secrets: Arc::new(MemoryStore::new()),
+        oauth: Default::default(),
+        max_attachments: 50_000,
+    })
+    .unwrap();
+    let carol = small
+        .add_imap_account(input(&unique("carol")))
+        .await
+        .unwrap();
+    let mut big = draft(&carol, &alice_email, "too big", "");
+    big.attachments = vec![DraftAttachment::Upload { id: "a".into() }];
+    let e = small
+        .send_with(
+            big,
+            [staged("a", "big.pdf", "application/pdf", &pdf)].into(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::TooLarge, "{e:?}");
+    engine.sync(&alice.id).await.unwrap();
+    assert_eq!(
+        engine
+            .list(query(FolderKind::Inbox, &alice, None, 10))
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
