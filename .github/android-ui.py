@@ -208,10 +208,14 @@ for mode in ("light", "dark"):
             adb("shell", "input", "text", "receipt")
             wait("id:results")
             back()
-            if tap("Your receipt from Fastmail"):
-                wait("id:reader")
-                shot(f"{mode}-reader-fit")
-                back()
+            # The first tap may only take the focus from the search field.
+            for _ in range(2):
+                if tap("Your receipt from Fastmail") and find("id:reader", 8):
+                    shot(f"{mode}-reader-fit")
+                    back()
+                    break
+            else:
+                fail("the receipt never opened")
 
     if tap("Mailboxes"):
         wait("id:mailbox-all")
