@@ -324,6 +324,15 @@ compose.sent:
 compose.discard:
   en: Discard
   zh-CN: 放弃
+compose.discardTitle:
+  en: Discard this draft?
+  zh-CN: 放弃这封草稿？
+compose.discardBody:
+  en: What you wrote and the files you attached will be deleted.
+  zh-CN: 你写的内容和添加的附件都会被删除。
+compose.keepEditing:
+  en: Keep editing
+  zh-CN: 继续编辑
 compose.sendHint:
   en: "%{keys} to send"
   zh-CN: 按 %{keys} 发送

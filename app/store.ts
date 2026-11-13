@@ -4,6 +4,7 @@
 import { batch, resource, signal, Storage } from "nsh";
 import { t } from "nsh/i18n";
 import { fileSize } from "./lib/format";
+import { clearDrafts, loadDrafts } from "./drafts";
 import { Mail, type Account, type Flags, type Folder, type MailEvent, type Status, type Summary } from "nsh-mail/native";
 
 const PAGE = 30;
@@ -203,6 +204,7 @@ Mail.on(heard);
 export async function start() {
   const saved = await Storage.getItem(NOTIFY_KEY);
   notifyOn.set(saved !== "off");
+  await loadDrafts();
   try {
     status.set(await Mail.init());
   } catch (e) {
@@ -377,6 +379,7 @@ export async function setNotificationsEnabled(on: boolean) {
 
 /** After onboarding or signing out: the engine's new session. */
 export async function sessionChanged() {
+  await clearDrafts();
   batch(() => {
     status.set(Mail.status());
     items.set([]);

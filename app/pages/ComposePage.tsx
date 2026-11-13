@@ -1,42 +1,56 @@
-// Writing a message: a new one, a reply (quoted) or a forward.
+// Writing a message: a new one, a reply (quoted) or a forward. What is typed is
+// a draft (../drafts.ts): closing the composer keeps it, Discard asks first.
 import { keymap, Picker, platform, signal, Text, View } from "nsh";
+import { AlertDialog } from "nsh/base";
 import { t } from "nsh/i18n";
 import { Mail } from "nsh-mail/native";
-import { Button, IconButton, Page, SelectField, TextField, touch, systemHeader } from "../ui";
+import { Button, Dialog, DialogBody, DialogFooter, IconButton, Page, SelectField, TextField, touch, systemHeader } from "../ui";
 import { PageHeader } from "../components/PageHeader";
 import { AttachmentChips } from "../components/Attachments";
-import { createAttachments, onPageDrop, type Incoming } from "../lib/attachments";
+import { onPageDrop, type Incoming } from "../lib/attachments";
 import { NavContext } from "../nav";
-import { draftFor, isAddress, parseRecipient, splitRecipients, type ComposeInit } from "../lib/format";
+import { endDraft, useDraft } from "../drafts";
+import { isAddress, parseRecipient, splitRecipients, type ComposeInit } from "../lib/format";
 import { accounts, errorText, mailbox, showToast } from "../store";
 
 export function ComposePage(props: { init: ComposeInit }) {
   const nav = NavContext();
-  const start = draftFor(props.init, accounts().map((a) => a.email));
-  const from = signal(start.accountId ?? mailbox().account ?? accounts()[0]?.id ?? null);
-  const to = signal(start.to);
-  const cc = signal(start.cc);
-  const bcc = signal("");
-  const showCc = signal(!!start.cc);
-  const subject = signal(start.subject);
-  const body = signal(start.text);
+  const draft = useDraft(props.init, accounts(), mailbox().account ?? accounts()[0]?.id ?? null);
+  const { start, from, to, cc, bcc, subject, files } = draft;
+  const body = draft.text;
+  const showCc = signal(!!cc() || !!bcc());
   const sending = signal(false);
   const error = signal<string | null>(null);
-  const fileError = signal<string | null>(null);
-  const files = createAttachments((message) => fileError.set(message));
-  if (props.init.mode === "forward" && props.init.source) files.forward(props.init.source);
+  const confirming = signal(false);
   const dragging = signal(false);
-  const attach = (list: Incoming[]) => {
-    fileError.set(null);
-    files.add(list);
-  };
+  const attach = (list: Incoming[]) => files.add(list);
   onPageDrop((on) => dragging.set(on), attach);
   const pick = async () => {
     try {
       attach((await Picker.pickFiles({ multiple: true })).map((p) => p.file));
     } catch (e) {
-      fileError.set(errorText(e));
+      files.setError(errorText(e));
     }
+  };
+
+  const discard = () => {
+    confirming.set(false);
+    endDraft(draft, "discarded");
+    nav.close();
+  };
+  // Only an explicit Discard throws typed text away, and only after asking.
+  const askDiscard = async () => {
+    if (!draft.edited()) return nav.close();
+    if (!systemHeader) return confirming.set(true);
+    const { action } = await AlertDialog.show({
+      title: t("compose.discardTitle"),
+      description: t("compose.discardBody"),
+      actions: [
+        { id: "keep", label: t("compose.keepEditing"), role: "cancel" },
+        { id: "discard", label: t("compose.discard"), role: "destructive" },
+      ],
+    });
+    if (action === "discard") discard();
   };
 
   const title = () =>
@@ -51,10 +65,10 @@ export function ComposePage(props: { init: ComposeInit }) {
     if (!splitRecipients(to()).length) return error.set(t("compose.needRecipient"));
     if (bad) return error.set(t("compose.badAddress", { address: bad }));
     error.set(null);
-    if (files.pending()) return fileError.set(t("compose.stillUploading"));
-    if (files.items().some((a) => a.failed)) return fileError.set(t("compose.removeFailed"));
-    if (files.overLimit()) return fileError.set(files.limitText());
-    fileError.set(null);
+    if (files.pending()) return files.setError(t("compose.stillUploading"));
+    if (files.items().some((a) => a.failed)) return files.setError(t("compose.removeFailed"));
+    if (files.overLimit()) return files.setError(files.limitText());
+    files.setError(null);
     sending.set(true);
     try {
       await Mail.send({
@@ -68,7 +82,7 @@ export function ComposePage(props: { init: ComposeInit }) {
         references: start.references,
         attachments: files.draft(),
       });
-      files.sent();
+      endDraft(draft, "sent");
       showToast(t("compose.sent"));
       nav.done();
     } catch (e) {
@@ -81,6 +95,9 @@ export function ComposePage(props: { init: ComposeInit }) {
 
   const actions = () => (
     <>
+      <If when={touch}>
+        <IconButton icon="trash" label={t("compose.discard")} onPress={() => void askDiscard()} testID="compose-discard" />
+      </If>
       <IconButton icon="paperclip" label={t("compose.attach")} onPress={() => void pick()} testID="compose-attach" />
       <If
         when={systemHeader}
@@ -173,14 +190,14 @@ export function ComposePage(props: { init: ComposeInit }) {
             }}
           />
         </View>
-        <AttachmentChips files={files} error={fileError()} />
+        <AttachmentChips files={files} error={files.error()} />
         <If when={systemHeader}>
           <View class="pb-[env(safe-area-inset-bottom)]" />
         </If>
         <If when={!touch}>
           <View class="flex-row items-center justify-end gap-2 px-4 py-3">
             <Text class="flex-1 text-body-small tracking-body-small text-on-surface-variant">{t("compose.sendHint", { keys: keymap.label("mod+enter") })}</Text>
-            <Button variant="text" label={t("compose.discard")} onPress={nav.close} />
+            <Button variant="text" label={t("compose.discard")} onPress={() => void askDiscard()} testID="compose-discard" />
           </View>
         </If>
         <If when={dragging()}>
@@ -189,6 +206,15 @@ export function ComposePage(props: { init: ComposeInit }) {
           </View>
         </If>
       </View>
+      <Dialog open={confirming()} onClose={() => confirming.set(false)} label={t("compose.discardTitle")} title={t("compose.discardTitle")} size="sm" testID="discard-confirm">
+        <DialogBody>
+          <Text class="text-body-medium tracking-body-medium text-on-surface-variant">{t("compose.discardBody")}</Text>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="text" label={t("compose.keepEditing")} onPress={() => confirming.set(false)} testID="keep-editing" />
+          <Button variant="text" label={t("compose.discard")} onPress={discard} testID="confirm-discard" />
+        </DialogFooter>
+      </Dialog>
     </Page>
   );
 }

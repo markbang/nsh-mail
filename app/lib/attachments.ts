@@ -1,6 +1,7 @@
 // A draft's attachments: files staged as they are added (on the server in
 // cloud mode, with progress), the attachments a forward keeps, and the size
-// limit, checked before anything is staged.
+// limit, checked before anything is staged. They live with the draft, not the
+// composer, so a staging upload finishes into a closed draft.
 import { cleanup, signal } from "nsh";
 import { t } from "nsh/i18n";
 import { Mail, PageDrop, type DraftAttachment, type Message, type Upload } from "nsh-mail/native";
@@ -23,10 +24,15 @@ export type Incoming = Blob | { kind: "path"; path: string; type: string } | { k
 
 let nextKey = 0;
 
-export function createAttachments(onError: (message: string) => void) {
-  const list = signal<Attached[]>([]);
+/** A draft's files, starting with `initial` (a kept draft's). */
+export function createAttachments(initial: Omit<Attached, "key">[] = [], wasEdited = false) {
+  const list = signal<Attached[]>(initial.map((a) => ({ ...a, key: ++nextKey })));
+  const error = signal<string | null>(null);
+  const edited = signal(wasEdited);
   const removed = new Set<number>();
-  let sent = false;
+  // Sent or dropped: an upload that finishes now is not needed.
+  let done = false;
+  const onError = (message: string) => error.set(message);
 
   const update = (key: number, patch: Partial<Attached>) =>
     list.set(list().map((a) => (a.key === key ? { ...a, ...patch } : a)));
@@ -70,7 +76,7 @@ export function createAttachments(onError: (message: string) => void) {
     list.set([...list(), { key, name, size, sent: 0 }]);
     try {
       const upload = await staging((n) => update(key, { sent: n }));
-      if (removed.has(key) || sent) return void Mail.unstage(upload.id).catch(() => {});
+      if (removed.has(key) || done) return void Mail.unstage(upload.id).catch(() => {});
       update(key, { name: upload.filename, size: upload.size, sent: upload.size, ref: { kind: "upload", id: upload.id } });
       // A local file's size is known once it is read.
       if (total() > Mail.attachmentLimit()) {
@@ -91,13 +97,13 @@ export function createAttachments(onError: (message: string) => void) {
     }
   }
 
-  // Staged files the draft did not send are dropped with the composer.
-  cleanup(() => {
-    if (!sent) for (const a of list()) if (a.ref?.kind === "upload") void Mail.unstage(a.ref.id).catch(() => {});
-  });
-
   return {
     items: () => list(),
+    /** Why the last file could not be added, or why the draft cannot go yet. */
+    error: () => error(),
+    setError: (message: string | null) => error.set(message),
+    /** The user added or removed a file. */
+    edited: () => edited(),
     total,
     /** Some file is still being staged. */
     pending: () => list().some((a) => !a.ref && !a.failed),
@@ -105,6 +111,8 @@ export function createAttachments(onError: (message: string) => void) {
     overLimit: () => total() > Mail.attachmentLimit(),
     limitText: tooLarge,
     add(files: Incoming[]) {
+      error.set(null);
+      edited.set(true);
       for (const file of files) void stage(file);
     },
     /** A forward's attachments, each one the user may remove. */
@@ -122,6 +130,7 @@ export function createAttachments(onError: (message: string) => void) {
     },
     remove(key: number) {
       const a = list().find((x) => x.key === key);
+      edited.set(true);
       removed.add(key);
       list.set(list().filter((x) => x.key !== key));
       if (a?.ref?.kind === "upload") void Mail.unstage(a.ref.id).catch(() => {});
@@ -130,7 +139,12 @@ export function createAttachments(onError: (message: string) => void) {
     draft: (): DraftAttachment[] => list().flatMap((a) => (a.ref ? [a.ref] : [])),
     /** The draft went out with these: nothing to drop. */
     sent() {
-      sent = true;
+      done = true;
+    },
+    /** The draft is discarded: its staged files go too. */
+    drop() {
+      done = true;
+      for (const a of list()) if (a.ref?.kind === "upload") void Mail.unstage(a.ref.id).catch(() => {});
     },
   };
 }
