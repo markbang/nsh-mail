@@ -810,6 +810,14 @@ impl Store {
         Ok(())
     }
 
+    pub fn set_has_attachments(&self, id: &str, has_attachments: bool) -> Result<()> {
+        self.conn().execute(
+            "UPDATE messages SET has_attachments = ?3 WHERE user_id = ?1 AND id = ?2",
+            params![self.user, id, has_attachments],
+        )?;
+        Ok(())
+    }
+
     /// Caches the raw message and reindexes it with its full text.
     pub fn set_body(&self, id: &str, raw: &[u8], text: &str, has_attachments: bool) -> Result<()> {
         let mut conn = self.conn();

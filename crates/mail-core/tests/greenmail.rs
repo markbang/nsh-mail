@@ -767,7 +767,12 @@ async fn html_mail_keeps_its_layout_and_inline_images() {
     let email = unique("html");
     let newsletter = include_bytes!("mail/newsletter-gbk.eml");
     deliver_raw(&email, newsletter).await;
-    deliver_raw(&email, include_bytes!("mail/related-cid.eml")).await;
+    let related = include_bytes!("mail/related-cid.eml");
+    deliver_raw(&email, related).await;
+    let related_big = String::from_utf8_lossy(related)
+        .replace("Subject: related-cid", "Subject: related-cid-big")
+        .replace("--rel--", &format!("--rel--\r\n{}", "x".repeat(40 * 1024)));
+    deliver_raw(&email, related_big.as_bytes()).await;
     let big = String::from_utf8_lossy(newsletter)
         .replace("newsletter-gbk", "newsletter-big")
         .replace(
@@ -824,6 +829,38 @@ async fn html_mail_keeps_its_layout_and_inline_images() {
             ]
         );
     }
+
+    // Inline images alone are no attachment: not when synced whole or by BODYSTRUCTURE, nor on open.
+    for subject in ["related-cid", "related-cid-big"] {
+        let s = inbox.iter().find(|s| s.subject == subject).unwrap();
+        assert!(!s.has_attachments, "{subject} synced with a paperclip");
+        assert!(!open(subject).await.summary.has_attachments, "{subject}");
+    }
+    // A row synced before this rule is corrected on open.
+    let id = &inbox
+        .iter()
+        .find(|s| s.subject == "related-cid")
+        .unwrap()
+        .id;
+    rusqlite::Connection::open(dir.path().join("mail.sqlite"))
+        .unwrap()
+        .execute(
+            "UPDATE messages SET has_attachments = 1 WHERE id = ?1",
+            [id],
+        )
+        .unwrap();
+    open("related-cid").await;
+    let relisted = engine
+        .list(query(FolderKind::Inbox, &account, None, 10))
+        .await
+        .unwrap();
+    assert!(
+        !relisted
+            .iter()
+            .find(|s| &s.id == id)
+            .unwrap()
+            .has_attachments
+    );
 
     let m = open("related-cid").await;
     let html = m.html.unwrap();
