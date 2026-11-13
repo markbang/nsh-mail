@@ -43,7 +43,7 @@ export function MessageList(props: MessageListProps) {
       footer={
         <If when={props.loadingMore}>
           <View class="items-center py-3">
-            <Spinner label={t("list.loadingMore")} />
+            <Spinner label={t("list.loadingMore")} size="sm" />
           </View>
         </If>
       }
@@ -108,7 +108,7 @@ function MessageRow(props: {
       onPress={props.onPress}
       accessibilityLabel={label()}
       testID={`message-${m().id}`}
-      class={`flex-row border-b border-border pe-3 ${props.dense ? (touch ? "py-1.5" : "py-2") : "py-3"}`}
+      class={`flex-row border-b border-divider pe-3 ${props.dense ? (touch ? "py-1.5" : "py-2") : "py-3"}`}
     >
       <If when={props.showAccount}>
         <AccountMark index={accountIndex(m().accountId)} shape="bar" />
@@ -121,11 +121,11 @@ function MessageRow(props: {
       <View class={`min-w-0 flex-1 ${touch && props.dense ? "" : "gap-0.5"}`}>
         <View class="flex-row items-center gap-1.5">
           <Text
-            class={`line-clamp-1 flex-1 text-foreground ${touch ? "text-base" : "text-sm"} ${m().seen ? "" : "font-semibold"}`}
+            class={`line-clamp-1 flex-1 text-foreground ${touch ? "text-medium" : "text-small"} ${m().seen ? "" : "font-semibold"}`}
           >
             {who()}
           </Text>
-          <Text class={`tabular-nums ${touch ? "text-sm" : "text-xs"} ${m().seen ? "text-muted-foreground" : "font-medium text-foreground"}`}>
+          <Text class={`tabular-nums ${touch ? "text-small" : "text-tiny"} ${m().seen ? "text-foreground-500" : "font-medium text-foreground"}`}>
             {listDate(m().date)}
           </Text>
         </View>
@@ -133,10 +133,10 @@ function MessageRow(props: {
           <Marked
             text={m().subject || t("reader.noSubject")}
             terms={props.terms}
-            class={`line-clamp-1 flex-1 text-foreground ${touch ? "text-base" : "text-sm"} ${m().seen ? "" : "font-medium"}`}
+            class={`line-clamp-1 flex-1 text-foreground ${touch ? "text-medium" : "text-small"} ${m().seen ? "" : "font-medium"}`}
           />
           <If when={m().hasAttachments}>
-            <Icon name="paperclip" size="sm" tone="muted-foreground" />
+            <Icon name="paperclip" size="sm" tone="default-500" />
           </If>
           <View class="w-4 items-center">
             <If when={m().flagged}>
@@ -147,7 +147,7 @@ function MessageRow(props: {
         <Marked
           text={m().snippet}
           terms={props.terms}
-          class={`${props.dense ? "line-clamp-1" : "line-clamp-2"} text-muted-foreground ${touch ? "text-sm" : "text-xs"}`}
+          class={`${props.dense ? "line-clamp-1" : "line-clamp-2"} text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}
         />
       </View>
     </Row>

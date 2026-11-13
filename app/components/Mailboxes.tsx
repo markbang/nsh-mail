@@ -3,7 +3,7 @@
 import { Scroll, Text, View } from "nsh";
 import { t } from "nsh/i18n";
 import type { Folder } from "nsh-mail/native";
-import { AccountMark, Button, IconButton, NavItem, SectionLabel, Spinner, touch, type IconName } from "../ui";
+import { AccountMark, Badge, Button, IconButton, Listbox, NavItem, SectionLabel, Spinner, touch, type IconName } from "../ui";
 import { accountName, accounts, mailbox, mailStatus, openMailbox, refresh, unreadCount } from "../store";
 
 const folders: { folder: Folder; icon: IconName }[] = [
@@ -19,19 +19,23 @@ export function Mailboxes(props: { onCompose?: () => void; onSettings: () => voi
     props.onChosen?.();
   };
   const is = (account: string | null, folder: Folder) => mailbox().account === account && mailbox().folder === folder;
-  const count = (account: string | null) => unreadCount(account) || undefined;
+  const count = (account: string | null) => {
+    const n = unreadCount(account);
+    return n ? <Badge label={String(n)} color="primary" variant="flat" /> : undefined;
+  };
   return (
     <View class="flex-1 bg-sidebar">
       <If when={props.onCompose}>
         <View class="px-3 pb-1 pt-3">
-          <Button variant="primary" icon="compose" label={t("actions.compose")} onPress={() => props.onCompose?.()} class="self-stretch" testID="compose" />
+          <Button color="primary" icon="compose" label={t("actions.compose")} onPress={() => props.onCompose?.()} fullWidth testID="compose" />
         </View>
       </If>
-      <Scroll class="flex-1" contentClass="gap-0.5 p-2">
+      <Scroll class="flex-1" contentClass="p-2">
+        <Listbox label={t("mailbox.choose")} class="p-0">
         <NavItem
           icon="inboxes"
           label={t("mailbox.allInboxes")}
-          detail={count(null)?.toString()}
+          end={count(null)}
           selected={is(null, "inbox")}
           onPress={() => choose(null, "inbox")}
           testID="mailbox-all"
@@ -42,7 +46,7 @@ export function Mailboxes(props: { onCompose?: () => void; onSettings: () => voi
               lead={<AccountMark index={index()} size="md" />}
               label={accountName(account().id) ?? account().email}
               tooltip={account().email}
-              detail={count(account().id)?.toString()}
+              end={count(account().id)}
               selected={is(account().id, "inbox")}
               onPress={() => choose(account().id, "inbox")}
             />
@@ -59,12 +63,13 @@ export function Mailboxes(props: { onCompose?: () => void; onSettings: () => voi
             />
           )}
         </Each>
+        </Listbox>
       </Scroll>
-      <View class={`flex-row items-center gap-1 border-t border-sidebar-border px-2 ${touch ? "h-14" : "h-11"}`}>
+      <View class={`flex-row items-center gap-1 border-t border-divider px-2 ${touch ? "h-14" : "h-11"}`}>
         <View class="flex-1 flex-row items-center gap-2 px-1">
-          <If when={mailStatus().syncing} else={<Text class="line-clamp-1 text-xs text-muted-foreground">{mailStatus().error ? t("sync.failed") : t(`mode.${mailStatus().mode}`)}</Text>}>
-            <Spinner label={t("sync.running")} />
-            <Text class="text-xs text-muted-foreground">{t("sync.running")}</Text>
+          <If when={mailStatus().syncing} else={<Text class="line-clamp-1 text-tiny text-foreground-500">{mailStatus().error ? t("sync.failed") : t(`mode.${mailStatus().mode}`)}</Text>}>
+            <Spinner label={t("sync.running")} size="sm" />
+            <Text class="text-tiny text-foreground-500">{t("sync.running")}</Text>
           </If>
         </View>
         <IconButton icon="refresh" label={t("actions.refresh")} size="sm" onPress={() => void refresh()} />

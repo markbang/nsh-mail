@@ -3,7 +3,7 @@ import { Notifications, platform, Text, View } from "nsh";
 import { AlertDialog, NavPage } from "nsh/base";
 import { t } from "nsh/i18n";
 import { Mail, type Account } from "nsh-mail/native";
-import { AccountMark, Button, Icon, IconButton, Menu, SectionLabel, Separator, Switch, touch } from "../ui";
+import { AccountMark, Button, Card, Divider, Icon, IconButton, Menu, SectionLabel, Switch, touch } from "../ui";
 import { PageHeader, PageScroll } from "../components/PageHeader";
 import { NavContext } from "../nav";
 import { providerName as named } from "../lib/format";
@@ -60,19 +60,19 @@ export function SettingsPage() {
     await setNotificationsEnabled(on);
   };
 
-  const text = touch ? "text-base" : "text-sm";
-  const note = touch ? "text-sm" : "text-xs";
+  const text = touch ? "text-medium" : "text-small";
+  const note = touch ? "text-small" : "text-tiny";
   return (
     <NavPage title={t("settings.title")} header={<PageHeader title={t("settings.title")} />}>
       <PageScroll contentClass={touch ? "gap-6 p-4" : "gap-6 p-5"} testID="settings">
         <View class="gap-1">
           <SectionLabel label={t("settings.accounts")} class="px-0" />
-          <View class="overflow-hidden rounded-(--radius-lg) border border-border">
+          <Card shadow="sm">
             <Each of={accounts()} key={(a) => a.id}>
               {(a, index) => (
                 <>
                   <If when={index() > 0}>
-                    <Separator />
+                    <Divider />
                   </If>
                   <View class={`flex-row items-center gap-3 ps-3 pe-1 ${touch ? "min-h-14 py-2" : "min-h-12 py-1.5"}`}>
                     <AccountMark index={index()} size="md" />
@@ -80,7 +80,7 @@ export function SettingsPage() {
                       <Text class={`line-clamp-1 text-foreground ${text}`}>
                         {a().email}
                       </Text>
-                      <Text class={`line-clamp-1 text-muted-foreground ${note}`}>
+                      <Text class={`line-clamp-1 text-foreground-500 ${note}`}>
                         {a().name ? `${a().name} · ${providerName(a())}` : providerName(a())}
                       </Text>
                     </View>
@@ -94,19 +94,19 @@ export function SettingsPage() {
               )}
             </Each>
             <If when={accounts().length}>
-              <Separator />
+              <Divider />
             </If>
             <View class="p-2">
-              <Button variant="ghost" icon="plus" label={t("accounts.add")} onPress={() => nav.stack.push({ name: "addAccount" })} class="self-start" testID="add-account" />
+              <Button variant="light" color="primary" icon="plus" label={t("accounts.add")} onPress={() => nav.stack.push({ name: "addAccount" })} class="self-start" testID="add-account" />
             </View>
-          </View>
+          </Card>
         </View>
 
         <View class="gap-1">
           <SectionLabel label={t("settings.sync")} class="px-0" />
-          <View class="gap-3 rounded-(--radius-lg) border border-border p-3">
+          <Card shadow="sm" class="gap-3 p-3">
             <View class="flex-row items-center gap-3">
-              <Icon name={mailStatus().mode === "cloud" ? "cloud" : "device"} tone="muted-foreground" />
+              <Icon name={mailStatus().mode === "cloud" ? "cloud" : "device"} tone="default-500" />
               <View class="flex-1 gap-0.5">
                 <Text class={`text-foreground ${text}`}>{t(`mode.${mailStatus().mode}`)}</Text>
                 <If when={mailStatus().mode === "cloud" && mailStatus().user}>
@@ -116,21 +116,21 @@ export function SettingsPage() {
                     </Text>
                   )}
                 </If>
-                <Text class={`text-muted-foreground ${note}`}>
+                <Text class={`text-foreground-500 ${note}`}>
                   {mailStatus().mode === "cloud" ? (mailStatus().server ?? "") : t("settings.localDetail")}
                 </Text>
               </View>
             </View>
             <If when={mailStatus().mode === "local" && platform.os === "android"}>
-              <Text class={`text-muted-foreground ${note}`}>{t("settings.androidLocal")}</Text>
+              <Text class={`text-foreground-500 ${note}`}>{t("settings.androidLocal")}</Text>
             </If>
-            <Button variant="danger" icon="logOut" label={t("settings.signOut")} onPress={() => void signOut()} class="self-start" testID="sign-out" />
-          </View>
+            <Button variant="flat" color="danger" icon="logOut" label={t("settings.signOut")} onPress={() => void signOut()} class="self-start" testID="sign-out" />
+          </Card>
         </View>
 
         <View class="gap-1">
           <SectionLabel label={t("settings.notifications")} class="px-0" />
-          <View class="rounded-(--radius-lg) border border-border px-3 py-1">
+          <Card shadow="sm" class="px-3 py-2">
             <Switch
               checked={notificationsEnabled()}
               onChange={(on) => void toggleNotifications(on)}
@@ -138,10 +138,10 @@ export function SettingsPage() {
               description={t("settings.notificationsDetail")}
               testID="notifications"
             />
-          </View>
+          </Card>
         </View>
 
-        <Text class={`text-center text-muted-foreground ${note}`}>{t("settings.about")}</Text>
+        <Text class={`text-center text-foreground-500 ${note}`}>{t("settings.about")}</Text>
       </PageScroll>
     </NavPage>
   );

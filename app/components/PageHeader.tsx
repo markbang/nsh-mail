@@ -14,10 +14,9 @@ export function PageScroll(props: { contentClass: string; testID?: string; child
   const fit = nav.fit;
   const index = untracked(() => nav.stack.routes().length) - 1;
   if (fit) cleanup(() => fit(index, undefined));
-  // The dialog's border (1pt above and below) is inside its height.
-  const report = (height: number) => fit?.(index, Math.ceil(height) + headerHeight + 2);
+  const report = (height: number) => fit?.(index, Math.ceil(height) + headerHeight);
   return (
-    <Scroll class="flex-1 bg-background" testID={props.testID}>
+    <Scroll class={`flex-1 ${nav.modal ? "bg-content1" : "bg-background"}`} testID={props.testID}>
       <View class={props.contentClass} onLayout={fit ? ({ bounds }) => report(bounds.size.height) : undefined}>
         {props.children}
       </View>
@@ -29,7 +28,7 @@ export function PageHeader(props: { title: string; actions?: JSX.Element; leadin
   const nav = NavContext();
   const depth = () => nav.stack.routes().length;
   return (
-    <View class="flex-row items-center gap-1 border-b border-border bg-background px-2" style={{ height: headerHeight }}>
+    <View class={`flex-row items-center gap-1 border-b border-divider px-2 ${nav.modal ? "bg-content1" : "bg-background"}`} style={{ height: headerHeight }}>
       <If
         when={props.leading}
         else={
@@ -38,6 +37,7 @@ export function PageHeader(props: { title: string; actions?: JSX.Element; leadin
               icon={depth() > 1 ? "back" : "close"}
               label={depth() > 1 ? t("common.back") : t("common.close")}
               onPress={nav.close}
+              radius="full"
               testID="header-back"
             />
           </If>
@@ -45,7 +45,7 @@ export function PageHeader(props: { title: string; actions?: JSX.Element; leadin
       >
         {props.leading}
       </If>
-      <Text role="header" class={`line-clamp-1 flex-1 px-2 font-semibold text-foreground ${touch ? "text-lg" : "text-sm"}`}>
+      <Text role="header" class={`line-clamp-1 flex-1 px-2 font-semibold text-foreground ${touch || nav.modal ? "text-large" : "text-small"}`}>
         {props.title}
       </Text>
       <View class="flex-row items-center gap-1">{props.actions}</View>

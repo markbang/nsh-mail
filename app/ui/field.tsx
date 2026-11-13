@@ -9,19 +9,22 @@ import { listItem, popup } from "./overlay";
 import { wash } from "./motion";
 import { rounded, type Radius, type Size } from "./tokens";
 
-export type InputVariant = "flat" | "faded" | "bordered" | "underlined";
+/** HeroUI's four, and `plain`: no frame, for a composer's body, where the caret shows the focus. */
+export type InputVariant = "flat" | "faded" | "bordered" | "underlined" | "plain";
 
 const wrapper: Record<InputVariant, string> = {
   flat: "bg-default-100 hover:bg-default-200 shadow-xs focus-within:outline-2 focus-within:outline-focus focus-within:outline-offset-2",
   faded: "border-2 border-default-200 bg-default-100 hover:border-default-400 focus-within:border-default-400 shadow-xs focus-within:outline-2 focus-within:outline-focus focus-within:outline-offset-2",
   bordered: "border-2 border-default-200 hover:border-default-400 focus-within:border-default-foreground shadow-xs",
   underlined: "border-b-2 border-default-200 hover:border-default-300 focus-within:border-default-foreground",
+  plain: "",
 };
 const invalidWrapper: Record<InputVariant, string> = {
   flat: "!bg-danger-50 hover:!bg-danger-100",
   faded: "!border-danger",
   bordered: "!border-danger",
   underlined: "!border-danger",
+  plain: "",
 };
 const height: Record<Size, string> = { sm: "h-8 px-2", md: "h-10 px-3", lg: "h-12 px-3" };
 const text = (size: Size) => (size === "lg" || touch ? "text-medium" : "text-small");

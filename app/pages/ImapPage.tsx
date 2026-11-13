@@ -81,7 +81,7 @@ export function ImapPage() {
     }
   };
 
-  const note = touch ? "text-sm" : "text-xs";
+  const note = touch ? "text-small" : "text-tiny";
   const provider = () => providerName(settings().provider, settings().displayName ?? "");
   return (
     <NavPage title={t("accounts.other")} header={<PageHeader title={t("accounts.other")} />}>
@@ -108,7 +108,7 @@ export function ImapPage() {
 
         <If when={step() === "servers"}>
           <View class="gap-4">
-            <Text class={`text-muted-foreground ${note}`} testID="imap-detected">
+            <Text class={`text-foreground-500 ${note}`} testID="imap-detected">
               {known() ? t("imap.found", { provider: provider() }) : t("imap.notFound")}
             </Text>
             <If when={settings().auth.kind === "oauth"}>
@@ -146,15 +146,15 @@ export function ImapPage() {
             <Field label={t("imap.password")}>
               <TextField value={password()} onChange={(v) => password.set(v)} masked label={t("imap.password")} onSubmit={() => void add()} returnKey="done" testID="imap-password" />
             </Field>
-            <View class="flex-row items-start gap-2 rounded-(--radius) bg-muted p-3">
-              <Icon name="key" size="sm" tone="muted-foreground" />
+            <View class="flex-row items-start gap-2 rounded-medium bg-default-100 p-3">
+              <Icon name="key" size="sm" tone="default-500" />
               <View class="flex-1 gap-2">
-                <Text class={`text-muted-foreground ${note}`}>{t("imap.appPasswordHint")}</Text>
+                <Text class={`text-foreground-500 ${note}`}>{t("imap.appPasswordHint")}</Text>
                 <If when={settings().helpUrl}>
                   {(url) => (
                     <Button
                       size="sm"
-                      variant="default"
+                      variant="flat"
                       icon="external"
                       label={t("imap.appPasswordLink", { provider: provider() })}
                       onPress={() => void openUrl(url())}
@@ -168,16 +168,16 @@ export function ImapPage() {
         </If>
 
         <If when={error()}>
-          <Text class={`text-destructive ${note}`} testID="imap-error">
+          <Text class={`text-danger ${note}`} testID="imap-error">
             {error()}
           </Text>
         </If>
 
         <If
           when={step() === "servers"}
-          else={<Button variant="primary" label={t("imap.continue")} loading={busy()} onPress={() => void detect()} class="self-start" testID="imap-continue" />}
+          else={<Button color="primary" label={t("imap.continue")} loading={busy()} onPress={() => void detect()} class="self-start" testID="imap-continue" />}
         >
-          <Button variant="primary" label={busy() ? t("imap.connecting") : t("imap.add")} loading={busy()} onPress={() => void add()} class="self-start" testID="imap-add" />
+          <Button color="primary" label={busy() ? t("imap.connecting") : t("imap.add")} loading={busy()} onPress={() => void add()} class="self-start" testID="imap-add" />
         </If>
       </PageScroll>
     </NavPage>

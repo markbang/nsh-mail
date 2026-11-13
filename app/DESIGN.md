@@ -31,7 +31,7 @@ The look is HeroUI's design language (v2, `@heroui/theme` 2.4.26, MIT), ported t
 ## The `ui` layer
 
 `ui/` is the only place that styles `nsh/base`: `Button` (solid, bordered, light, flat, faded, shadow, ghost × the six
-colors, sm/md/lg), `IconButton`, `ButtonGroup`, `TextField` / `Textarea` (flat, faded, bordered, underlined), `Field`,
+colors, sm/md/lg), `IconButton`, `ButtonGroup`, `TextField` / `Textarea` (flat, faded, bordered, underlined; `plain` for the composer body), `Field`,
 `SelectField`, `Card`, `Listbox` / `NavItem`, `Row`, `Dialog` (Modal, `DialogBody`, `DialogFooter`), `Menu` (Dropdown),
 `Popover`, `Tooltip`, `Sheet`, `Tabs`, `Switch`, `Checkbox`, `Chip`, `Avatar`, `Badge`, `Divider`, `Spinner`, `Kbd`,
 `Toast`, `Empty`, `AccountMark`, `Icon` (Lucide geometry, tinted with `tint-*`). Features pass variants, colors,
