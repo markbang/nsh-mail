@@ -1,7 +1,7 @@
 // iOS and Android phones: the system's tab bar over a stack per tab (Mail,
 // Search, Mailboxes, Settings), each kept while another shows, and the
 // compose button over the Mail tab's list. Pushed pages cover the bar.
-import { colorScheme, effect, platform, signal, Text, untracked, View, type JSX } from "nsh";
+import { effect, platform, signal, Text, untracked, View, type JSX } from "nsh";
 import { BackHandler, TabBar } from "nsh/mobile";
 import { NavStack } from "nsh/base";
 import { t } from "nsh/i18n";
@@ -37,16 +37,6 @@ export function PhoneTabs(props: { page: (route: Route) => JSX.Element; onCompos
     const index = selectedTab();
     if (!untracked(opened)[index]) opened.update((o) => ({ ...o, [index]: true }));
   });
-  // NSH 0.5's Android bar loses its navigation-bar inset when the appearance changes while it shows
-  // (its labels drop under the gesture bar): a new bar, once the system has settled, measures it again.
-  const barGeneration = signal(0);
-  let scheme = untracked(colorScheme);
-  effect(() => {
-    if (colorScheme() === scheme) return;
-    scheme = colorScheme();
-    const timer = setTimeout(() => barGeneration.update((g) => g + 1), 500);
-    return () => clearTimeout(timer);
-  });
   const covered = () => platform.os === "android" && depth() > 1;
   return (
     <View class="flex-1 bg-background">
@@ -71,16 +61,12 @@ export function PhoneTabs(props: { page: (route: Route) => JSX.Element; onCompos
         </If>
       </View>
       <View class={covered() ? "hidden" : ""}>
-        <Each of={[barGeneration()]} key={(g) => g}>
-          {() => (
-            <TabBar
-              items={tabs.map((tab) => ({ title: t(`tabs.${tab.name}`), icon: icons[tab.name] }))}
-              selectedIndex={selectedTab()}
-              onChange={({ index }) => choose(index)}
-              testID="tab-bar"
-            />
-          )}
-        </Each>
+        <TabBar
+          items={tabs.map((tab) => ({ title: t(`tabs.${tab.name}`), icon: icons[tab.name] }))}
+          selectedIndex={selectedTab()}
+          onChange={({ index }) => choose(index)}
+          testID="tab-bar"
+        />
         {/* NSH 0.5's TabBar has no badges: Material 3's large badge, drawn over the Mail tab's icon. */}
         <If when={platform.os === "android" && unread() > 0}>
           <View
