@@ -8,7 +8,8 @@ screen; color is spent on unread, flags, the account a message belongs to, and t
 | Family | Layout | Sizes |
 | --- | --- | --- |
 | Linux, Windows, web (desktop idiom) | Three resizable panes from 840pt wide: mailboxes, list, reader. Compose, settings and adding an account open in a dialog with its own stack | Controls 28–32pt, rows about 76pt, text 12–14pt |
-| Android, web on phones, narrow windows | One `NavStack`: inbox → message → compose; the mailbox list in a left `Sheet` | Controls 44pt+, body 16pt |
+| Android and iOS phones | The system tab bar (`nsh/mobile` `TabBar`: Mail with the unread count, Search, Mailboxes, Settings), a `NavStack` per tab kept while another shows; the compose FAB over Mail; pushed pages cover the bar | Controls 44pt+ (48dp), body 16pt |
+| Web on phones, narrow windows | One `NavStack`: inbox → message → compose; the mailbox list in a left `Sheet` | Controls 44pt+, body 16pt |
 
 ## Tokens
 

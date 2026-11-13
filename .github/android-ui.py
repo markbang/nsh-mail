@@ -134,8 +134,23 @@ for mode in ("light", "dark"):
         shot(f"{mode}-tab-back-to-mail")
 
     # The appearance changes while the app runs.
-    adb("shell", "cmd", "uimode", "night", "no" if mode == "dark" else "yes")
-    shot(f"{mode}-then-{'light' if mode == 'dark' else 'dark'}-live")
+    other = "light" if mode == "dark" else "dark"
+    adb("shell", "cmd", "uimode", "night", "yes" if other == "dark" else "no")
+    time.sleep(3)
+    shot(f"{mode}-then-{other}-live")
+    adb("shell", "cmd", "uimode", "night", "yes" if mode == "dark" else "no")
+    time.sleep(3)
+
+    # Signing out shows the onboarding.
+    if tap("Settings") and tap("id:sign-out"):
+        time.sleep(1)
+        shot(f"{mode}-sign-out-dialog")
+        nodes_now = [n for n in nodes() if n.get("text", "").lower() == "sign out"]
+        if nodes_now:
+            x1, y1, x2, y2 = map(int, re.findall(r"\d+", nodes_now[-1].get("bounds")))
+            adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+        wait("id:onboarding")
+        shot(f"{mode}-onboarding")
 
 adb("logcat", "-d", "-s", "nsh:*", "AndroidRuntime:E", check=False)
 with open(os.path.join(out, "logcat.txt"), "w") as f:

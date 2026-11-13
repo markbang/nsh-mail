@@ -82,7 +82,12 @@ export function ComposePage(props: { init: ComposeInit }) {
   const actions = () => (
     <>
       <IconButton icon="paperclip" label={t("compose.attach")} onPress={() => void pick()} testID="compose-attach" />
-      <Button color="primary" icon="send" label={sending() ? t("compose.sending") : t("compose.send")} loading={sending()} onPress={() => void send()} testID="send" />
+      <If
+        when={systemHeader}
+        else={<Button color="primary" icon="send" label={sending() ? t("compose.sending") : t("compose.send")} loading={sending()} onPress={() => void send()} testID="send" />}
+      >
+        <IconButton icon="send" tone="primary" label={sending() ? t("compose.sending") : t("compose.send")} disabled={sending()} onPress={() => void send()} testID="send" />
+      </If>
     </>
   );
   const label = touch ? "w-16 text-small" : "w-14 text-small";
