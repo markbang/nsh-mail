@@ -742,7 +742,7 @@ const DESIGN_REVIEW_HTML: &str = r#"<h2>Design review: unified inbox</h2>
 <li>Unread is shown by weight and a dot; flagged by an icon in its own lane.</li>
 <li>Remote images are <i>blocked by default</i>; the reader offers to load them.</li>
 </ul>
-<p><img alt="Inbox mockup"></p>
+<p><img src="https://images.example.com/mockup-inbox.png" alt="Inbox mockup"></p>
 <p>The full notes are in the <a href="https://github.com/markbang/nsh-mail/blob/main/docs/design.md">design doc</a>.</p>
 <p>— Maya</p>"#;
 
@@ -756,7 +756,7 @@ const NEWSLETTER_HTML: &str = r#"<h1>This Week in Rust 571</h1>
 <h3>Crate of the week</h3>
 <p>This week's crate is <code>ammonia</code>, a whitelist-based HTML sanitizer.</p>
 <blockquote>Sanitize first, render second.</blockquote>
-<p><img alt=""></p>"#;
+<p><img src="https://this-week-in-rust.org/tracking-pixel.gif" alt=""></p>"#;
 
 const RECEIPT_HTML: &str = r#"<h2>Your receipt from Fastmail</h2>
 <table>

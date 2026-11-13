@@ -395,7 +395,7 @@ fn copy_legacy(tx: &Connection, user: i64) -> Result<()> {
     while let Some(r) = rows.next()? {
         let body: Option<Vec<u8>> = r.get(6)?;
         let text = match body {
-            Some(raw) => crate::mime::parse_body(&raw).index_text,
+            Some(raw) => crate::mime::index(&raw).0,
             None => r.get(5)?,
         };
         index_stored(

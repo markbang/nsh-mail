@@ -148,13 +148,17 @@ test("new mail arrives on its own, also while the window is hidden", async () =>
   expect(app.window("main").state()).toMatchObject({ visible: false });
 });
 
-test("remote images stay blocked until the reader loads them", async () => {
+test("HTML mail shows in the web view, its remote images blocked until the reader asks", async () => {
   const app = await open("./App.tsx", { ...desktop, ...demo });
   await app.waitFor("text:Design review notes: unified inbox");
   await app.press("text:Design review notes: unified inbox");
-  await app.waitFor("id:reader >> text:Inbox mockup");
-  await app.press("role:button[Load images]");
+  await app.waitFor("id:reader >> id:body-html");
+  expect(app.shows("id:body-text")).toBe(false);
+  await app.press("role:button[Show images]");
   await app.waitFor("text:Remote images are blocked to protect your privacy.", { state: "gone" });
+  await app.press("text:Photos from the weekend");
+  await app.waitFor("id:reader >> id:body-text");
+  expect(app.shows("id:body-html")).toBe(false);
 });
 
 test("scrolling to the end loads older mail", async () => {

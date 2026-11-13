@@ -92,7 +92,7 @@ impl Drop for Inner {
     }
 }
 
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -622,9 +622,8 @@ impl Engine {
                         imap::fetch_body(&mut conn.session, &folder, uid).await
                     })
                     .await?;
-                let parsed = mime::parse_body(&raw);
-                let has_attachments = !parsed.attachments.is_empty();
-                let (mid, raw2, text) = (id.to_string(), raw.clone(), parsed.index_text);
+                let (text, has_attachments) = mime::index(&raw);
+                let (mid, raw2) = (id.to_string(), raw.clone());
                 self.store()
                     .run(move |s| s.set_body(&mid, &raw2, &text, has_attachments))
                     .await?;

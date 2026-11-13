@@ -1,13 +1,13 @@
-// One message: who and when, the actions on it, the body (sanitized HTML
-// as native text, or plain text) and its attachments. Remote images stay
-// blocked until the reader asks for them.
-import { createMotion, Image, openUrl, reduceMotion, Scroll, signal, Text, View } from "nsh";
-import { TextView } from "nsh/base";
+// One message: who and when, the actions on it, the body (its HTML in a
+// web view, or its text) and its attachments. Remote images stay blocked
+// until the reader asks for them.
+import { createMotion, reduceMotion, Scroll, signal, Text, View } from "nsh";
 import { t } from "nsh/i18n";
 import { Mail, type Attachment, type Message } from "nsh-mail/native";
 import { AccountMark, Avatar, Button, FileTile, Icon, IconButton, Divider, touch } from "../ui";
 import { displayName, fileSize, fullDate, type ComposeMode } from "../lib/format";
 import { accountById, accountIndex, accounts, errorText, setFlags, showToast } from "../store";
+import { MailView, webViewAvailable } from "./MailView";
 
 export interface ReaderProps {
   message: Message;
@@ -53,106 +53,94 @@ export function Reader(props: ReaderProps) {
   const account = () => accountById(m().accountId);
   const recipients = () => [...m().to, ...m().cc].map(displayName).join(", ");
   const showImages = () => !!imagesShown()[m().id];
-  const blocked = () => m().remoteImages.length > 0;
-  // The engine takes remote images' `src` out (in order, into `remoteImages`); loading puts them back.
-  const html = () => {
-    const source = m().html;
-    if (!source || !showImages()) return source;
-    let next = 0;
-    return source.replace(/<img\b(?![^>]*\ssrc=)/gi, (tag) => {
-      const url = m().remoteImages[next++];
-      return url ? `${tag} src="${url.replace(/"/g, "&quot;")}"` : tag;
-    });
-  };
-  return (
-    <Scroll class="flex-1" style={enter.style} testID="reader">
-      <View selectable class={touch ? "gap-4 px-4 pb-8 pt-4" : "gap-4 px-6 pb-10 pt-5"}>
-      <View class="gap-3">
-        <Text role="header" class={`font-semibold text-foreground ${touch ? "text-xl" : "text-large"}`}>
-          {m().subject || t("reader.noSubject")}
-        </Text>
-        <View class="flex-row items-start gap-3">
-          <Avatar name={displayName(m().from)} />
-          <View class="min-w-0 flex-1 gap-0.5">
-            <View class="flex-row flex-wrap items-baseline gap-x-2">
-              <Text class={`font-medium text-foreground ${touch ? "text-medium" : "text-small"}`}>{displayName(m().from)}</Text>
-              <Text class={`text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>{m().from?.email ?? ""}</Text>
-            </View>
-            <Text class={`line-clamp-2 text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>
-              {t("reader.toList", { names: recipients() || t("compose.noRecipients") })}
-            </Text>
-            <View class="flex-row items-center gap-1.5">
-              <If when={accounts().length > 1 && account()}>
-                <AccountMark index={accountIndex(m().accountId)} />
-                <Text class="text-tiny text-foreground-500">{account()?.email}</Text>
-                <Text class="text-tiny text-foreground-500">·</Text>
-              </If>
-              <Text class="text-tiny tabular-nums text-foreground-500">{fullDate(m().date)}</Text>
-            </View>
+  const html = () => (webViewAvailable() ? m().html : null);
+  const pad = touch ? "px-4" : "px-6";
+  const header = () => (
+    <View class="gap-3">
+      <Text role="header" class={`font-semibold text-foreground ${touch ? "text-xl" : "text-large"}`}>
+        {m().subject || t("reader.noSubject")}
+      </Text>
+      <View class="flex-row items-start gap-3">
+        <Avatar name={displayName(m().from)} />
+        <View class="min-w-0 flex-1 gap-0.5">
+          <View class="flex-row flex-wrap items-baseline gap-x-2">
+            <Text class={`font-medium text-foreground ${touch ? "text-medium" : "text-small"}`}>{displayName(m().from)}</Text>
+            <Text class={`text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>{m().from?.email ?? ""}</Text>
           </View>
-        </View>
-        <If when={!props.toolbar}>
-          <ReaderActions message={m()} onCompose={props.onCompose} />
-        </If>
-      </View>
-      <Divider />
-      <If when={blocked() && !showImages()}>
-        <View class="flex-row items-center gap-3 rounded-medium bg-default-100 px-3 py-2">
-          <Icon name="image" size="sm" tone="default-500" />
-          <Text class={`flex-1 text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>{t("reader.imagesBlocked")}</Text>
-          <Button
-            size="sm"
-            variant="flat"
-            label={t("reader.loadImages")}
-            onPress={() => imagesShown.update((s) => ({ ...s, [m().id]: true }))}
-          />
-        </View>
-      </If>
-      <If
-        when={html()}
-        else={
-          <Text class={`text-foreground ${touch ? "text-medium leading-6" : "text-small leading-6"}`} testID="body-text">
-            {m().text ?? ""}
+          <Text class={`line-clamp-2 text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>
+            {t("reader.toList", { names: recipients() || t("compose.noRecipients") })}
           </Text>
-        }
-      >
-        {(html) => (
-          <TextView
-            html={html()}
-            selectable
-            links="report"
-            onLinkPress={({ url }) => {
-              // Links to other sites and apps; anchors (`#…`) and relative links lead nowhere in mail.
-              if (/^[a-z][a-z0-9+.-]*:/i.test(url)) void openUrl(url);
-            }}
-            renderImage={(image) =>
-              image.src ? (
-                <Image src={image.src} accessibilityLabel={image.alt} class="max-w-full rounded-medium" style={{ width: "100%", aspectRatio: 16 / 9 }} />
-              ) : (
-                <View class="flex-row items-center gap-2 rounded-medium border border-divider px-3 py-2">
-                  <Icon name="image" size="sm" tone="default-500" />
-                  <Text class="text-tiny text-foreground-500">{image.alt || t("reader.blockedImage")}</Text>
-                </View>
-              )
-            }
-            class={`gap-3 text-foreground ${touch ? "text-medium" : "text-small"}`}
-            classes={{ link: "text-primary", blockquote: "border-l-2 border-divider pl-3 text-foreground-500" }}
-            testID="body-html"
-          />
-        )}
-      </If>
-      <If when={m().attachments.length}>
-        <View class="gap-2">
-          <Text class="text-tiny font-medium text-foreground-500">{t("reader.attachments")}</Text>
-          <View class="flex-row flex-wrap items-end gap-2">
-            <Each of={m().attachments.map((attachment) => ({ id: m().id, attachment }))} key={(x) => `${x.id}:${x.attachment.index}`}>
-              {(x) => <AttachmentTile messageId={x().id} attachment={x().attachment} />}
-            </Each>
+          <View class="flex-row items-center gap-1.5">
+            <If when={accounts().length > 1 && account()}>
+              <AccountMark index={accountIndex(m().accountId)} />
+              <Text class="text-tiny text-foreground-500">{account()?.email}</Text>
+              <Text class="text-tiny text-foreground-500">·</Text>
+            </If>
+            <Text class="text-tiny tabular-nums text-foreground-500">{fullDate(m().date)}</Text>
           </View>
         </View>
-      </If>
       </View>
-    </Scroll>
+      <If when={!props.toolbar}>
+        <ReaderActions message={m()} onCompose={props.onCompose} />
+      </If>
+    </View>
+  );
+  const attachments = () => m().attachments.map((attachment) => ({ id: m().id, attachment }));
+  const tiles = () => (
+    <Each of={attachments()} key={(x) => `${x.id}:${x.attachment.index}`}>
+      {(x) => <AttachmentTile messageId={x().id} attachment={x().attachment} />}
+    </Each>
+  );
+  // A mail's HTML scrolls in its own view, under the header and over the attachments: one scrollbar.
+  return (
+    <If
+      when={html()}
+      else={
+        <Scroll class="flex-1" style={enter.style} testID="reader">
+          <View selectable class={`gap-4 ${pad} ${touch ? "pb-8 pt-4" : "pb-10 pt-5"}`}>
+            {header()}
+            <Divider />
+            <Text class={`text-foreground ${touch ? "text-medium leading-6" : "text-small leading-6"}`} testID="body-text">
+              {m().text ?? ""}
+            </Text>
+            <If when={m().attachments.length}>
+              <View class="gap-2">
+                <Text class="text-tiny font-medium text-foreground-500">{t("reader.attachments")}</Text>
+                <View class="flex-row flex-wrap items-end gap-2">{tiles()}</View>
+              </View>
+            </If>
+          </View>
+        </Scroll>
+      }
+    >
+      {(source) => (
+        <View class={`flex-1 gap-3 ${touch ? "pb-4 pt-4" : "pb-5 pt-5"}`} style={enter.style} testID="reader">
+          <View selectable class={`gap-4 ${pad}`}>
+            {header()}
+            <If when={m().remoteImages.length > 0 && !showImages()}>
+              <View class="flex-row items-center gap-3 rounded-medium bg-default-100 px-3 py-2">
+                <Icon name="image" size="sm" tone="default-500" />
+                <Text class={`flex-1 text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>{t("reader.imagesBlocked")}</Text>
+                <Button
+                  size="sm"
+                  variant="flat"
+                  label={t("reader.loadImages")}
+                  onPress={() => imagesShown.update((s) => ({ ...s, [m().id]: true }))}
+                />
+              </View>
+            </If>
+          </View>
+          <View class={`min-h-48 flex-1 overflow-hidden rounded-medium border border-divider bg-white ${touch ? "mx-2" : "mx-6"}`}>
+            <MailView html={source()} remote={showImages()} onUnavailable={() => webViewAvailable.set(false)} class="flex-1" />
+          </View>
+          <If when={m().attachments.length}>
+            <Scroll horizontal class="shrink-0" contentClass={`flex-row items-end gap-2 ${pad}`} testID="attachments">
+              {tiles()}
+            </Scroll>
+          </If>
+        </View>
+      )}
+    </If>
   );
 }
 

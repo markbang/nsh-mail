@@ -178,8 +178,8 @@ const DECLARATIONS: &[(&str, &str)] = &[
         "/** A whole message: a summary's fields and the rest. */\n\
          export interface Message extends Summary {\n  cc: Address[];\n  replyTo: Address[];\n  messageId?: string | null;\n  \
          inReplyTo?: string | null;\n  references: string[];\n  text?: string | null;\n  \
-         /** Sanitized; remote images have no `src`, their URLs are `remoteImages`, in order. */\n  html?: string | null;\n  \
-         remoteImages: string[];\n  attachments: Attachment[];\n}",
+         /** Sanitized, `null` without an HTML part. Inline images are `data:` URIs; remote URLs stay, blocked by the reader until asked. */\n  html?: string | null;\n  \
+         /** The remote URLs `html` loads (images, CSS). */\n  remoteImages: string[];\n  attachments: Attachment[];\n}",
     ),
     (
         "Flags",

@@ -183,8 +183,10 @@ pub struct Message {
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
     pub text: Option<String>,
-    /// Sanitized HTML. Remote images are removed; their URLs are in `remote_images`.
+    /// Sanitized HTML, `None` when the message has no HTML part. Inline (`cid:`) images are
+    /// `data:` URIs; remote URLs stay, for the reader to block until the user asks.
     pub html: Option<String>,
+    /// The remote URLs `html` loads (images, CSS).
     pub remote_images: Vec<String>,
     pub attachments: Vec<Attachment>,
 }

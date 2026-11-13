@@ -216,11 +216,8 @@ reader.imagesBlocked:
   en: Remote images are blocked to protect your privacy.
   zh-CN: 为保护隐私，已阻止加载远程图片。
 reader.loadImages:
-  en: Load images
-  zh-CN: 加载图片
-reader.blockedImage:
-  en: Image not loaded
-  zh-CN: 图片未加载
+  en: Show images
+  zh-CN: 显示图片
 reader.unknownSender:
   en: Unknown sender
   zh-CN: 未知发件人

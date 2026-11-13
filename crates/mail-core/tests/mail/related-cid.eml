@@ -1,0 +1,34 @@
+From: shop@example.com
+To: {to}
+Subject: related-cid
+Date: Thu, 12 Nov 2026 11:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="rel"; type="multipart/alternative"
+
+--rel
+Content-Type: multipart/alternative; boundary="alt"
+
+--alt
+Content-Type: text/plain; charset=utf-8
+
+Logo below
+
+--alt
+Content-Type: text/html; charset=iso-2022-jp
+Content-Transfer-Encoding: base64
+
+PGh0bWw+PGJvZHk+PHA+TG9nbyBiZWxvdzo8L3A+PGltZyBzcmM9ImNpZDpsb2dvQGV4YW1wbGUu
+Y29tIiBhbHQ9ImxvZ28iPjxwPhskQiU1JSQlcxsoQjwvcD48L2JvZHk+PC9odG1sPg==
+
+--alt--
+
+--rel
+Content-Type: image/png
+Content-Transfer-Encoding: base64
+Content-ID: <logo@example.com>
+Content-Disposition: inline
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLv
+AAAAAElFTkSuQmCC
+
+--rel--
