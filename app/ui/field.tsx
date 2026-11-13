@@ -7,13 +7,15 @@ import { touch } from "./density";
 import { Icon, type IconName } from "./icon";
 import { listItem, popup } from "./overlay";
 import { wash } from "./motion";
+import { material } from "./material";
 import { rounded, type Radius, type Size } from "./tokens";
 
 /** HeroUI's four, and `plain`: no frame, for a composer's body, where the caret shows the focus. */
 export type InputVariant = "flat" | "faded" | "bordered" | "underlined" | "plain";
 
 const wrapper: Record<InputVariant, string> = {
-  flat: "bg-default-100 hover:bg-default-200 shadow-xs focus-within:outline-2 focus-within:outline-focus focus-within:outline-offset-2",
+  // Android: Material's filled field and search bar, whose caret shows the focus.
+  flat: material ? "bg-default-100" : "bg-default-100 hover:bg-default-200 shadow-xs focus-within:outline-2 focus-within:outline-focus focus-within:outline-offset-2",
   faded: "border-2 border-default-200 bg-default-100 hover:border-default-400 focus-within:border-default-400 shadow-xs focus-within:outline-2 focus-within:outline-focus focus-within:outline-offset-2",
   bordered: "border-2 border-default-200 hover:border-default-400 focus-within:border-default-foreground shadow-xs",
   underlined: "border-b-2 border-default-200 hover:border-default-300 focus-within:border-default-foreground",

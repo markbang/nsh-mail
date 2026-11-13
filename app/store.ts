@@ -107,7 +107,8 @@ export function dismissToast() {
   toastMessage.set(null);
 }
 
-const UNDO_MS = 5000;
+// Material: a snackbar with an action stays long enough to reach it.
+const UNDO_MS = 8000;
 
 /** Archives or deletes messages: they leave the lists at once, and move on the server once
  * the Undo has passed; a failure brings them back with the error. */

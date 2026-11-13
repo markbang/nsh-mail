@@ -122,7 +122,7 @@ test("archives a message with Undo, then for real", async () => {
   await app.press("text:Q4 roadmap draft");
   await app.waitFor("id:reader >> text:Q4-roadmap.pdf");
   await app.press("id:archive");
-  await app.waitFor("text:Archived", { state: "gone", timeout: 10000 });
+  await app.waitFor("text:Archived", { state: "gone", timeout: 15000 });
   await app.press("text:Archive");
   await app.waitFor("id:messages >> text:Q4 roadmap draft");
 });

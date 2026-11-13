@@ -82,13 +82,17 @@ export function NavItem(props: {
       onPress={props.onPress}
       tooltip={tip(props.tooltip)}
       testID={props.testID}
-      class={`group flex-row items-center gap-2 rounded-small px-2 ${touch ? "min-h-11" : "min-h-8 py-1.5"} ${props.selected ? "bg-default-100" : "hover:bg-default/40"} active:bg-default/60 ${rowFocus} ${wash}`}
+      class={
+        material
+          ? `group min-h-14 flex-row items-center gap-3 rounded-full px-4 ${props.selected ? "bg-md-secondary-container" : ""} active:bg-md-surface-container-highest ${rowFocus} ${wash}`
+          : `group flex-row items-center gap-2 rounded-small px-2 ${touch ? "min-h-11" : "min-h-8 py-1.5"} ${props.selected ? "bg-default-100" : "hover:bg-default/40"} active:bg-default/60 ${rowFocus} ${wash}`
+      }
     >
       <View class="w-4 items-center">
         {props.lead ?? (props.icon ? <Icon name={props.icon} size="sm" tone={props.selected ? "foreground" : "default-500"} /> : null)}
       </View>
       <View class="min-w-0 flex-1">
-        <Text class={`line-clamp-1 ${touch ? "text-medium" : "text-small"} ${props.selected ? "font-medium" : ""} text-foreground`}>{props.label}</Text>
+        <Text class={`line-clamp-1 ${material ? `text-label-l ${props.selected ? "font-bold text-md-on-secondary-container" : "font-medium text-md-on-surface-variant"}` : `${touch ? "text-medium" : "text-small"} ${props.selected ? "font-medium" : ""} text-foreground`}`}>{props.label}</Text>
         <If when={props.description}>
           <Text class="line-clamp-1 text-tiny text-foreground-500">{props.description}</Text>
         </If>
