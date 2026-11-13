@@ -83,15 +83,15 @@ export function ComposePage(props: { init: ComposeInit }) {
   const actions = () => (
     <>
       <IconButton icon="paperclip" label={t("compose.attach")} onPress={() => void pick()} testID="compose-attach" />
-      <Button variant="primary" icon="send" label={sending() ? t("compose.sending") : t("compose.send")} loading={sending()} onPress={() => void send()} testID="send" />
+      <Button color="primary" icon="send" label={sending() ? t("compose.sending") : t("compose.send")} loading={sending()} onPress={() => void send()} testID="send" />
     </>
   );
-  const label = touch ? "w-16 text-sm" : "w-14 text-xs";
+  const label = touch ? "w-16 text-small" : "w-14 text-small";
   const replying = props.init.mode === "reply" || props.init.mode === "replyAll";
   return (
     <NavPage title={title()} header={<PageHeader title={title()} actions={actions()} />} headerRight={systemHeader ? actions() : undefined}>
       <View
-        class="min-h-0 flex-1 bg-background"
+        class={`min-h-0 flex-1 ${nav.modal ? "bg-content1" : "bg-background"}`}
         onFileDragEnter={() => dragging.set(true)}
         onFileDragLeave={() => dragging.set(false)}
         onFileDrop={(e: { uris: string[]; mimeTypes: string[] }) => {
@@ -99,10 +99,10 @@ export function ComposePage(props: { init: ComposeInit }) {
           attach(e.uris.map((path, i) => ({ kind: "path", path, type: e.mimeTypes[i] ?? "" })));
         }}
       >
-        <View class={`gap-2 border-b border-border ${touch ? "p-4" : "px-4 py-3"}`}>
+        <View class={`gap-2 border-b border-divider ${touch ? "p-4" : "px-4 py-3"}`}>
           <If when={accounts().length > 1}>
             <View class="flex-row items-center gap-2">
-              <Text class={`${label} text-muted-foreground`}>{t("compose.from")}</Text>
+              <Text class={`${label} text-foreground-500`}>{t("compose.from")}</Text>
               <SelectField
                 value={from()}
                 items={accounts().map((a) => ({ value: a.id, title: a.name ? `${a.name} <${a.email}>` : a.email }))}
@@ -114,7 +114,7 @@ export function ComposePage(props: { init: ComposeInit }) {
             </View>
           </If>
           <View class="flex-row items-center gap-2">
-            <Text class={`${label} text-muted-foreground`}>{t("compose.to")}</Text>
+            <Text class={`${label} text-foreground-500`}>{t("compose.to")}</Text>
             <TextField
               value={to()}
               onChange={(v) => to.set(v)}
@@ -126,25 +126,25 @@ export function ComposePage(props: { init: ComposeInit }) {
               testID="compose-to"
             />
             <If when={!showCc()}>
-              <Button variant="ghost" size="sm" label={t("compose.ccBcc")} onPress={() => showCc.set(true)} />
+              <Button variant="light" size="sm" label={t("compose.ccBcc")} onPress={() => showCc.set(true)} />
             </If>
           </View>
           <If when={showCc()}>
             <View class="flex-row items-center gap-2">
-              <Text class={`${label} text-muted-foreground`}>{t("compose.cc")}</Text>
+              <Text class={`${label} text-foreground-500`}>{t("compose.cc")}</Text>
               <TextField value={cc()} onChange={(v) => cc.set(v)} kind="email" label={t("compose.cc")} class="flex-1" testID="compose-cc" />
             </View>
             <View class="flex-row items-center gap-2">
-              <Text class={`${label} text-muted-foreground`}>{t("compose.bcc")}</Text>
+              <Text class={`${label} text-foreground-500`}>{t("compose.bcc")}</Text>
               <TextField value={bcc()} onChange={(v) => bcc.set(v)} kind="email" label={t("compose.bcc")} class="flex-1" testID="compose-bcc" />
             </View>
           </If>
           <View class="flex-row items-center gap-2">
-            <Text class={`${label} text-muted-foreground`}>{t("compose.subject")}</Text>
+            <Text class={`${label} text-foreground-500`}>{t("compose.subject")}</Text>
             <TextField value={subject()} onChange={(v) => subject.set(v)} label={t("compose.subject")} class="flex-1" testID="compose-subject" />
           </View>
           <If when={error()}>
-            <Text class={`text-destructive ${touch ? "text-sm" : "text-xs"}`} testID="compose-error">
+            <Text class={`text-danger ${touch ? "text-small" : "text-tiny"}`} testID="compose-error">
               {error()}
             </Text>
           </If>
@@ -157,7 +157,8 @@ export function ComposePage(props: { init: ComposeInit }) {
             label={t("compose.body")}
             autoFocus={replying}
             ref={(input) => replying && setTimeout(() => input.setSelection(0), 0)}
-            class="flex-1 border-0"
+            variant="plain"
+            class="flex-1"
             testID="compose-body"
             onPaste={(e) => {
               if (e.files.length) attach(e.files);
@@ -167,14 +168,14 @@ export function ComposePage(props: { init: ComposeInit }) {
         </View>
         <AttachmentChips files={files} error={fileError()} />
         <If when={!touch}>
-          <View class="flex-row items-center justify-end gap-2 border-t border-border px-4 py-2">
-            <Text class="flex-1 text-xs text-muted-foreground">{t("compose.sendHint", { keys: keymap.label("mod+enter") })}</Text>
-            <Button variant="ghost" label={t("compose.discard")} onPress={nav.close} />
+          <View class="flex-row items-center justify-end gap-2 border-t border-divider px-4 py-2">
+            <Text class="flex-1 text-tiny text-foreground-500">{t("compose.sendHint", { keys: keymap.label("mod+enter") })}</Text>
+            <Button variant="light" label={t("compose.discard")} onPress={nav.close} />
           </View>
         </If>
         <If when={dragging()}>
-          <View class="absolute inset-2 items-center justify-center rounded-(--radius) border-2 border-dashed border-primary bg-background/90" style={{ pointerEvents: "none" }} testID="compose-drop">
-            <Text class={`font-medium text-primary ${touch ? "text-base" : "text-sm"}`}>{t("compose.dropHere")}</Text>
+          <View class="absolute inset-2 items-center justify-center rounded-large border-2 border-dashed border-primary bg-background/90" style={{ pointerEvents: "none" }} testID="compose-drop">
+            <Text class={`font-medium text-primary ${touch ? "text-medium" : "text-small"}`}>{t("compose.dropHere")}</Text>
           </View>
         </If>
       </View>

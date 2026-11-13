@@ -37,7 +37,7 @@ export function ReaderActions(props: { message: Message; onCompose: (mode: Compo
       <IconButton
         size={touch ? "md" : "sm"}
         icon={m().flagged ? "flagFilled" : "flag"}
-        tone={m().flagged ? "flag" : "foreground"}
+        tone={m().flagged ? "flag" : undefined}
         selected={m().flagged}
         label={m().flagged ? t("actions.unflag") : t("actions.flag")}
         onPress={() => void setFlags(m().id, { flagged: !m().flagged })}

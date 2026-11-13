@@ -25,7 +25,7 @@ function Choice(props: { icon: IconName; title: string; detail: string; selected
       testID={props.testID}
       class={`flex-row items-start gap-3 rounded-large border-2 p-4 ${props.selected ? "border-primary" : "border-default-200"}`}
     >
-      <Icon name={props.icon} tone={props.selected ? "primary" : "muted-foreground"} />
+      <Icon name={props.icon} tone={props.selected ? "primary" : "default-500"} />
       <View class="flex-1 gap-1">
         <Text class={`font-medium text-foreground ${touch ? "text-medium" : "text-small"}`}>{props.title}</Text>
         <Text class={`text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>{props.detail}</Text>
