@@ -187,3 +187,74 @@ test("scrolling to the end loads older mail", async () => {
   for (let i = 0; i < 6 && !app.shows("text:Laptop setup"); i++) await app.scroll("id:messages", 2000);
   await app.waitFor("text:Laptop setup");
 });
+
+test("a draft outlives the composer and a restart; only Discard deletes it, after asking", async () => {
+  const app = await open("./App.tsx", { ...desktop, ...demo });
+  await app.waitFor("text:Q4 roadmap draft");
+  await app.press("id:compose");
+  await app.type("id:compose-subject", "Lunch on Friday?");
+  await app.type("id:compose-body", "The new place on 5th.");
+  await app.press("id:header-back");
+  await app.waitFor("id:modal", { state: "gone" });
+
+  // A reply keeps its own draft, apart from new mail and from other messages.
+  await app.press("text:Q4 roadmap draft");
+  await app.press("id:reply");
+  await app.waitFor("id:compose-body");
+  await app.type("id:compose-body", "Looks good.");
+  await app.press("id:header-back");
+  await app.waitFor("id:modal", { state: "gone" });
+  await app.press("text:Photos from the weekend");
+  await app.press("id:reply");
+  await app.waitFor("id:compose-body");
+  expect(app.value("id:compose-body")).toMatch(/^\n\nOn /);
+  await app.press("id:compose-discard");
+  await app.waitFor("id:modal", { state: "gone" });
+  await app.press("text:Q4 roadmap draft");
+  await app.press("id:reply");
+  await app.waitFor("id:compose-body");
+  expect(app.value("id:compose-body")).toMatch(/^\n\nOn [^]*Looks good\.$/);
+
+  await app.waitUntil(() => (app.storage()["nshmail.drafts"] ?? "").includes("Lunch on Friday?"));
+  const again = await open("./App.tsx", { ...desktop, storage: app.storage() });
+  await again.waitFor("text:Q4 roadmap draft");
+  await again.press("id:compose");
+  await again.waitFor("id:compose-subject");
+  expect(again.value("id:compose-subject")).toBe("Lunch on Friday?");
+  expect(again.value("id:compose-body")).toBe("The new place on 5th.");
+
+  await again.press("id:compose-discard");
+  await again.press("id:keep-editing");
+  expect(again.value("id:compose-subject")).toBe("Lunch on Friday?");
+  await again.press("id:compose-discard");
+  await again.press("id:confirm-discard");
+  await again.waitFor("id:modal", { state: "gone" });
+  await again.press("id:compose");
+  await again.waitFor("id:compose-subject");
+  expect(again.value("id:compose-subject")).toBe("");
+  expect(Object.keys(JSON.parse(again.storage()["nshmail.drafts"]))).not.toContain("new");
+});
+
+test("phones: back keeps the draft, Discard asks the system's alert", async () => {
+  const app = await open("./App.tsx", { platform: "android", width: 390, height: 844, locale: "en-US", ...demo });
+  await app.waitFor("text:Photos from the weekend");
+  await app.press("id:fab-menu");
+  await app.press("id:compose");
+  await app.type("id:compose-subject", "Lunch on Friday?");
+  await app.back();
+  await app.waitFor("id:messages");
+  await app.press("id:fab-menu");
+  await app.press("id:compose");
+  await app.waitFor("id:compose-subject");
+  expect(app.value("id:compose-subject")).toBe("Lunch on Friday?");
+  app.onDialog((dialog) => {
+    expect(dialog.title).toBe("Discard this draft?");
+    return "Discard";
+  });
+  await app.press("id:compose-discard >> nth=0");
+  await app.waitFor("id:messages");
+  await app.press("id:fab-menu");
+  await app.press("id:compose");
+  await app.waitFor("id:compose-subject");
+  expect(app.value("id:compose-subject")).toBe("");
+});

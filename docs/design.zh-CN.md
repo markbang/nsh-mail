@@ -127,7 +127,8 @@ TSX ──Mail.*──▶ Rust LocalBackend ──tokio/rustls──▶ IMAP (99
 草稿的 `attachments` 是 `{kind: "upload", id}`（`Mail.stage` 暂存的文件）或 `{kind: "forward", messageId, index}`（已存邮件的附件，转发默认全带、可逐个去掉）。
 
 - 来源：附件按钮 `Picker.pickFiles`；正文框粘贴（`onPaste` 的 `files`，桌面上还有 `uris`）；拖放（桌面 `onFileDrop`，Web 用 `PageDrop.listen`）。`File` 的字节由 TSX 交给 `Mail.stage`，本地路径交给 `Mail.stageFile`。
-- 暂存：本地模式放在 Rust 内存里，发出后丢弃；云端模式 `POST /v1/uploads` 建档（名字、类型、大小），再按 1 MiB 分块 `PATCH /v1/uploads/{id}?offset=` 上传，每块之后报进度（NSH 的 Rust `fetch` 整体收发，没有上传进度）。关掉写信页时 `unstage` 未发出的文件。
+- 暂存：本地模式放在 Rust 内存里，发出后丢弃；云端模式 `POST /v1/uploads` 建档（名字、类型、大小），再按 1 MiB 分块 `PATCH /v1/uploads/{id}?offset=` 上传，每块之后报进度（NSH 的 Rust `fetch` 整体收发，没有上传进度）。暂存的文件跟着草稿（见下条），草稿被放弃时 `unstage`。
+- 草稿：写的内容属于草稿（`app/drafts.ts`），每个场景一份（新邮件，或对某封信的回复、全部回复、转发）。关掉写信页（Escape、点背景、返回）会保留改过的草稿，再次打开同一场景时恢复；两种模式都用 NSH `Storage` 存在本机，重启后还在，但暂存的上传文件（Rust 内存或服务端上传）只在本次运行内有效。只有"放弃"会删除草稿，且先确认；发送也会结束草稿；退出登录清空全部。暂不同步到 IMAP 的草稿箱。
 - 上限：附件合计默认 25 MB（Gmail、Outlook 的上限），按原始字节算。客户端加入文件时就检查（`Mail.attachmentLimit()`，云端模式取服务端 `/v1/me` 的 `maxAttachmentBytes`）；mail-core 发送前、服务端建档和发送时再检查，超限是 `ERR_TOO_LARGE`（HTTP 413）。
 - 编码：lettre 组 `multipart/mixed`，文件名在 `Content-Disposition` 里按 RFC 2231，`Content-Type` 的 `name` 按 RFC 2047（老客户端只认这个）。"已发送"里 `APPEND` 的就是发出的整封信，附件随之保存。
 - 服务端：分块存在 `data/uploads/<用户>/<id>`（元数据 `<id>.json`），发送成功即删除，其余 24 小时后由每小时一次的清理删除。
