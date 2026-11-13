@@ -43,6 +43,7 @@ fn config(data_dir: PathBuf) -> Config {
         data_dir,
         public_url: "http://localhost".into(),
         master_key: [7; 32],
+        master_key_old: None,
         web_dir: None,
         cors_origins: vec![],
         allow_signup: true,

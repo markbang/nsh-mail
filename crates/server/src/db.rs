@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS devices (
     p256dh TEXT,
     auth TEXT,
     created_at INTEGER NOT NULL,
+    vapid_key TEXT,
     UNIQUE (user_id, token)
 );
 CREATE TABLE IF NOT EXISTS oauth_states (
@@ -82,6 +83,14 @@ impl Db {
             "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;",
         )?;
         conn.execute_batch(SCHEMA)?;
+        let has_vapid_key: bool = conn.query_row(
+            "SELECT count(*) FROM pragma_table_info('devices') WHERE name = 'vapid_key'",
+            [],
+            |r| r.get(0),
+        )?;
+        if !has_vapid_key {
+            conn.execute_batch("ALTER TABLE devices ADD COLUMN vapid_key TEXT")?;
+        }
         Ok(Db(Arc::new(Mutex::new(conn))))
     }
 
@@ -174,7 +183,9 @@ impl Db {
         })
     }
 
-    /// Re-registering the same token returns the existing device id.
+    /// Re-registering the same token returns the existing device id. `vapid_key` is the server's
+    /// public key a Web Push subscription was made for.
+    #[allow(clippy::too_many_arguments)]
     pub fn upsert_device(
         &self,
         user_id: i64,
@@ -183,14 +194,26 @@ impl Db {
         token: &str,
         p256dh: Option<&str>,
         auth: Option<&str>,
+        vapid_key: Option<&str>,
     ) -> Result<String> {
         self.with(|c| {
             c.query_row(
-                "INSERT INTO devices (id, user_id, kind, token, p256dh, auth, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                 ON CONFLICT(user_id, token) DO UPDATE SET kind = excluded.kind, p256dh = excluded.p256dh, auth = excluded.auth
+                "INSERT INTO devices (id, user_id, kind, token, p256dh, auth, vapid_key, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT(user_id, token) DO UPDATE SET kind = excluded.kind, p256dh = excluded.p256dh, auth = excluded.auth, vapid_key = excluded.vapid_key
                  RETURNING id",
-                params![id, user_id, kind, token, p256dh, auth, now()],
+                params![id, user_id, kind, token, p256dh, auth, vapid_key, now()],
                 |r| r.get(0),
+            )
+        })
+    }
+
+    /// Web Push subscriptions are bound to the VAPID key they were made with; after a key change
+    /// the push service rejects them, so they go and the browser subscribes again.
+    pub fn drop_stale_webpush(&self, vapid_key: &str) -> Result<usize> {
+        self.with(|c| {
+            c.execute(
+                "DELETE FROM devices WHERE kind = 'webpush' AND (vapid_key IS NULL OR vapid_key != ?1)",
+                [vapid_key],
             )
         })
     }

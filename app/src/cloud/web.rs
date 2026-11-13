@@ -160,6 +160,13 @@ fn key_bytes(window: &Window, key: &str) -> Result<Uint8Array> {
     Ok(Uint8Array::from(bytes.as_slice()))
 }
 
+/// `subscription.options.applicationServerKey`, read reflectively to need no more web-sys features.
+fn subscription_key(subscription: &PushSubscription) -> Option<Vec<u8>> {
+    let options = Reflect::get(subscription, &"options".into()).ok()?;
+    let key = Reflect::get(&options, &"applicationServerKey".into()).ok()?;
+    key.is_object().then(|| Uint8Array::new(&key).to_vec())
+}
+
 async fn push_manager(window: &Window, register: bool) -> Result<Option<PushManager>> {
     let workers = window.navigator().service_worker();
     let registration = if register {
@@ -190,9 +197,18 @@ pub async fn subscribe_push(api: &Api) -> Result<Option<String>> {
     let key = key["key"]
         .as_str()
         .ok_or_else(|| Error::new(ErrorCode::Protocol, "the server has no Web Push key"))?;
+    let server_key = key_bytes(&window, key)?;
+    // A subscription made for an earlier server key (after a key rotation) no longer receives
+    // pushes, and `subscribe` with the new key fails while it exists.
+    let existing = js(manager.get_subscription().map_err(fail)?).await?;
+    if let Some(old) = existing.dyn_ref::<PushSubscription>()
+        && subscription_key(old) != Some(server_key.to_vec())
+    {
+        js(old.unsubscribe().map_err(fail)?).await?;
+    }
     let options = PushSubscriptionOptionsInit::new();
     options.set_user_visible_only(true);
-    options.set_application_server_key(&key_bytes(&window, key)?.into());
+    options.set_application_server_key(&server_key.into());
     let subscription = js(manager.subscribe_with_options(&options).map_err(fail)?).await?;
     // `toJSON`: `{endpoint, keys: {p256dh, auth}}`, as the server reads it.
     let subscription = js_sys::JSON::stringify(&subscription)
@@ -204,7 +220,7 @@ pub async fn subscribe_push(api: &Api) -> Result<Option<String>> {
         .call(
             "POST",
             "/devices",
-            Some(json!({ "kind": "webpush", "subscription": subscription })),
+            Some(json!({ "kind": "webpush", "subscription": subscription, "vapidKey": key })),
         )
         .await?;
     Ok(device["id"].as_str().map(str::to_owned))

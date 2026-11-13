@@ -41,6 +41,7 @@ fn config(data_dir: &Path) -> Config {
         data_dir: data_dir.to_path_buf(),
         public_url: "http://localhost".into(),
         master_key: KEY,
+        master_key_old: None,
         web_dir: None,
         cors_origins: vec![],
         allow_signup: true,

@@ -29,7 +29,7 @@ pub fn load_vapid(env_key: Option<&str>, data_dir: &Path) -> Result<ES256KeyPair
     let decode = |s: &str| -> Result<ES256KeyPair> {
         let raw = URL_SAFE_NO_PAD
             .decode(s.trim())
-            .context("VAPID private key is not base64url")?;
+            .map_err(|_| anyhow!("VAPID private key is not base64url"))?;
         ES256KeyPair::from_bytes(&raw).map_err(|e| anyhow!("invalid VAPID private key: {e}"))
     };
     if let Some(k) = env_key {

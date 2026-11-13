@@ -37,6 +37,9 @@ impl ApiError {
     fn not_found() -> Self {
         Self::new(StatusCode::NOT_FOUND, ErrorCode::NotFound, "not found")
     }
+    fn conflict(msg: impl Into<String>) -> Self {
+        Self::new(StatusCode::CONFLICT, ErrorCode::InvalidInput, msg)
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -456,8 +459,15 @@ pub struct Subscription {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum NewDevice {
-    Fcm { token: String },
-    Webpush { subscription: Subscription },
+    Fcm {
+        token: String,
+    },
+    Webpush {
+        subscription: Subscription,
+        /// The VAPID public key the browser subscribed with; older clients leave it out.
+        #[serde(rename = "vapidKey")]
+        vapid_key: Option<String>,
+    },
 }
 
 pub async fn add_device(
@@ -471,9 +481,18 @@ pub async fn add_device(
             if token.trim().is_empty() {
                 return Err(ApiError::bad_request("token is empty"));
             }
-            s.db.upsert_device(u.id, &new_id, "fcm", token.trim(), None, None)?
+            s.db.upsert_device(u.id, &new_id, "fcm", token.trim(), None, None, None)?
         }
-        NewDevice::Webpush { subscription: sub } => {
+        NewDevice::Webpush {
+            subscription: sub,
+            vapid_key,
+        } => {
+            if vapid_key.is_some_and(|k| k != s.vapid_public_key) {
+                return Err(ApiError::conflict(
+                    "the push subscription was made for another server key; fetch \
+                     /v1/push/vapid-key and subscribe again",
+                ));
+            }
             parse_subscription_keys(&sub.keys.p256dh, &sub.keys.auth)
                 .map_err(|e| ApiError::bad_request(format!("invalid push subscription: {e}")))?;
             if !sub.endpoint.starts_with("https://") && !sub.endpoint.starts_with("http://") {
@@ -488,6 +507,7 @@ pub async fn add_device(
                 &sub.endpoint,
                 Some(&sub.keys.p256dh),
                 Some(&sub.keys.auth),
+                Some(&s.vapid_public_key),
             )?
         }
     };

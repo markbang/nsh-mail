@@ -6,6 +6,7 @@ pub mod events;
 pub mod mail;
 pub mod oauth;
 pub mod push;
+pub mod rotate;
 pub mod uploads;
 
 use std::{sync::Arc, time::Instant};
@@ -54,6 +55,8 @@ pub async fn build(config: Config) -> Result<Arc<AppState>> {
     let dir = users_dir.clone();
     let import_db = mail_db.clone();
     tokio::task::spawn_blocking(move || mail::import_legacy(&import_db, &dir)).await??;
+    let (dir, key, old) = (users_dir.clone(), config.master_key, config.master_key_old);
+    tokio::task::spawn_blocking(move || rotate::rotate_secrets(&dir, key, old)).await??;
     let http = reqwest::Client::builder()
         .user_agent(concat!("nsh-mail-server/", env!("CARGO_PKG_VERSION")))
         .timeout(std::time::Duration::from_secs(30))
@@ -64,6 +67,13 @@ pub async fn build(config: Config) -> Result<Arc<AppState>> {
         None => None,
     };
     let vapid_public_key = push::vapid_public_key(&vapid);
+    let stale = db.drop_stale_webpush(&vapid_public_key)?;
+    if stale > 0 {
+        tracing::info!(
+            devices = stale,
+            "dropped Web Push subscriptions made for another VAPID key; browsers subscribe again"
+        );
+    }
     let push = Arc::new(Push {
         db: db.clone(),
         http: http.clone(),

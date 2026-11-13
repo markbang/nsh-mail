@@ -163,43 +163,8 @@ impl EncryptedFileStore {
     }
 }
 
-impl SecretStore for EncryptedFileStore {
-    fn get(&self, key: &str) -> Result<Option<String>> {
-        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(sealed) = self.load()?.remove(key) else {
-            return Ok(None);
-        };
-        let bytes = B64
-            .decode(sealed)
-            .map_err(|e| secrets_err("secrets file is corrupt", e))?;
-        if bytes.len() < 12 {
-            return Err(err(ErrorCode::Secrets, "secrets file is corrupt"));
-        }
-        let (nonce, ct) = bytes.split_at(12);
-        let nonce = Nonce::try_from(nonce)
-            .map_err(|_| err(ErrorCode::Secrets, "secrets file is corrupt"))?;
-        let plain = self
-            .cipher
-            .decrypt(
-                &nonce,
-                Payload {
-                    msg: ct,
-                    aad: key.as_bytes(),
-                },
-            )
-            .map_err(|_| {
-                err(
-                    ErrorCode::Secrets,
-                    "cannot decrypt a secret: wrong key or tampered file",
-                )
-            })?;
-        String::from_utf8(plain)
-            .map(Some)
-            .map_err(|_| err(ErrorCode::Secrets, "secret is not UTF-8"))
-    }
-
-    fn set(&self, key: &str, value: &str) -> Result<()> {
-        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+impl EncryptedFileStore {
+    fn seal(&self, key: &str, value: &str) -> Result<String> {
         let mut nonce = [0u8; 12];
         getrandom::fill(&mut nonce).map_err(|e| secrets_err("no OS randomness", e))?;
         let ct = self
@@ -214,8 +179,95 @@ impl SecretStore for EncryptedFileStore {
             .map_err(|_| err(ErrorCode::Secrets, "encryption failed"))?;
         let mut sealed = nonce.to_vec();
         sealed.extend_from_slice(&ct);
+        Ok(B64.encode(sealed))
+    }
+
+    /// Every entry decrypted, each with this store's key or else `old`, and how many needed `old`.
+    /// Fails, naming how many entries open with neither key, before anything is returned.
+    pub fn read_all(&self, old: Option<[u8; 32]>) -> Result<(BTreeMap<String, String>, usize)> {
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        let old = old.map(|k| Aes256Gcm::new(&Key::<Aes256Gcm>::from(k)));
+        let map = self.load()?;
+        let (mut plain, mut used_old, mut failed) = (BTreeMap::new(), 0, 0);
+        for (key, sealed) in &map {
+            match open(&self.cipher, key, sealed) {
+                Ok(v) => {
+                    plain.insert(key.clone(), v);
+                }
+                Err(_) => match old.as_ref().map(|c| open(c, key, sealed)) {
+                    Some(Ok(v)) => {
+                        used_old += 1;
+                        plain.insert(key.clone(), v);
+                    }
+                    _ => failed += 1,
+                },
+            }
+        }
+        if failed > 0 {
+            return Err(err(
+                ErrorCode::Secrets,
+                format!(
+                    "{failed} of {} secrets do not decrypt with the given key{}",
+                    map.len(),
+                    if old.is_some() { "s" } else { "" }
+                ),
+            ));
+        }
+        Ok((plain, used_old))
+    }
+
+    /// Replaces the whole file with `entries`, all sealed under this store's key, in one rename.
+    pub fn write_all(&self, entries: &BTreeMap<String, String>) -> Result<()> {
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        let map = entries
+            .iter()
+            .map(|(k, v)| Ok((k.clone(), self.seal(k, v)?)))
+            .collect::<Result<BTreeMap<_, _>>>()?;
+        self.save(&map)
+    }
+}
+
+fn open(cipher: &Aes256Gcm, key: &str, sealed: &str) -> Result<String> {
+    let bytes = B64
+        .decode(sealed)
+        .map_err(|e| secrets_err("secrets file is corrupt", e))?;
+    if bytes.len() < 12 {
+        return Err(err(ErrorCode::Secrets, "secrets file is corrupt"));
+    }
+    let (nonce, ct) = bytes.split_at(12);
+    let nonce =
+        Nonce::try_from(nonce).map_err(|_| err(ErrorCode::Secrets, "secrets file is corrupt"))?;
+    let plain = cipher
+        .decrypt(
+            &nonce,
+            Payload {
+                msg: ct,
+                aad: key.as_bytes(),
+            },
+        )
+        .map_err(|_| {
+            err(
+                ErrorCode::Secrets,
+                "cannot decrypt a secret: wrong key or tampered file",
+            )
+        })?;
+    String::from_utf8(plain).map_err(|_| err(ErrorCode::Secrets, "secret is not UTF-8"))
+}
+
+impl SecretStore for EncryptedFileStore {
+    fn get(&self, key: &str) -> Result<Option<String>> {
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        match self.load()?.remove(key) {
+            Some(sealed) => open(&self.cipher, key, &sealed).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    fn set(&self, key: &str, value: &str) -> Result<()> {
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        let sealed = self.seal(key, value)?;
         let mut map = self.load()?;
-        map.insert(key.to_string(), B64.encode(sealed));
+        map.insert(key.to_string(), sealed);
         self.save(&map)
     }
 
