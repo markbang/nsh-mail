@@ -98,6 +98,8 @@ fn unwrap_table(table: &Handle, depth: usize) -> Vec<Handle> {
             blocks.push(element("div", take(&part)));
         }
     }
+    // Rows of text are lines of one paragraph; a row holding blocks is blocks of its own.
+    let mut lines = Vec::new();
     for row in rows(table).into_iter().filter(|r| !is_hidden(r)) {
         let cells: Vec<Handle> = kids(&row)
             .into_iter()
@@ -108,24 +110,32 @@ fn unwrap_table(table: &Handle, depth: usize) -> Vec<Handle> {
         }
         let stacked = cells.iter().any(has_block);
         cells.iter().for_each(|c| rewrite(c, depth + 1));
-        let line = if cells.len() == 1 {
-            take(&cells[0])
-        } else if stacked {
-            cells.iter().map(|c| element("div", take(c))).collect()
-        } else {
-            let mut line = Vec::new();
-            for (i, c) in cells.iter().enumerate() {
-                if i > 0 {
-                    line.push(Node::new(NodeData::Text {
-                        contents: RefCell::new(StrTendril::from(CELL_GAP)),
-                    }));
-                }
-                let tag = if name(c) == Some("th") { "b" } else { "span" };
-                line.push(element(tag, take(c)));
+        if stacked {
+            if !lines.is_empty() {
+                blocks.push(element("div", std::mem::take(&mut lines)));
             }
-            line
-        };
-        blocks.push(element("div", line));
+            let parts = match cells.as_slice() {
+                [cell] => take(cell),
+                _ => cells.iter().map(|c| element("div", take(c))).collect(),
+            };
+            blocks.push(element("div", parts));
+            continue;
+        }
+        if !lines.is_empty() {
+            lines.push(element("br", Vec::new()));
+        }
+        for (i, c) in cells.iter().enumerate() {
+            if i > 0 {
+                lines.push(Node::new(NodeData::Text {
+                    contents: RefCell::new(StrTendril::from(CELL_GAP)),
+                }));
+            }
+            let tag = if name(c) == Some("th") { "b" } else { "span" };
+            lines.push(element(tag, take(c)));
+        }
+    }
+    if !lines.is_empty() {
+        blocks.push(element("div", lines));
     }
     blocks
 }
