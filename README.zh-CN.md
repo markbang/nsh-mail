@@ -10,6 +10,8 @@
 |---|---|
 | <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/markbang/nsh-mail/screenshots/main/web-reader-dark.png"><img src="https://raw.githubusercontent.com/markbang/nsh-mail/screenshots/main/web-reader-light.png" alt="阅读" width="100%"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/markbang/nsh-mail/screenshots/main/web-compose-dark.png"><img src="https://raw.githubusercontent.com/markbang/nsh-mail/screenshots/main/web-compose-light.png" alt="写信" width="100%"></picture> |
 
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/markbang/nsh-mail/screenshots/main/android-inbox-dark.png"><img src="https://raw.githubusercontent.com/markbang/nsh-mail/screenshots/main/android-inbox-light.png" alt="Android 收件箱" width="270"></picture> <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/markbang/nsh-mail/screenshots/main/android-reader-dark.png"><img src="https://raw.githubusercontent.com/markbang/nsh-mail/screenshots/main/android-reader-light.png" alt="Android 阅读" width="270"></picture>
+
 <sub>截图由 CI 从 main 自动生成（[tools/screenshots](tools/screenshots)）。</sub>
 
 ## 安装

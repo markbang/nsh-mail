@@ -2,14 +2,18 @@ name: Android UI
 
 # The app on an Android emulator, light and dark: a release build with the
 # demo mailbox (`--cfg nshmail_demo`), driven by .github/android-ui.py, its
-# screenshots uploaded as the `android-ui` artifact.
+# screenshots uploaded as the `android-ui` artifact. On main, its inbox and
+# reader also go to main/ on the `screenshots` branch, where README.md links them.
 on:
   workflow_dispatch:
   pull_request:
-    paths:
+    paths: &paths
       - app/**
       - .github/android-ui.py
       - .github/workflows/android-ui.yml
+  push:
+    branches: [main]
+    paths: *paths
 
 permissions:
   contents: read
@@ -91,3 +95,27 @@ jobs:
           name: android-ui
           path: screens/
           if-no-files-found: warn
+
+  publish:
+    needs: emulator
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: android-ui
+          path: ${{ runner.temp }}/android-ui
+      - name: Publish the inbox and reader
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          src="$RUNNER_TEMP/android-ui" pick="$RUNNER_TEMP/pick"
+          mkdir -p "$pick"
+          for t in light dark; do
+            for s in inbox reader; do cp "$src/$t-$s.png" "$pick/android-$s-$t.png"; done
+          done
+          tools/screenshots/publish.sh "$pick" main
