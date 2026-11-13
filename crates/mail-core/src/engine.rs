@@ -6,6 +6,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+use async_imap::extensions::idle::IdleResponse;
+use async_imap::imap_proto::Response;
+use async_imap::types::UnsolicitedResponse;
 use tokio::sync::{OwnedMutexGuard, broadcast};
 use tokio::task::AbortHandle;
 
@@ -20,6 +23,10 @@ use crate::store::{Store, new_id};
 use crate::types::*;
 
 const IDLE_RENEW: Duration = Duration::from_secs(29 * 60);
+/// Servers may hold back changes made by other clients until IDLE ends (GreenMail sends flag
+/// changes only on DONE or with the next EXISTS/EXPUNGE); restarting IDLE this often bounds that
+/// delay. A restart that brings nothing new costs one round trip and no sync.
+const IDLE_CHECK: Duration = Duration::from_secs(30);
 const POLL_INTERVAL: Duration = Duration::from_secs(2 * 60);
 const OP_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// A pooled connection unused for longer than this is checked with NOOP before reuse.
@@ -367,7 +374,8 @@ impl Engine {
         lock(&self.inner.pool).remove(id);
     }
 
-    async fn pooled(&self, account: &Account) -> Result<OwnedMutexGuard<Option<Pooled>>> {
+    /// The account's pooled connection, and whether it was reused rather than opened now.
+    async fn pooled(&self, account: &Account) -> Result<(OwnedMutexGuard<Option<Pooled>>, bool)> {
         let mut g = self.slot(&account.id).lock_owned().await;
         if let Some(p) = g.as_mut()
             && p.last_used.elapsed() > STALE_AFTER
@@ -375,31 +383,50 @@ impl Engine {
         {
             *g = None;
         }
-        if g.is_none() {
+        let reused = g.is_some();
+        if !reused {
             *g = Some(Pooled {
                 conn: self.connect(account).await?,
                 last_used: Instant::now(),
             });
         }
-        Ok(g)
+        Ok((g, reused))
     }
 
     /// Runs `f` on the account's pooled connection; a failed operation discards the connection
-    /// so the next one reconnects.
+    /// so the next one reconnects. Servers close connections that sat unused (GreenMail after
+    /// 30 s), so when a reused connection turns out to be closed, `f` runs once more on a new one.
+    /// Every operation passed here is safe to repeat; other errors are never retried.
     async fn with_imap<T>(
         &self,
         account: &Account,
-        f: impl AsyncFnOnce(&mut Conn) -> Result<T>,
+        f: impl AsyncFnOnce(&mut Conn) -> Result<T> + Clone,
     ) -> Result<T> {
-        let mut g = self.pooled(account).await?;
+        let (mut g, reused) = self.pooled(account).await?;
         let pooled = g.as_mut().expect("connected above");
-        let r = match tokio::time::timeout(OP_TIMEOUT, f(&mut pooled.conn)).await {
-            Ok(r) => r,
-            Err(e) => Err(e.into()),
-        };
+        let mut r = tokio::time::timeout(OP_TIMEOUT, f.clone()(&mut pooled.conn)).await;
+        if matches!(r, Ok(Err(_)))
+            && reused
+            && g.as_ref()
+                .is_some_and(|p| p.conn.session.get_ref().closed())
+        {
+            // Cleared first so a failed reconnect leaves no dead connection in the pool.
+            *g = None;
+            *g = Some(Pooled {
+                conn: self.connect(account).await?,
+                last_used: Instant::now(),
+            });
+            let pooled = g.as_mut().expect("connected above");
+            r = tokio::time::timeout(OP_TIMEOUT, f(&mut pooled.conn)).await;
+        }
+        let r = r.unwrap_or_else(|e| Err(e.into()));
         match &r {
             Err(e) if e.code != ErrorCode::NotFound => *g = None,
-            _ => pooled.last_used = Instant::now(),
+            _ => {
+                if let Some(p) = g.as_mut() {
+                    p.last_used = Instant::now();
+                }
+            }
         }
         r
     }
@@ -745,57 +772,66 @@ async fn watch(inner: &Weak<Inner>, account_id: &str) -> Result<()> {
     }
 }
 
-/// Servers may repeat EXISTS; only a changed count means mail arrived or left.
-fn changed(r: async_imap::types::UnsolicitedResponse, exists: &mut u32) -> bool {
-    use async_imap::types::UnsolicitedResponse;
+/// Whether an untagged response means INBOX changed: a new EXISTS count (servers may repeat it),
+/// an EXPUNGE, or a FETCH with flags changed by another client.
+fn changed(r: UnsolicitedResponse, exists: &mut u32) -> bool {
     match r {
         UnsolicitedResponse::Exists(n) => std::mem::replace(exists, n) != n,
         UnsolicitedResponse::Expunge(_) => {
             *exists = exists.saturating_sub(1);
             true
         }
+        UnsolicitedResponse::Other(d) => matches!(d.parsed(), Response::Fetch(..)),
         _ => false,
     }
 }
 
 async fn idle_loop(inner: &Weak<Inner>, account: &Account, conn: Conn) -> Result<()> {
-    use async_imap::extensions::idle::IdleResponse;
-
     let mut session = conn.session;
     let mut exists = tokio::time::timeout(OP_TIMEOUT, session.select("INBOX"))
         .await??
         .exists;
-    // Untagged responses outside a command's own replies land here, including what the server
-    // reports while IDLE starts (before `+ idling`), which `Handle::wait` never sees.
+    // Untagged responses outside a command's own replies land here: what the server reports
+    // while IDLE starts (before `+ idling`), which `Handle::wait` never sees, and on DONE.
     let unsolicited = session.unsolicited_responses.clone();
-    let mut only = Some(FolderKind::Inbox);
-    loop {
-        // The sync below covers everything reported so far.
+    let drain = |exists: &mut u32| {
+        let mut any = false;
         while let Ok(r) = unsolicited.try_recv() {
-            changed(r, &mut exists);
+            any |= changed(r, exists);
         }
-        {
+        any
+    };
+    let mut full_sync_at = Instant::now() + IDLE_RENEW;
+    let mut sync = true;
+    loop {
+        if sync {
+            // The sync below covers everything reported so far.
+            drain(&mut exists);
             let Some(engine) = upgrade(inner) else {
                 return Ok(());
+            };
+            let only = if Instant::now() >= full_sync_at {
+                full_sync_at = Instant::now() + IDLE_RENEW;
+                None
+            } else {
+                Some(FolderKind::Inbox)
             };
             engine.sync_folders(account, only).await?;
         }
         let mut handle = session.idle();
         tokio::time::timeout(OP_TIMEOUT, handle.init()).await??;
-        let mut arrived = false;
-        while let Ok(r) = unsolicited.try_recv() {
-            arrived |= changed(r, &mut exists);
-        }
+        let mut arrived = drain(&mut exists);
         let response = if arrived {
             None
         } else {
-            let (wait, _stop) = handle.wait_with_timeout(IDLE_RENEW);
+            let wait = IDLE_CHECK.min(full_sync_at.saturating_duration_since(Instant::now()));
+            let (wait, _stop) = handle.wait_with_timeout(wait);
             Some(wait.await?)
         };
         session = tokio::time::timeout(OP_TIMEOUT, handle.done()).await??;
-        only = match response {
-            Some(IdleResponse::Timeout) => None,
-            _ => Some(FolderKind::Inbox),
-        };
+        arrived |= drain(&mut exists);
+        sync = arrived
+            || !matches!(response, Some(IdleResponse::Timeout))
+            || Instant::now() >= full_sync_at;
     }
 }

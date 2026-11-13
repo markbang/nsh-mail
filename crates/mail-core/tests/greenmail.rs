@@ -1,4 +1,5 @@
-//! Real IMAP/SMTP against GreenMail (IMAPS 3993, SMTPS 3465, self-signed cert, auth disabled).
+//! Real IMAP/SMTP against GreenMail (IMAPS 3993, SMTPS 3465, plain IMAP 3143 for "another
+//! client", self-signed cert, auth disabled).
 //! Local: `java -Dgreenmail.setup.test.all -Dgreenmail.auth.disabled -jar greenmail-standalone.jar`
 //! then `cargo test -p mail-core --features insecure-test-tls`.
 
@@ -428,21 +429,132 @@ async fn mail_arriving_as_idle_starts_is_synced() {
     engine.stop();
 }
 
-/// GreenMail closes a connection that sent nothing for about 30 s. async-imap ends a
-/// response stream at EOF without an error, so the sync after the next IDLE wake-up got an empty
-/// SELECT on the pooled connection, cleared INBOX, fetched nothing, and kept that connection.
+/// GreenMail closes a connection that sent nothing for about 30 s, which the engine reused before
+/// its 60 s NOOP check: a pull-to-refresh failed with "the server closed the connection", and so
+/// did the INBOX sync after an IDLE wake-up, which restarted the account's loop 5 s later.
 #[tokio::test(flavor = "multi_thread")]
-async fn mail_after_the_server_closed_the_pooled_connection_is_synced() {
+async fn sync_on_a_pooled_connection_the_server_closed_succeeds() {
     let dir = tempfile::tempdir().unwrap();
     let engine = engine(&dir);
-    let email = unique("quiet");
-    deliver(&mut smtp().await, &email, "first").await;
+    let (pushed, pulled) = (unique("pushed"), unique("pulled"));
+    let mut mta = smtp().await;
+    deliver(&mut mta, &pushed, "first").await;
+    deliver(&mut mta, &pulled, "first").await;
+    let mut rx = engine.subscribe();
+    engine.run().await.unwrap();
+    let pushed = engine.add_imap_account(input(&pushed)).await.unwrap();
+    let pulled = engine.add_imap_account(input(&pulled)).await.unwrap();
+    idling(&mut rx, &pushed).await;
+    tokio::time::sleep(Duration::from_secs(35)).await;
+    while rx.try_recv().is_ok() {}
+
+    engine.sync(&pulled.id).await.unwrap();
+    deliver(&mut smtp().await, &pushed.email, "second").await;
+    assert!(inbox_shows(&engine, &pushed, &["first", "second"]).await);
+    while let Ok(e) = rx.try_recv() {
+        if let MailEvent::SyncState {
+            error: Some(error), ..
+        } = e
+        {
+            panic!("sync failed: {error}");
+        }
+    }
+    engine.stop();
+}
+
+async fn other_client(email: &str) -> async_imap::Session<tokio::net::TcpStream> {
+    let tcp = tokio::net::TcpStream::connect((host(), 3143))
+        .await
+        .unwrap();
+    let mut client = async_imap::Client::new(tcp);
+    client.read_response().await.unwrap();
+    let mut session = client
+        .login(email, "secret")
+        .await
+        .map_err(|e| e.0)
+        .unwrap();
+    session.select("INBOX").await.unwrap();
+    session
+}
+
+async fn uid_of(other: &mut async_imap::Session<tokio::net::TcpStream>, subject: &str) -> String {
+    let found = other
+        .uid_search(format!("SUBJECT \"{subject}\""))
+        .await
+        .unwrap();
+    found.into_iter().next().unwrap().to_string()
+}
+
+async fn inbox_matches(
+    engine: &Engine,
+    account: &Account,
+    secs: u64,
+    pred: impl Fn(&[Summary]) -> bool,
+) -> bool {
+    for _ in 0..secs * 10 {
+        let inbox = engine
+            .list(query(FolderKind::Inbox, account, None, 10))
+            .await
+            .unwrap();
+        if pred(&inbox) {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    false
+}
+
+/// GreenMail, like servers that queue updates for an idling session, sends flag changes made by
+/// another client only when IDLE ends (or with the next EXISTS/EXPUNGE), so the engine used to
+/// see them at the 29-minute renewal.
+#[tokio::test(flavor = "multi_thread")]
+async fn changes_by_another_client_arrive_while_idle() {
+    use futures::TryStreamExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let engine = engine(&dir);
+    let email = unique("elsewhere");
+    let mut smtp = smtp().await;
+    deliver(&mut smtp, &email, "keep").await;
+    deliver(&mut smtp, &email, "drop").await;
     let mut rx = engine.subscribe();
     engine.run().await.unwrap();
     let account = engine.add_imap_account(input(&email)).await.unwrap();
     idling(&mut rx, &account).await;
-    tokio::time::sleep(Duration::from_secs(35)).await;
-    deliver(&mut smtp().await, &email, "second").await;
-    assert!(inbox_shows(&engine, &account, &["first", "second"]).await);
+
+    let mut other = other_client(&email).await;
+    let keep = uid_of(&mut other, "keep").await;
+    let _: Vec<_> = other
+        .uid_store(&keep, "+FLAGS (\\Flagged \\Seen)")
+        .await
+        .unwrap()
+        .try_collect()
+        .await
+        .unwrap();
+    assert!(
+        inbox_matches(&engine, &account, 45, |inbox| inbox.iter().any(|s| s
+            .subject
+            == "keep"
+            && s.flagged
+            && s.seen))
+        .await,
+        "flag change not synced"
+    );
+
+    // GreenMail has closed the idle connection meanwhile.
+    let mut other = other_client(&email).await;
+    let drop = uid_of(&mut other, "drop").await;
+    let _: Vec<_> = other
+        .uid_store(&drop, "+FLAGS (\\Deleted)")
+        .await
+        .unwrap()
+        .try_collect()
+        .await
+        .unwrap();
+    let _: Vec<_> = other.expunge().await.unwrap().try_collect().await.unwrap();
+    assert!(
+        inbox_matches(&engine, &account, 10, |inbox| inbox.len() == 1).await,
+        "expunge not synced"
+    );
     engine.stop();
 }
