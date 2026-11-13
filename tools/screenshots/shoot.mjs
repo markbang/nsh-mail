@@ -114,6 +114,8 @@ for (const theme of ["light", "dark"]) {
   await page.getByText("周末回家吃饭吗？").first().click();
   await id("thread-older").waitFor();
   await shot("conversation", theme);
+  // Reaching that row scrolled the list: back to its top.
+  await home();
 
   await page.getByText("Lunch tomorrow?").first().click();
   await press("reply");
