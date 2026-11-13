@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """WCAG contrast of the text/icon token pairs the app draws, in both appearances.
 
-Usage: scripts/contrast.py [app/theme.json]   (exit 1 when a pair fails)
+Usage: scripts/contrast.py [-v] [app/theme.json]   (exit 1 when a pair fails; -v lists every pair)
 """
 import json, sys
 from pathlib import Path
 
-theme = json.loads(Path(sys.argv[1] if len(sys.argv) > 1 else Path(__file__).parent.parent / "app/theme.json").read_text())["cssVars"]
+paths = [a for a in sys.argv[1:] if a != "-v"]
+theme = json.loads(Path(paths[0] if paths else Path(__file__).parent.parent / "app/theme.json").read_text())["cssVars"]
 
 def rgba(hex_):
     h = hex_.lstrip("#")
@@ -37,6 +38,9 @@ FLAT = {"default": ("default-700", 0.4), "primary": ("primary-600", 0.2), "dange
         "success": ("success-700", 0.2), "warning": ("warning-700", 0.2)}
 FLAT_DARK = {"success": "success", "warning": "warning", "danger": "danger-500"}
 
+# Pairs on their own surface: the phone's snackbar (an inverse surface) and its action.
+EXTRA = [("background", "foreground-800", 4.5), ("primary-300", "foreground-800", 4.5)]
+
 failed = 0
 def check(mode, label, fg, bg, need):
     global failed
@@ -57,6 +61,8 @@ for mode in ("light", "dark"):
     for k in SOLID:
         if k in t:
             check(mode, f"{k}-foreground on {k}", c(f"{k}-foreground"), c(k), 4.5)
+    for ink, bg, need in EXTRA:
+        check(mode, f"{ink} on {bg}", c(ink), c(bg), need)
     for k, (ink, alpha) in FLAT.items():
         ink = FLAT_DARK.get(k, ink) if mode == "dark" else ink
         frame = c(k)

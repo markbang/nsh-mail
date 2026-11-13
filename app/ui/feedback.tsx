@@ -5,6 +5,7 @@ import { Avatar as BaseAvatar, Button as BaseButton } from "nsh/base";
 import { tip } from "./tooltip";
 import { Icon, type IconName } from "./icon";
 import { press } from "./motion";
+import { touch } from "./density";
 import { focusRing, rounded, shadow, type Color, type Radius, type Size, type Variant } from "./tokens";
 import { look } from "./variants";
 
@@ -248,18 +249,36 @@ export function Spinner(props: { label: string; size?: Size; color?: Color | "cu
 }
 
 /** One message at the bottom edge that rises in and leaves on its own. */
-export function Toast(props: { text: string; tone?: "neutral" | "error" }) {
+/** A short message at the bottom, with at most one action (Undo). Touch screens get Material 3's
+ * snackbar (an inverse surface), desktops HeroUI's toast. */
+export function Toast(props: { text: string; tone?: "neutral" | "error"; action?: { label: string; run: () => void } }) {
   const enter = createMotion({ enter: reduceMotion() ? undefined : "slideInUp", duration: 250 });
   return (
     <View
       role="alert"
-      class={`max-w-[440px] flex-row items-center gap-3 rounded-large border border-default-200 bg-content1 px-4 py-3 ${shadow.sm}`}
+      android={{ elevation: 3 }}
+      class={
+        touch
+          ? "min-h-12 w-full max-w-[560px] flex-row items-center gap-3 rounded-small bg-foreground-800 py-1.5 ps-4 pe-2"
+          : `max-w-[440px] flex-row items-center gap-3 rounded-large border border-default-200 bg-content1 px-4 py-3 ${shadow.sm}`
+      }
       style={enter.style}
     >
-      <If when={props.tone === "error"}>
+      <If when={props.tone === "error" && !touch}>
         <Icon name="close" size="sm" tone="danger" />
       </If>
-      <Text class="text-small text-content1-foreground">{props.text}</Text>
+      <Text class={`flex-1 py-2 text-small ${touch ? "text-background" : "text-content1-foreground"}`}>{props.text}</Text>
+      <If when={props.action}>
+        {(action) => (
+          <BaseButton
+            onPress={() => action().run()}
+            class={`min-h-10 items-center justify-center rounded-full px-3 active:bg-primary-300/20 ${focusRing}`}
+            testID="toast-action"
+          >
+            <Text class={`text-small font-medium ${touch ? "text-primary-300" : "text-primary"}`}>{action().label}</Text>
+          </BaseButton>
+        )}
+      </If>
     </View>
   );
 }

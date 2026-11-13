@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Drives nsh-mail on a running emulator with adb and screenshots each screen,
-in light and dark mode: inbox, reader, compose, search, mailboxes, settings,
-and a tab switch that must keep the inbox's scroll position.
+in light and dark mode: inbox, swipe to archive and Undo, selection, pull to
+refresh, reader, compose, search, mailboxes, settings, a tab switch that must
+keep the inbox's scroll position; then larger text and a tablet-sized screen.
 
 Usage: android-ui.py <dir with the APK> <screenshot dir>
 Finds views by their testID (the accessibility resource id) or their text.
@@ -40,6 +41,28 @@ def matches(n, key):
     if key.startswith("id:"):
         return re.fullmatch(key[3:], rid) is not None
     return key in (text, desc)
+
+
+def bounds(key, timeout=20):
+    end = time.time() + timeout
+    while time.time() < end:
+        for n in nodes():
+            if matches(n, key):
+                x1, y1, x2, y2 = map(int, re.findall(r"\d+", n.get("bounds")))
+                if x2 > x1 and y2 > y1:
+                    return x1, y1, x2, y2
+        time.sleep(1)
+    return None
+
+
+def during(gesture, name, at=0.7):
+    """Screenshots `name` while `gesture` (an `adb shell input` command) is under way."""
+    p = subprocess.Popen(["adb", "shell", "input", *gesture])
+    time.sleep(at)
+    with open(os.path.join(out, f"{name}.png"), "wb") as f:
+        f.write(subprocess.run(["adb", "exec-out", "screencap", "-p"], check=True, capture_output=True).stdout)
+    p.wait()
+    print("shot", name, flush=True)
 
 
 def find(key, timeout=20):
@@ -96,9 +119,41 @@ for mode in ("light", "dark"):
     wait("id:messages", 60)
     shot(f"{mode}-inbox")
 
+    # Swipe the first row right: Archive, with Undo.
+    row = bounds("id:message-.*")
+    if row:
+        x1, y1, x2, y2 = row
+        y = (y1 + y2) // 2
+        during(["swipe", str(x1 + 40), str(y), str(x1 + (x2 - x1) * 3 // 10), str(y), "1500"], f"{mode}-swipe-archive", 1.0)
+        adb("shell", "input", "swipe", str(x1 + 40), str(y), str(x2 - 20), str(y), "200")
+        wait("id:toast-action", 5)
+        shot(f"{mode}-archived-snackbar")
+        tap("id:toast-action", 5)
+        time.sleep(1)
+        during(["swipe", str(x2 - 40), str(y), str(x2 - (x2 - x1) * 3 // 10), str(y), "1500"], f"{mode}-swipe-delete", 1.0)
+        time.sleep(1)
+
+        # Long-press selects; a tap adds the next row; back ends it.
+        adb("shell", "input", "swipe", str(x1 + 200), str(y), str(x1 + 200), str(y), "900")
+        time.sleep(0.5)
+        adb("shell", "input", "tap", str(x1 + 200), str(y + (y2 - y1)))
+        wait("id:end-selection", 5)
+        shot(f"{mode}-selection")
+        back()
+
+        # Pull to refresh.
+        during(["swipe", str(w // 2), str(y1), str(w // 2), str(y1 + h // 3), "1200"], f"{mode}-pull-refresh", 0.9)
+
+    if tap("id:inbox-more"):
+        shot(f"{mode}-inbox-menu")
+        back()
+
     tap("id:message-.*")
     wait("id:reader")
     shot(f"{mode}-reader")
+    if tap("id:reader-more"):
+        shot(f"{mode}-reader-menu")
+        back()
     back()
     wait("id:messages")
 
@@ -151,6 +206,25 @@ for mode in ("light", "dark"):
             adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
         wait("id:onboarding")
         shot(f"{mode}-onboarding")
+
+mode = "large"
+# Larger text (Android's font size at 130%), then a tablet-sized screen (1280 x 800 dp).
+adb("shell", "settings", "put", "system", "font_scale", "1.3")
+launch()
+wait("id:messages", 60)
+shot("large-text-inbox")
+tap("id:message-.*")
+wait("id:reader")
+shot("large-text-reader")
+adb("shell", "settings", "put", "system", "font_scale", "1.0")
+adb("shell", "wm", "size", "2560x1600")
+adb("shell", "wm", "density", "320")
+launch()
+wait("id:messages", 60)
+tap("id:message-.*")
+shot("tablet")
+adb("shell", "wm", "size", "reset")
+adb("shell", "wm", "density", "reset")
 
 adb("logcat", "-d", "-s", "nsh:*", "AndroidRuntime:E", check=False)
 with open(os.path.join(out, "logcat.txt"), "w") as f:

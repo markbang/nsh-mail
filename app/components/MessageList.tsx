@@ -1,7 +1,10 @@
 // A virtualized list of messages: unread by weight and a dot, flagged by an
 // icon in its own lane, the account by a bar of its color in the unified view.
 // Pointer devices and wide windows get dense rows with a one-line preview.
-import { List, Text, View, type JSX } from "nsh";
+// Touch screens swipe a row right to archive it, left to delete it, and
+// long-press to select.
+import { createAnimatedValue, effect, List, reduceMotion, Text, View, type JSX } from "nsh";
+import { Haptics } from "nsh/mobile";
 import { t } from "nsh/i18n";
 import type { Summary } from "nsh-mail/native";
 import { AccountMark, Icon, Row, Spinner, touch } from "../ui";
@@ -25,6 +28,13 @@ export interface MessageListProps {
   highlight?: string;
   empty?: JSX.Element;
   testID?: string;
+  /** Swipe actions (touch screens). */
+  onArchive?: (id: string) => void;
+  onDelete?: (id: string) => void;
+  /** Long-press selection (touch screens): `picked` marks rows, `onPick` toggles one. */
+  picked?: (id: string) => boolean;
+  picking?: boolean;
+  onPick?: (id: string) => void;
 }
 
 export function MessageList(props: MessageListProps) {
@@ -50,17 +60,70 @@ export function MessageList(props: MessageListProps) {
       class="flex-1"
     >
       {(m) => (
-        <MessageRow
-          message={m()}
-          selected={props.selectedId === m().id}
-          onPress={() => props.onOpen(m().id)}
-          showAccount={!!props.showAccount && accounts().length > 1}
-          showRecipients={!!props.showRecipients}
-          dense={dense()}
-          terms={terms()}
-        />
+        <Swipe id={m().id} onArchive={props.picking ? undefined : props.onArchive} onDelete={props.picking ? undefined : props.onDelete}>
+          <MessageRow
+            message={m()}
+            selected={props.selectedId === m().id || !!props.picked?.(m().id)}
+            picking={!!props.picking}
+            onPress={() => (props.picking ? props.onPick?.(m().id) : props.onOpen(m().id))}
+            onLongPress={
+              props.onPick
+                ? () => {
+                    Haptics.impact("medium");
+                    props.onPick?.(m().id);
+                  }
+                : undefined
+            }
+            showAccount={!!props.showAccount && accounts().length > 1}
+            showRecipients={!!props.showRecipients}
+            dense={dense()}
+            terms={terms()}
+          />
+        </Swipe>
       )}
     </List>
+  );
+}
+
+/** How far (of the row's width) a swipe must go to act when let go slowly. */
+const SWIPE_AT = 0.35;
+
+/** A row that swipes: right reveals Archive, left Delete. The cell is reused for other
+ * messages, so the offset goes back to 0 whenever its message changes. */
+function Swipe(props: { id: string; onArchive?: (id: string) => void; onDelete?: (id: string) => void; children?: JSX.Element }) {
+  const x = createAnimatedValue(0);
+  let width = 0;
+  effect(() => {
+    void props.id;
+    x.set(0);
+  });
+  const end = (e: { value?: { x?: number }; velocity: { x: number } }) => {
+    const at = (e.value?.x ?? 0) + e.velocity.x * 0.15;
+    const act = width > 0 && Math.abs(at) > width * SWIPE_AT ? (at > 0 ? props.onArchive : props.onDelete) : undefined;
+    if (!act) {
+      void x.spring(0, { velocity: e.velocity.x });
+      return;
+    }
+    const id = props.id;
+    Haptics.impact("light");
+    const away = at > 0 ? width : -width;
+    if (reduceMotion()) act(id);
+    else void x.timing(away, { duration: 180 }).then(() => act(id));
+  };
+  return (
+    <If when={touch && (props.onArchive || props.onDelete)} else={props.children}>
+      <View class="overflow-hidden" onLayout={({ bounds }) => (width = bounds.size.width)}>
+        <View class="absolute inset-0 flex-row items-center justify-between bg-success-100 px-6" style={{ opacity: x.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }) }}>
+          <Icon name="archive" tone="success-800" />
+        </View>
+        <View class="absolute inset-0 flex-row items-center justify-end bg-danger-100 px-6" style={{ opacity: x.interpolate({ inputRange: [-1, 0], outputRange: [1, 0] }) }}>
+          <Icon name="trash" tone="danger-800" />
+        </View>
+        <View pan={{ x }} onPanEnd={end} style={{ translate: [x, 0] }}>
+          {props.children}
+        </View>
+      </View>
+    </If>
   );
 }
 
@@ -89,7 +152,9 @@ function Marked(props: { text: string; terms: string[]; class: string }) {
 function MessageRow(props: {
   message: Summary;
   selected: boolean;
+  picking: boolean;
   onPress: () => void;
+  onLongPress?: () => void;
   showAccount: boolean;
   showRecipients: boolean;
   dense: boolean;
@@ -106,6 +171,7 @@ function MessageRow(props: {
     <Row
       selected={props.selected}
       onPress={props.onPress}
+      onLongPress={props.onLongPress}
       accessibilityLabel={label()}
       testID={`message-${m().id}`}
       class={`flex-row border-b border-divider pe-3 ${props.dense ? (touch ? "py-1.5" : "py-2") : "py-3"}`}
@@ -113,11 +179,24 @@ function MessageRow(props: {
       <If when={props.showAccount}>
         <AccountMark index={accountIndex(m().accountId)} shape="bar" />
       </If>
-      <View class="w-6 items-center pt-1.5">
-        <If when={!m().seen}>
-          <View class="size-2 rounded-full bg-unread" />
-        </If>
-      </View>
+      <If
+        when={props.picking}
+        else={
+          <View class="w-6 items-center pt-1.5">
+            <If when={!m().seen}>
+              <View class="size-2 rounded-full bg-unread" />
+            </If>
+          </View>
+        }
+      >
+        <View class="w-10 items-center pt-0.5">
+          <View class={`size-5 items-center justify-center rounded-full border-2 ${props.selected ? "border-primary bg-primary" : "border-default-400"}`}>
+            <If when={props.selected}>
+              <Icon name="check" size="sm" tone="primary-foreground" />
+            </If>
+          </View>
+        </View>
+      </If>
       <View class={`min-w-0 flex-1 ${touch && props.dense ? "" : "gap-0.5"}`}>
         <View class="flex-row items-center gap-1.5">
           <Text

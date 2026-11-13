@@ -3,7 +3,8 @@
 // narrow browser; the toast, keys and the tray.
 import { keymap, mount, View, type InputRef } from "nsh";
 import { NavStack } from "nsh/base";
-import { Dialog, systemHeader, Toast } from "./ui";
+import { Dialog, systemHeader } from "./ui";
+import { Toasts } from "./components/Toasts";
 import { PhoneTabs } from "./components/PhoneTabs";
 import { Workspace } from "./components/Workspace";
 import { wide } from "./layout";
@@ -19,7 +20,7 @@ import { SearchPage } from "./pages/SearchPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { listenForPushToken } from "./push";
 import { stayResident } from "./resident";
-import { current, isStarted, mailStatus, openMessage, selectedId, start, stepMessage, toast } from "./store";
+import { current, isStarted, mailStatus, moveMessages, openMessage, selectedId, start, stepMessage } from "./store";
 import type { ComposeMode } from "./lib/format";
 
 function page(route: Route) {
@@ -67,6 +68,8 @@ function Main() {
       c: key(() => compose("new")),
       r: key(() => wide() && selectedId() && compose("reply")),
       "/": key(() => (wide() ? search?.focus() : systemHeader ? selectTab(1) : phoneStack.push({ name: "search" }))),
+      e: key(() => wide() && selectedId() && moveMessages([selectedId()!], "archive")),
+      "shift+3": key(() => wide() && selectedId() && moveMessages([selectedId()!], "trash")),
       j: key(() => wide() && stepMessage(1)),
       k: key(() => wide() && stepMessage(-1)),
     },
@@ -117,11 +120,10 @@ function App() {
           <Main />
         </If>
       </If>
-      <View class="absolute inset-x-0 bottom-6 items-center px-4 pb-[env(safe-area-inset-bottom)]" style={{ pointerEvents: "box-none" }}>
-        <Each of={toast() ? [toast()!] : []} key={(x) => x.id}>
-          {(x) => <Toast text={x().text} tone={x().tone} />}
-        </Each>
-      </View>
+      {/* Phones show it over the tab's content (PhoneTabs). */}
+      <If when={!(systemHeader && !wide() && isStarted() && mailStatus().mode !== "none")}>
+        <Toasts class="bottom-6 pb-[env(safe-area-inset-bottom)]" />
+      </If>
     </View>
   );
 }

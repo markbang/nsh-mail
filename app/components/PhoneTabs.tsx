@@ -7,7 +7,8 @@ import { NavStack } from "nsh/base";
 import { t } from "nsh/i18n";
 import { Fab } from "../ui";
 import { NavContext, selectedTab, selectTab, tabs, type Route } from "../nav";
-import { unreadCount } from "../store";
+import { picking, toast, unreadCount } from "../store";
+import { Toasts } from "./Toasts";
 
 // Android: framework drawables (an APK made by `nsh package` has none of its own); iOS: SF Symbols.
 const icons = {
@@ -54,11 +55,13 @@ export function PhoneTabs(props: { page: (route: Route) => JSX.Element; onCompos
             </View>
           )}
         </Each>
-        <If when={selectedTab() === 0 && depth() === 1}>
-          <View class="absolute bottom-4 end-4">
+        <If when={selectedTab() === 0 && depth() === 1 && !picking()}>
+          {/* Material 3: the button rises over a snackbar. */}
+          <View class={`absolute bottom-4 end-4 transition-transform duration-250 ease-css motion-reduce:transition-none ${toast() ? "-translate-y-[64px]" : ""}`}>
             <Fab icon="compose" label={t("actions.compose")} extended onPress={props.onCompose} testID="compose" />
           </View>
         </If>
+        <Toasts class={covered() ? "bottom-4 pb-[env(safe-area-inset-bottom)]" : "bottom-4"} />
       </View>
       <View class={covered() ? "hidden" : ""}>
         <TabBar

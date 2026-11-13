@@ -1,8 +1,8 @@
 {
   "name": "nsh-mail",
   "id": "top.bangwu.nshmail",
-  "version": "0.1.1",
-  "build": 2,
+  "version": "0.1.2",
+  "build": 3,
   "rust": ".",
   "theme": "theme.json",
   "icon": "icon.png",

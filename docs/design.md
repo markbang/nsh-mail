@@ -68,6 +68,7 @@ Mail.openAttachment(id, attachment): Promise<string | null>  // Web：图片/PDF
                                                    // 没有保存对话框时（Android）存进应用目录再打开。返回已保存但没有程序打开的文件路径
 Mail.attachmentPreview(id, attachment): Promise<string>      // PNG/JPEG/GIF/WebP（≤ 8 MB）的 data: URI，阅读页缩略图
 Mail.setFlags(id, { seen?, flagged? }): Promise<void>
+Mail.moveTo(id, "archive" | "trash" | …): Promise<void>   // IMAP MOVE（无 MOVE 时 COPY + \Deleted + EXPUNGE）；没有 Archive/Trash 时创建，Gmail 的归档是 All Mail
 Mail.send(draft: Draft): Promise<void>             // 回复时带 inReplyTo / references；attachments 见 §4 附件
 Mail.stage(name, type, bytes: Uint8Array, onProgress: (sent) => void): Promise<Upload>   // 暂存附件，得到 id
 Mail.stageFile(path, type, onProgress): Promise<Upload>   // 本地文件（桌面拖放、文件管理器复制后粘贴），Rust 读；Web 上 reject
@@ -141,6 +142,7 @@ GET  /v1/messages?folder=&account=&before=&limit=         GET /v1/messages/{id}
 GET  /v1/messages/{id}/attachments/{index}  附件字节：Content-Type 为其类型，Content-Disposition: attachment（filename* 按 RFC 5987 带 UTF-8 原名），
                                             CSP sandbox + nosniff；本地没有正文时从 IMAP 取并缓存
 PATCH /v1/messages/{id}  {seen?, flagged?}
+POST /v1/messages/{id}/move  {folder}     移到同一账号的另一个文件夹（归档、删除到废纸篓）
 POST /v1/send            GET /v1/search?q=&limit=      GET /v1/unread → {accountId: 未读数}
 POST /v1/uploads         {filename, mimeType, size} → Upload {id, filename, mimeType, size}
 PATCH /v1/uploads/{id}?offset=   分块原始字节（≤ 4 MiB）→ {received}      DELETE /v1/uploads/{id}

@@ -1,8 +1,27 @@
 // The chosen mailbox's messages, or the search's results while a search runs.
+import { View } from "nsh";
 import { t } from "nsh/i18n";
-import { Button, Empty } from "../ui";
+import { Button, Empty, Spinner } from "../ui";
 import { MessageList } from "./MessageList";
-import { accountName, accounts, hasMore, listStatus, loadMore, mailbox, messages, refresh, SEARCH_LIMIT, searchQuery, searchResults, selectedId } from "../store";
+import {
+  accountName,
+  accounts,
+  hasMore,
+  isPicked,
+  listStatus,
+  loadMore,
+  mailbox,
+  messages,
+  moveMessages,
+  picking,
+  refresh,
+  reload,
+  SEARCH_LIMIT,
+  searchQuery,
+  searchResults,
+  selectedId,
+  togglePicked,
+} from "../store";
 
 /** The chosen mailbox's name. */
 export function mailboxTitle() {
@@ -20,9 +39,10 @@ export function resultCount(count: number) {
   return count === 1 ? t("search.countOne") : t("search.count", { count });
 }
 
-export function MailboxList(props: { onOpen: (id: string) => void; onAddAccount: () => void; highlight?: boolean; searchable?: boolean }) {
+export function MailboxList(props: { onOpen: (id: string) => void; onAddAccount: () => void; highlight?: boolean; searchable?: boolean; touchActions?: boolean }) {
   // Phones search on a page of their own; the list there stays the mailbox's.
   const searching = () => props.searchable !== false && searchResults() !== null;
+  const folder = () => mailbox().folder;
   return (
     <If
       when={searching()}
@@ -38,20 +58,39 @@ export function MailboxList(props: { onOpen: (id: string) => void; onAddAccount:
           showAccount={mailbox().account === null}
           showRecipients={mailbox().folder === "sent" || mailbox().folder === "drafts"}
           testID="messages"
+          onArchive={props.touchActions && folder() !== "archive" && folder() !== "trash" ? (id) => moveMessages([id], "archive") : undefined}
+          onDelete={props.touchActions && folder() !== "trash" ? (id) => moveMessages([id], "trash") : undefined}
+          picked={isPicked}
+          picking={!!props.touchActions && picking()}
+          onPick={props.touchActions ? (id) => togglePicked(id) : undefined}
           empty={
-            <If when={listStatus() !== "loading"}>
+            <If
+              when={listStatus() !== "loading"}
+              else={
+                <View class="flex-1 items-center justify-center p-8">
+                  <Spinner label={t("reader.loading")} />
+                </View>
+              }
+            >
               <If
-                when={accounts().length}
+                when={listStatus() === "error"}
                 else={
-                  <Empty
-                    icon="inbox"
-                    title={t("empty.noAccounts")}
-                    description={t("empty.noAccountsHint")}
-                    action={<Button color="primary" icon="plus" label={t("accounts.add")} onPress={props.onAddAccount} />}
-                  />
+                  <If
+                    when={accounts().length}
+                    else={
+                      <Empty
+                        icon="inbox"
+                        title={t("empty.noAccounts")}
+                        description={t("empty.noAccountsHint")}
+                        action={<Button color="primary" icon="plus" label={t("accounts.add")} onPress={props.onAddAccount} />}
+                      />
+                    }
+                  >
+                    <Empty icon="inbox" title={t("empty.mailbox")} />
+                  </If>
                 }
               >
-                <Empty icon="inbox" title={t("empty.mailbox")} />
+                <Empty icon="inbox" title={t("empty.loadFailed")} action={<Button variant="flat" icon="refresh" label={t("actions.retry")} onPress={() => void reload()} />} />
               </If>
             </If>
           }

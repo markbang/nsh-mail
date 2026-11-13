@@ -793,6 +793,14 @@ impl Store {
         Ok(())
     }
 
+    pub fn delete_message(&self, id: &str) -> Result<()> {
+        self.conn().execute(
+            "DELETE FROM messages WHERE user_id = ?1 AND id = ?2",
+            params![self.user, id],
+        )?;
+        Ok(())
+    }
+
     pub fn set_local_flags(&self, id: &str, flags: Flags) -> Result<()> {
         self.conn().execute(
             "UPDATE messages SET seen = IFNULL(?3, seen), flagged = IFNULL(?4, flagged)

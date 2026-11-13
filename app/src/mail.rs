@@ -378,6 +378,11 @@ impl Mail {
         backend()?.set_flags(id, flags.0).await.map_err(js)
     }
 
+    /// Moves a message to another folder of its account: `"archive"`, `"trash"`.
+    pub async fn move_to(id: String, folder: Js<FolderKind>) -> Result<(), JsError> {
+        backend()?.move_to(id, folder.0).await.map_err(js)
+    }
+
     /// Sends a message.
     pub async fn send(draft: Js<Draft>) -> Result<(), JsError> {
         let account = draft.0.account_id.clone();

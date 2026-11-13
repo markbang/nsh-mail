@@ -1,7 +1,7 @@
 // Pressable rows: HeroUI's Listbox and its items for navigation, and the list
 // row the message list is built from. Rows fill instead of scaling; a
 // selected row keeps its fill under the pointer.
-import { Text, View, type JSX } from "nsh";
+import { Text, token, View, type JSX } from "nsh";
 import { Button as BaseButton } from "nsh/base";
 import { touch } from "./density";
 import { tip } from "./tooltip";
@@ -10,7 +10,8 @@ import { wash } from "./motion";
 
 const rowFocus = "focus-visible:outline-2 focus-visible:outline-focus focus-visible:-outline-offset-2";
 
-/** A full-width pressable row: the message list's. */
+/** A full-width pressable row: the message list's. Touch screens get the platform's press
+ * feedback (Android's ripple) and long presses. */
 export function Row(props: {
   selected?: boolean;
   onPress?: () => void;
@@ -21,6 +22,22 @@ export function Row(props: {
   class?: string;
   children?: JSX.Element;
 }) {
+  if (touch) {
+    return (
+      <View
+        role="button"
+        accessibilityLabel={props.accessibilityLabel}
+        accessibilityState={{ selected: !!props.selected }}
+        onPress={() => props.onPress?.()}
+        onLongPress={props.onLongPress ? () => props.onLongPress?.() : undefined}
+        android={{ ripple: { color: `${token("foreground").slice(0, 7)}1f` } }}
+        testID={props.testID}
+        class={`${props.selected ? "bg-selected" : "bg-background"} ios:active:bg-pressed ${wash} ${props.class ?? ""}`}
+      >
+        {props.children}
+      </View>
+    );
+  }
   return (
     <BaseButton
       onPress={props.onPress}

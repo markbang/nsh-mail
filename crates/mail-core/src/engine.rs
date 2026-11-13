@@ -654,6 +654,73 @@ impl Engine {
         Ok(())
     }
 
+    /// Moves a message to another folder of its account (archive, delete to Trash), creating
+    /// Archive or Trash when the server has none. The message leaves its folder here at once;
+    /// it shows in the other folder once that one syncs, which this starts.
+    pub async fn move_to(&self, id: &str, to: FolderKind) -> Result<()> {
+        let mid = id.to_string();
+        let stored = self.store().run(move |s| s.message(&mid)).await?;
+        let from = stored.summary.folder;
+        if from == to {
+            return Ok(());
+        }
+        let account = self.account(&stored.summary.account_id).await?;
+        let gmail = is_gmail(&account);
+        let store = self.store().clone();
+        let account_id = account.id.clone();
+        let (folder, uid) = (stored.folder_name.clone(), stored.uid);
+        let target = self
+            .with_imap(&account, async |conn| {
+                let id = account_id.clone();
+                let mut target = store.run(move |s| s.folder(&id, to)).await?;
+                if target.is_none() {
+                    let mut found = imap::discover(&mut conn.session).await?;
+                    let name = match to {
+                        FolderKind::Archive => "Archive",
+                        FolderKind::Trash => "Trash",
+                        _ => "",
+                    };
+                    if !found.iter().any(|(k, _)| *k == to) && !gmail && !name.is_empty() {
+                        imap::create(&mut conn.session, name).await?;
+                        found.push((to, name.to_string()));
+                    }
+                    let id = account_id.clone();
+                    target = store
+                        .run(move |s| {
+                            s.set_folders(&id, &found)?;
+                            s.folder(&id, to)
+                        })
+                        .await?;
+                }
+                let target = target.ok_or_else(|| {
+                    err(
+                        ErrorCode::Unsupported,
+                        format!("{} has no {to:?} folder to move the message to", account.email),
+                    )
+                })?;
+                imap::move_message(conn, &folder, uid, &target.name).await?;
+                Ok(target)
+            })
+            .await?;
+        let mid = id.to_string();
+        self.store().run(move |s| s.delete_message(&mid)).await?;
+        self.emit(MailEvent::Changed {
+            account_id: account.id.clone(),
+            folder: from,
+        });
+        let store = self.store().clone();
+        let synced = self
+            .with_imap(&account, async |conn| imap::sync_folder(conn, &store, target).await)
+            .await;
+        if synced.is_ok_and(|r| r.changed) {
+            self.emit(MailEvent::Changed {
+                account_id: account.id,
+                folder: to,
+            });
+        }
+        Ok(())
+    }
+
     /// Sends over SMTP, then saves a copy to Sent (Gmail saves it itself). Once SMTP accepted the
     /// message this returns `Ok`; a failure to save the copy is reported as an `Error` event,
     /// so callers never resend a delivered message.
