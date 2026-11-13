@@ -1,10 +1,12 @@
 // Staying around on the desktops: closing the window hides it to the tray,
 // and new mail shows a system notification while the app is not in front.
-import { cleanup, effect, lifecycle, Notifications } from "nsh";
+import { cleanup, effect, lifecycle, Notifications, platform } from "nsh";
 import { t } from "nsh/i18n";
 import { currentWindow, isAvailable, Tray, type WindowRef } from "nsh/desktop";
 import type { Summary } from "nsh-mail/native";
 import icon from "./assets/tray.svg";
+// Linux tints an SVG for the app's light or dark scheme, not the panel's (black on GNOME's dark bar): the full-color icon reads on any panel.
+import linuxIcon from "./assets/tray-linux.png";
 import { displayName } from "./lib/format";
 import { notificationsEnabled, onNewMail } from "./store";
 
@@ -24,7 +26,7 @@ export function stayResident(openFromNotification: (id: string) => void) {
     cleanup(win.on("closePress", () => win.hide()));
     effect(() => {
       Tray.set({
-        icon,
+        icon: platform.os === "linux" ? linuxIcon : icon,
         tooltip: "nsh-mail",
         onClick: () => win.focus(),
         menu: [{ label: t("tray.open"), onSelect: () => win.focus() }, { type: "separator" }, { role: "quit", label: t("tray.quit") }],

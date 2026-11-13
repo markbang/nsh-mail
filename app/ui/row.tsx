@@ -186,7 +186,7 @@ export function NavigationRail(props: {
                         <View class={`absolute inset-0 rounded-full ${on() ? "scale-100 bg-secondary-container" : "scale-x-50 opacity-0 group-hover:scale-100 group-hover:bg-on-surface/8 group-hover:opacity-100"} ${shapeMorph}`} />
                         {icon()}
                         <If when={item().badge}>
-                          <View class="absolute start-[30px] top-0.5 h-4 min-w-4 items-center justify-center rounded-full bg-error px-1">
+                          <View class="absolute start-[30px] top-0.5 min-h-4 min-w-4 items-center justify-center rounded-full bg-error px-1">
                             <Text class="text-label-small tabular-nums text-on-error">{count(item().badge)}</Text>
                           </View>
                         </If>

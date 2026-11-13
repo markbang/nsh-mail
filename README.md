@@ -19,7 +19,7 @@ A unified inbox for all your mail accounts, built with [Native Shell](https://ns
 Download from [Releases](https://github.com/markbang/nsh-mail/releases/latest):
 
 - **Android 8+**: `nsh-mail-<version>-android-arm64.apk`. Had a 0.1.x test build installed? Uninstall it once first: releases are signed with a new key (certificate SHA-256 `F3:92:9A:E4:…:6B:4B:42`).
-- **Linux x86_64**: `nsh-mail-<version>-linux-x86_64.tar.gz`. Needs GTK 4.14+, and WebKitGTK 6.0 for HTML mail.
+- **Linux x86_64**: `nsh-mail-<version>-linux-x86_64.tar.gz`. Needs GTK 4.14+, and WebKitGTK 6.0 for HTML mail; packages, launcher entry and tray: [docs/linux.md](docs/linux.md).
 - **Windows x64**: `nsh-mail-<version>-windows-x64-setup.exe` or the `.zip`. Unsigned, so SmartScreen warns on first run.
 - **Web and cloud mode**: the server image `ghcr.io/markbang/nsh-mail` serves the web client ([deploy](crates/server/README.md)).
 

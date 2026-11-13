@@ -90,7 +90,7 @@ function Main() {
       }
     >
       {/* Tablets draw edge to edge: the panes stay clear of the status bar and the taskbar. */}
-      <View class="flex-1 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] ps-[env(safe-area-inset-left)] pe-[env(safe-area-inset-right)]">
+      <View class="flex-1 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
         <Workspace
           onCompose={compose}
           onSettings={() => show({ name: "settings" }, true)}

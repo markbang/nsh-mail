@@ -113,13 +113,13 @@ export function ImapPage() {
             <SectionLabel label={t("imap.incoming")} class="px-0 pb-0" />
             <View class="flex-row gap-2">
               <TextField class="flex-1" value={settings().imap.host} onChange={(v) => set("imap", { host: v.trim() })} kind="url" label={t("imap.imapHost")} testID="imap-host" />
-              <TextField class="w-20" value={String(settings().imap.port || "")} onChange={(v) => set("imap", { port: port(v) })} kind="number" label={t("imap.imapPort")} testID="imap-port" />
+              <TextField class="w-20" value={String(settings().imap.port || "")} onChange={(v) => set("imap", { port: port(v) })} kind="number" label={t("imap.port")} testID="imap-port" />
             </View>
             <SelectField value={settings().imap.security} items={security} onChange={(v) => set("imap", { security: v as Security })} label={t("imap.security")} />
             <SectionLabel label={t("imap.outgoing")} class="px-0 pb-0" />
             <View class="flex-row gap-2">
               <TextField class="flex-1" value={settings().smtp.host} onChange={(v) => set("smtp", { host: v.trim() })} kind="url" label={t("imap.smtpHost")} testID="smtp-host" />
-              <TextField class="w-20" value={String(settings().smtp.port || "")} onChange={(v) => set("smtp", { port: port(v) })} kind="number" label={t("imap.smtpPort")} testID="smtp-port" />
+              <TextField class="w-20" value={String(settings().smtp.port || "")} onChange={(v) => set("smtp", { port: port(v) })} kind="number" label={t("imap.port")} testID="smtp-port" />
             </View>
             <SelectField value={settings().smtp.security} items={security} onChange={(v) => set("smtp", { security: v as Security })} label={t("imap.security")} />
             <TextField value={settings().username} onChange={(v) => settings.update((s) => ({ ...s, username: v.trim() }))} kind="email" label={t("imap.username")} />

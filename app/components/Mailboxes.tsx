@@ -5,7 +5,7 @@ import { Text, View, type JSX } from "nsh";
 import { t } from "nsh/i18n";
 import type { Folder } from "nsh-mail/native";
 import { AccountMark, IconButton, LoadingIndicator, NavigationRail, type IconName, type RailItem } from "../ui";
-import { accountName, accounts, mailbox, mailStatus, openMailbox, refresh, unreadCount } from "../store";
+import { accountName, accounts, clearSearch, mailbox, mailStatus, openMailbox, refresh, unreadCount } from "../store";
 
 const folders: { folder: Folder; icon: IconName }[] = [
   { folder: "sent", icon: "send" },
@@ -70,7 +70,11 @@ export function MailboxRail(props: { expanded: boolean; fab: JSX.Element; onSett
       expanded={props.expanded}
       items={items()}
       selected={keyOf(mailbox().account, mailbox().folder)}
-      onSelect={choose}
+      onSelect={(key) => {
+        // The list pane shows search results over the mailbox: choosing a mailbox leaves the search.
+        clearSearch();
+        choose(key);
+      }}
       header={props.fab}
       footer={<Status expanded={props.expanded} onSettings={props.onSettings} />}
       testID="mailbox-rail"
