@@ -30,13 +30,13 @@ export function AddAccountPage() {
     <NavPage title={t("accounts.add")} header={<PageHeader title={t("accounts.add")} />}>
       <PageScroll contentClass={touch ? "gap-6 p-4" : "gap-6 p-6"}>
         <View class="gap-1">
-          <Text class={`font-semibold text-foreground ${touch ? "text-xl" : "text-base"}`}>{t("accounts.addTitle")}</Text>
-          <Text class={`text-muted-foreground ${touch ? "text-sm" : "text-xs"}`}>{t("accounts.addHint")}</Text>
+          <Text class={`font-semibold text-foreground ${touch ? "text-xl" : "text-medium"}`}>{t("accounts.addTitle")}</Text>
+          <Text class={`text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>{t("accounts.addHint")}</Text>
         </View>
         <View class="gap-2">
-          <Button size="lg" mark={google} label={t("accounts.google")} loading={busy() === "google"} disabled={!!busy()} onPress={() => void oauth("google")} testID="add-google" />
-          <Button size="lg" mark={microsoft} label={t("accounts.microsoft")} loading={busy() === "microsoft"} disabled={!!busy()} onPress={() => void oauth("microsoft")} testID="add-microsoft" />
-          <Button size="lg" icon="mail" label={t("accounts.other")} disabled={!!busy()} onPress={() => nav.stack.push({ name: "imap" })} testID="add-imap" />
+          <Button size="lg" variant="bordered" fullWidth mark={google} label={t("accounts.google")} loading={busy() === "google"} disabled={!!busy()} onPress={() => void oauth("google")} testID="add-google" />
+          <Button size="lg" variant="bordered" fullWidth mark={microsoft} label={t("accounts.microsoft")} loading={busy() === "microsoft"} disabled={!!busy()} onPress={() => void oauth("microsoft")} testID="add-microsoft" />
+          <Button size="lg" variant="bordered" fullWidth icon="mail" label={t("accounts.other")} disabled={!!busy()} onPress={() => nav.stack.push({ name: "imap" })} testID="add-imap" />
         </View>
       </PageScroll>
     </NavPage>

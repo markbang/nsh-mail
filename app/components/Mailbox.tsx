@@ -46,7 +46,7 @@ export function MailboxList(props: { onOpen: (id: string) => void; onAddAccount:
                     icon="inbox"
                     title={t("empty.noAccounts")}
                     description={t("empty.noAccountsHint")}
-                    action={<Button variant="primary" icon="plus" label={t("accounts.add")} onPress={props.onAddAccount} />}
+                    action={<Button color="primary" icon="plus" label={t("accounts.add")} onPress={props.onAddAccount} />}
                   />
                 }
               >

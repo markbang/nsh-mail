@@ -23,12 +23,12 @@ function Choice(props: { icon: IconName; title: string; detail: string; selected
       selected={props.selected}
       onPress={props.onPress}
       testID={props.testID}
-      class="flex-row items-start gap-3 rounded-(--radius-lg) border border-border p-4 selected:border-primary"
+      class={`flex-row items-start gap-3 rounded-large border-2 p-4 ${props.selected ? "border-primary" : "border-default-200"}`}
     >
       <Icon name={props.icon} tone={props.selected ? "primary" : "muted-foreground"} />
       <View class="flex-1 gap-1">
-        <Text class={`font-medium text-foreground ${touch ? "text-base" : "text-sm"}`}>{props.title}</Text>
-        <Text class={`text-muted-foreground ${touch ? "text-sm" : "text-xs"}`}>{props.detail}</Text>
+        <Text class={`font-medium text-foreground ${touch ? "text-medium" : "text-small"}`}>{props.title}</Text>
+        <Text class={`text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>{props.detail}</Text>
       </View>
     </Row>
   );
@@ -70,10 +70,10 @@ export function Onboarding() {
           <Text role="header" class={`font-semibold text-foreground ${touch ? "text-2xl" : "text-xl"}`}>
             {t("onboarding.title")}
           </Text>
-          <Text class={`text-muted-foreground ${touch ? "text-base" : "text-sm"}`}>{web ? t("onboarding.subtitleWeb") : t("onboarding.subtitle")}</Text>
+          <Text class={`text-foreground-500 ${touch ? "text-medium" : "text-small"}`}>{web ? t("onboarding.subtitleWeb") : t("onboarding.subtitle")}</Text>
         </View>
 
-        <If when={!web} else={<Text class={`text-muted-foreground ${touch ? "text-sm" : "text-xs"}`}>{t("onboarding.webOnlyCloud")}</Text>}>
+        <If when={!web} else={<Text class={`text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>{t("onboarding.webOnlyCloud")}</Text>}>
           <View class="gap-2">
             <Choice
               icon="device"
@@ -117,14 +117,15 @@ export function Onboarding() {
         </If>
 
         <If when={error()}>
-          <Text class={`text-destructive ${touch ? "text-sm" : "text-xs"}`} testID="onboarding-error">
+          <Text class={`text-danger ${touch ? "text-small" : "text-tiny"}`} testID="onboarding-error">
             {error()}
           </Text>
         </If>
 
         <Button
-          variant="primary"
+          color="primary"
           size="lg"
+          fullWidth
           label={mode() === "local" ? t("onboarding.useLocal") : signUp() ? t("onboarding.createAccount") : t("onboarding.signIn")}
           loading={busy()}
           onPress={() => void go()}

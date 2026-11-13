@@ -5,7 +5,7 @@ import { createMotion, Image, openUrl, reduceMotion, Scroll, signal, Text, View 
 import { TextView } from "nsh/base";
 import { t } from "nsh/i18n";
 import { Mail, type Attachment, type Message } from "nsh-mail/native";
-import { AccountMark, Avatar, Button, FileTile, Icon, IconButton, Separator, touch } from "../ui";
+import { AccountMark, Avatar, Button, FileTile, Icon, IconButton, Divider, touch } from "../ui";
 import { displayName, fileSize, fullDate, type ComposeMode } from "../lib/format";
 import { accountById, accountIndex, accounts, errorText, setFlags, showToast } from "../store";
 
@@ -23,17 +23,19 @@ export function ReaderActions(props: { message: Message; onCompose: (mode: Compo
   const m = () => props.message;
   return (
     <View class="flex-row items-center gap-1">
-      <IconButton icon="reply" label={t("actions.reply")} shortcut="R" onPress={() => props.onCompose("reply")} testID="reply" />
-      <IconButton icon="replyAll" label={t("actions.replyAll")} onPress={() => props.onCompose("replyAll")} testID="reply-all" />
-      <IconButton icon="forward" label={t("actions.forward")} onPress={() => props.onCompose("forward")} testID="forward" />
-      <View class="mx-1 h-5 w-px bg-border" />
+      <IconButton size={touch ? "md" : "sm"} icon="reply" label={t("actions.reply")} shortcut="R" onPress={() => props.onCompose("reply")} testID="reply" />
+      <IconButton size={touch ? "md" : "sm"} icon="replyAll" label={t("actions.replyAll")} onPress={() => props.onCompose("replyAll")} testID="reply-all" />
+      <IconButton size={touch ? "md" : "sm"} icon="forward" label={t("actions.forward")} onPress={() => props.onCompose("forward")} testID="forward" />
+      <Divider orientation="vertical" class="mx-1 !h-5" />
       <IconButton
+        size={touch ? "md" : "sm"}
         icon={m().seen ? "mail" : "mailOpen"}
         label={m().seen ? t("actions.markUnread") : t("actions.markRead")}
         onPress={() => void setFlags(m().id, { seen: !m().seen })}
         testID="toggle-seen"
       />
       <IconButton
+        size={touch ? "md" : "sm"}
         icon={m().flagged ? "flagFilled" : "flag"}
         tone={m().flagged ? "flag" : "foreground"}
         selected={m().flagged}
@@ -66,26 +68,26 @@ export function Reader(props: ReaderProps) {
     <Scroll class="flex-1" style={enter.style} testID="reader">
       <View selectable class={touch ? "gap-4 px-4 pb-8 pt-4" : "gap-4 px-6 pb-10 pt-5"}>
       <View class="gap-3">
-        <Text role="header" class={`font-semibold text-foreground ${touch ? "text-xl" : "text-lg"}`}>
+        <Text role="header" class={`font-semibold text-foreground ${touch ? "text-xl" : "text-large"}`}>
           {m().subject || t("reader.noSubject")}
         </Text>
         <View class="flex-row items-start gap-3">
           <Avatar name={displayName(m().from)} />
           <View class="min-w-0 flex-1 gap-0.5">
             <View class="flex-row flex-wrap items-baseline gap-x-2">
-              <Text class={`font-medium text-foreground ${touch ? "text-base" : "text-sm"}`}>{displayName(m().from)}</Text>
-              <Text class={`text-muted-foreground ${touch ? "text-sm" : "text-xs"}`}>{m().from?.email ?? ""}</Text>
+              <Text class={`font-medium text-foreground ${touch ? "text-medium" : "text-small"}`}>{displayName(m().from)}</Text>
+              <Text class={`text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>{m().from?.email ?? ""}</Text>
             </View>
-            <Text class={`line-clamp-2 text-muted-foreground ${touch ? "text-sm" : "text-xs"}`}>
+            <Text class={`line-clamp-2 text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>
               {t("reader.toList", { names: recipients() || t("compose.noRecipients") })}
             </Text>
             <View class="flex-row items-center gap-1.5">
               <If when={accounts().length > 1 && account()}>
                 <AccountMark index={accountIndex(m().accountId)} />
-                <Text class="text-xs text-muted-foreground">{account()?.email}</Text>
-                <Text class="text-xs text-muted-foreground">·</Text>
+                <Text class="text-tiny text-foreground-500">{account()?.email}</Text>
+                <Text class="text-tiny text-foreground-500">·</Text>
               </If>
-              <Text class="text-xs tabular-nums text-muted-foreground">{fullDate(m().date)}</Text>
+              <Text class="text-tiny tabular-nums text-foreground-500">{fullDate(m().date)}</Text>
             </View>
           </View>
         </View>
@@ -93,14 +95,14 @@ export function Reader(props: ReaderProps) {
           <ReaderActions message={m()} onCompose={props.onCompose} />
         </If>
       </View>
-      <Separator />
+      <Divider />
       <If when={blocked() && !showImages()}>
-        <View class="flex-row items-center gap-3 rounded-(--radius) bg-muted px-3 py-2">
-          <Icon name="image" size="sm" tone="muted-foreground" />
-          <Text class={`flex-1 text-muted-foreground ${touch ? "text-sm" : "text-xs"}`}>{t("reader.imagesBlocked")}</Text>
+        <View class="flex-row items-center gap-3 rounded-medium bg-default-100 px-3 py-2">
+          <Icon name="image" size="sm" tone="default-500" />
+          <Text class={`flex-1 text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>{t("reader.imagesBlocked")}</Text>
           <Button
             size="sm"
-            variant="ghost"
+            variant="flat"
             label={t("reader.loadImages")}
             onPress={() => imagesShown.update((s) => ({ ...s, [m().id]: true }))}
           />
@@ -109,7 +111,7 @@ export function Reader(props: ReaderProps) {
       <If
         when={html()}
         else={
-          <Text class={`text-foreground ${touch ? "text-base leading-6" : "text-sm leading-6"}`} testID="body-text">
+          <Text class={`text-foreground ${touch ? "text-medium leading-6" : "text-small leading-6"}`} testID="body-text">
             {m().text ?? ""}
           </Text>
         }
@@ -125,23 +127,23 @@ export function Reader(props: ReaderProps) {
             }}
             renderImage={(image) =>
               image.src ? (
-                <Image src={image.src} accessibilityLabel={image.alt} class="max-w-full rounded-(--radius)" style={{ width: "100%", aspectRatio: 16 / 9 }} />
+                <Image src={image.src} accessibilityLabel={image.alt} class="max-w-full rounded-medium" style={{ width: "100%", aspectRatio: 16 / 9 }} />
               ) : (
-                <View class="flex-row items-center gap-2 rounded-(--radius) border border-border px-3 py-2">
-                  <Icon name="image" size="sm" tone="muted-foreground" />
-                  <Text class="text-xs text-muted-foreground">{image.alt || t("reader.blockedImage")}</Text>
+                <View class="flex-row items-center gap-2 rounded-medium border border-divider px-3 py-2">
+                  <Icon name="image" size="sm" tone="default-500" />
+                  <Text class="text-tiny text-foreground-500">{image.alt || t("reader.blockedImage")}</Text>
                 </View>
               )
             }
-            class={`gap-3 text-foreground ${touch ? "text-base" : "text-sm"}`}
-            classes={{ link: "text-primary", blockquote: "border-l-2 border-border pl-3 text-muted-foreground" }}
+            class={`gap-3 text-foreground ${touch ? "text-medium" : "text-small"}`}
+            classes={{ link: "text-primary", blockquote: "border-l-2 border-divider pl-3 text-foreground-500" }}
             testID="body-html"
           />
         )}
       </If>
       <If when={m().attachments.length}>
         <View class="gap-2">
-          <Text class="text-xs font-medium text-muted-foreground">{t("reader.attachments")}</Text>
+          <Text class="text-tiny font-medium text-foreground-500">{t("reader.attachments")}</Text>
           <View class="flex-row flex-wrap items-end gap-2">
             <Each of={m().attachments.map((attachment) => ({ id: m().id, attachment }))} key={(x) => `${x.id}:${x.attachment.index}`}>
               {(x) => <AttachmentTile messageId={x().id} attachment={x().attachment} />}
