@@ -170,6 +170,7 @@ test("cloud mode: attachments upload in chunks, arrive whole, forward, and stay 
   await bobs.press("id:messages >> text:Quarterly report");
   await bobs.waitFor("id:reader >> text:2026年第三季度报告.pdf", slow);
   expect(bobs.shows("id:reader >> text:截图.png")).toBe(false);
-  await bobs.press("id:thread-older");
+  await bobs.waitFor("id:thread-older >> text:me", slow);
+  await bobs.press("id:thread-older >> text:me");
   await bobs.waitFor("id:reader >> text:截图.png", slow);
 }, 240_000);
