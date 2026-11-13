@@ -300,6 +300,36 @@ compose.quoteHeader:
 compose.forwardHeader:
   en: "---------- Forwarded message ----------"
   zh-CN: "---------- 转发的邮件 ----------"
+compose.attach:
+  en: Attach files
+  zh-CN: 添加附件
+compose.dropHere:
+  en: Drop files to attach them
+  zh-CN: 松开即可添加为附件
+compose.removeAttachment:
+  en: "Remove %{name}"
+  zh-CN: 移除 %{name}
+compose.uploading:
+  en: "%{percent}%"
+  zh-CN: "%{percent}%"
+compose.attachFailed:
+  en: Not attached
+  zh-CN: 未能添加
+compose.tooLarge:
+  en: "Attachments can add up to %{limit}. Remove some, or share a link instead."
+  zh-CN: 附件总大小不能超过 %{limit}。请移除一些，或改为分享链接。
+compose.unreadable:
+  en: "Couldn't read the file: %{detail}"
+  zh-CN: 无法读取文件：%{detail}
+compose.uploadFailed:
+  en: "Couldn't attach %{name}: %{detail}"
+  zh-CN: 无法添加 %{name}：%{detail}
+compose.stillUploading:
+  en: Wait until the attachments finish uploading.
+  zh-CN: 请等待附件上传完成。
+compose.removeFailed:
+  en: Remove the files that couldn't be attached, or attach them again.
+  zh-CN: 请移除未能添加的文件，或重新添加。
 
 search.label:
   en: Search

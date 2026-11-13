@@ -42,6 +42,54 @@ test("opens a message, replies with it quoted, and finds the reply in Sent", asy
   await app.waitFor("id:messages >> text:Re: Q4 roadmap draft");
 });
 
+test("attaches picked files, keeps a forward's, and refuses more than the limit", async () => {
+  const app = await open("./App.tsx", { ...desktop, ...demo });
+  await app.waitFor("text:Q4 roadmap draft");
+  await app.press("text:Q4 roadmap draft");
+  await app.waitFor("id:reader >> text:Q4-roadmap.pdf");
+  await app.press("id:forward");
+  await app.waitFor("id:compose-attachments >> text:Q4-roadmap.pdf");
+  await app.type("id:compose-to", "mei@lumen.dev");
+
+  let huge = false;
+  app.onPick((pick) => {
+    expect(pick.kind).toBe("files");
+    if (huge) return [{ name: "footage.mov", type: "video/quicktime", data: new Uint8Array(26 * 1024 * 1024) }];
+    return [
+      { name: "2026年第三季度报告.pdf", type: "application/pdf", data: new Uint8Array(300 * 1024) },
+      { name: "截图.png", type: "image/png", data: new Uint8Array(2048) },
+    ];
+  });
+  await app.press("id:compose-attach");
+  await app.waitFor("id:compose-attachments >> text:300 KB");
+  await app.waitFor("id:compose-attachments >> text:2 KB");
+  expect(app.count("id:compose-attachment")).toBe(3);
+  await app.press("label:Remove 截图.png");
+  await app.waitFor("id:compose-attachments >> text:截图.png", { state: "gone" });
+
+  // A file dropped from the file manager, and one pasted.
+  const icon = new URL("./assets/tray.svg", import.meta.url);
+  await app.dropFiles("id:compose-body", [`file://${icon.pathname}`]);
+  await app.waitFor("id:compose-attachments >> text:tray.svg");
+  await app.press("label:Remove tray.svg");
+  await app.paste("id:compose-body", { files: [icon.pathname] });
+  await app.waitFor("id:compose-attachments >> text:tray.svg");
+  await app.press("label:Remove tray.svg");
+
+  huge = true;
+  await app.press("id:compose-attach");
+  await app.waitFor("text:/^Attachments can add up to 25.0 MB/");
+  expect(app.count("id:compose-attachment")).toBe(2);
+
+  await app.press("id:send");
+  await app.waitFor("text:Message sent");
+  await app.press("text:Sent");
+  await app.press("id:messages >> text:Fwd: Q4 roadmap draft");
+  await app.waitFor("id:reader >> text:Q4-roadmap.pdf");
+  await app.waitFor("id:reader >> text:2026年第三季度报告.pdf");
+  expect(app.shows("id:reader >> text:截图.png")).toBe(false);
+});
+
 test("search finds mail across accounts and folders", async () => {
   const app = await open("./App.tsx", { ...desktop, ...demo });
   await app.waitFor("id:search");

@@ -6,6 +6,7 @@ mod backend;
 mod cloud;
 #[cfg(debug_assertions)]
 mod demo;
+mod drop;
 mod layout;
 #[cfg(not(target_arch = "wasm32"))]
 mod local;
@@ -17,6 +18,7 @@ use nsh_core::prelude::*;
 
 pub use crate::{
     backend::{Backend, Events, MailFuture},
+    drop::PageDrop,
     mail::Mail,
     push::{Push, TokenSink, on_token},
     types::Js,
@@ -27,4 +29,5 @@ pub use crate::{
 fn native(registry: &mut Registry) {
     registry.module::<Mail>();
     registry.module::<Push>();
+    registry.module::<PageDrop>();
 }

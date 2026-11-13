@@ -6,12 +6,14 @@ pub mod events;
 pub mod mail;
 pub mod oauth;
 pub mod push;
+pub mod uploads;
 
 use std::{sync::Arc, time::Instant};
 
 use anyhow::{Context, Result};
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     extract::Request,
     http::{HeaderValue, Method, header},
     middleware::{self, Next},
@@ -66,8 +68,10 @@ pub async fn build(config: Config) -> Result<Arc<AppState>> {
         users_dir,
         config.master_key,
         config.oauth.clone(),
+        config.max_attachments,
         push.clone(),
     );
+    uploads::sweep(config.data_dir.join("uploads"));
     let state = Arc::new(AppState {
         vapid_public_key,
         config,
@@ -106,6 +110,13 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(api::get_attachment),
         )
         .route("/send", post(api::send))
+        .route("/uploads", post(uploads::create))
+        .route(
+            "/uploads/{id}",
+            axum::routing::patch(uploads::append)
+                .delete(uploads::delete)
+                .layer(DefaultBodyLimit::max(uploads::CHUNK_LIMIT)),
+        )
         .route("/search", get(api::search))
         .route("/unread", get(api::unread))
         .route("/devices", post(api::add_device))

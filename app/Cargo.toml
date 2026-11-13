@@ -31,7 +31,7 @@ mail-core = { path = "../crates/mail-core" }
 tokio = { version = "1", features = ["sync"] }
 tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 
-# Web Push and the sign-in window: browser APIs NSH does not wrap.
+# Web Push, the sign-in window and files dropped on the page: browser APIs NSH does not wrap.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3"
 wasm-bindgen = "=0.2.130"
@@ -40,7 +40,11 @@ web-sys = { version = "0.3", features = [
   "Blob",
   "BlobPropertyBag",
   "BroadcastChannel",
+  "DataTransfer",
   "Document",
+  "DragEvent",
+  "File",
+  "FileList",
   "HtmlAnchorElement",
   "Location",
   "MessageEvent",

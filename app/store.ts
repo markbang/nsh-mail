@@ -3,6 +3,7 @@
 // (mailbox, selection, search). Signals stay private; pages call these.
 import { batch, resource, signal, Storage } from "nsh";
 import { t } from "nsh/i18n";
+import { fileSize } from "./lib/format";
 import { Mail, type Account, type Flags, type Folder, type MailEvent, type Status, type Summary } from "nsh-mail/native";
 
 const PAGE = 30;
@@ -86,6 +87,8 @@ export function errorText(e: unknown): string {
       return t("errors.invalid", { detail: message });
     case "ERR_OAUTH":
       return t("errors.oauth", { detail: message });
+    case "ERR_TOO_LARGE":
+      return t("compose.tooLarge", { limit: fileSize(Mail.attachmentLimit()) });
     default:
       return t("errors.generic", { detail: message });
   }

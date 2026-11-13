@@ -27,6 +27,8 @@ export interface TextFieldProps {
   label?: string;
   returnKey?: "next" | "done" | "go" | "search" | "send";
   ref?: (ref: InputRef) => void;
+  /** Hears a paste: images and copied files come as `files` and `uris`; text goes in as usual. */
+  onPaste?: (e: { files: File[]; uris: string[] }) => void;
   class?: string;
   testID?: string;
 }
@@ -40,6 +42,7 @@ export function TextField(props: TextFieldProps) {
       value={props.value}
       onChange={({ value }) => props.onChange(value)}
       onSubmit={() => props.onSubmit?.()}
+      onPaste={props.onPaste && ((e: { files: File[]; uris: string[] }) => props.onPaste!(e))}
       placeholder={props.placeholder}
       masked={props.masked}
       multiline={props.multiline}

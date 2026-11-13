@@ -113,3 +113,60 @@ test("cloud mode: sign up, add a mailbox, read, get new mail live, reply, sign o
   expect(bobs.storage()["nshmail.mode"]).toBeUndefined();
   expect(bobs.storage()["nshmail.cloud.token"]).toBeUndefined();
 }, 240_000);
+
+test("cloud mode: attachments upload in chunks, arrive whole, forward, and stay under the limit", async () => {
+  const run = Date.now();
+  const alice = `alice${run}a@test.local`;
+  const bob = `bob${run}a@test.local`;
+  const bobs = await signUp(bob);
+  await openAddAccount(bobs);
+  await addMailbox(bobs, bob);
+  const alices = await signUp(alice);
+  await openAddAccount(alices);
+  await addMailbox(alices, alice);
+
+  const report = new Uint8Array(1536 * 1024).map((_, i) => (i * 7) % 251);
+  let huge = false;
+  bobs.onPick(() =>
+    huge
+      ? [{ name: "footage.mov", type: "video/quicktime", data: new Uint8Array(26 * 1024 * 1024) }]
+      : [
+          { name: "2026年第三季度报告.pdf", type: "application/pdf", data: report },
+          { name: "截图.png", type: "image/png", data: new Uint8Array(4096).fill(7) },
+        ],
+  );
+  await bobs.press("id:compose");
+  await bobs.type("id:compose-to", alice);
+  await bobs.type("id:compose-subject", "Quarterly report");
+  await bobs.press("id:compose-attach");
+  await bobs.waitFor("id:compose-attachments >> text:1.5 MB", slow);
+  await bobs.waitFor("id:compose-attachments >> text:4 KB", slow);
+  // The report went in two chunks, each after the last.
+  const chunks = bobs.requests().filter((r) => r.method === "PATCH" && r.url.startsWith(`${server}/v1/uploads/`));
+  expect(chunks.map((r) => new URL(r.url).searchParams.get("offset")).sort()).toEqual(["0", "0", "1048576"]);
+
+  huge = true;
+  await bobs.press("id:compose-attach");
+  await bobs.waitFor("text:/^Attachments can add up to 25.0 MB/");
+  await bobs.press("id:send");
+  await bobs.waitFor("text:Message sent", slow);
+
+  await alices.waitFor("id:messages >> text:Quarterly report", slow);
+  await alices.press("id:messages >> text:Quarterly report");
+  await alices.waitFor("id:reader >> text:2026年第三季度报告.pdf", slow);
+  await alices.waitFor("id:reader >> text:截图.png");
+  await alices.press("id:forward");
+  await alices.waitFor("id:compose-attachments >> text:截图.png");
+  await alices.press("label:Remove 截图.png");
+  await alices.type("id:compose-to", bob);
+  await alices.press("id:send");
+  await alices.waitFor("text:Message sent", slow);
+
+  await bobs.waitFor("id:messages >> text:Fwd: Quarterly report", slow);
+  await bobs.press("id:messages >> text:Fwd: Quarterly report");
+  await bobs.waitFor("id:reader >> text:2026年第三季度报告.pdf", slow);
+  expect(bobs.shows("id:reader >> text:截图.png")).toBe(false);
+  await bobs.press("text:Sent");
+  await bobs.press("id:messages >> text:Quarterly report");
+  await bobs.waitFor("id:reader >> text:截图.png", slow);
+}, 240_000);

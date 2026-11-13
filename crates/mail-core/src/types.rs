@@ -207,7 +207,36 @@ pub struct Draft {
     pub in_reply_to: Option<String>,
     #[serde(default)]
     pub references: Vec<String>,
+    #[serde(default)]
+    pub attachments: Vec<DraftAttachment>,
 }
+
+/// A file a draft sends.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum DraftAttachment {
+    /// A file staged before sending: `Mail.stage` on the client, `POST /v1/uploads` on the server.
+    Upload { id: String },
+    /// An attachment of a stored message, as a forward keeps it.
+    Forward { message_id: MessageId, index: u32 },
+}
+
+/// A staged file, ready to be named by a draft.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Upload {
+    pub id: String,
+    pub filename: String,
+    pub mime_type: String,
+    pub size: u64,
+}
+
+/// The default cap on a message's attachments, in bytes before encoding: what Gmail and Outlook accept.
+pub const MAX_ATTACHMENTS: u64 = 25 * 1024 * 1024;
 
 /// A flag patch: `None` leaves the flag unchanged.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -295,6 +324,9 @@ pub enum ErrorCode {
     NotFound,
     #[serde(rename = "ERR_INVALID_INPUT")]
     InvalidInput,
+    /// The attachments are larger than the limit.
+    #[serde(rename = "ERR_TOO_LARGE")]
+    TooLarge,
     #[serde(rename = "ERR_UNSUPPORTED")]
     Unsupported,
     /// OAuth client id missing from the build, or the OAuth flow failed.

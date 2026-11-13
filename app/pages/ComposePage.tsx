@@ -1,10 +1,12 @@
 // Writing a message: a new one, a reply (quoted) or a forward.
-import { keymap, signal, Text, View } from "nsh";
+import { keymap, Picker, platform, signal, Text, View } from "nsh";
 import { NavPage } from "nsh/base";
 import { t } from "nsh/i18n";
 import { Mail } from "nsh-mail/native";
-import { Button, SelectField, TextField, touch, systemHeader } from "../ui";
+import { Button, IconButton, SelectField, TextField, touch, systemHeader } from "../ui";
 import { PageHeader } from "../components/PageHeader";
+import { AttachmentChips } from "../components/Attachments";
+import { createAttachments, onPageDrop, type Incoming } from "../lib/attachments";
 import { NavContext } from "../nav";
 import { draftFor, isAddress, parseRecipient, splitRecipients, type ComposeInit } from "../lib/format";
 import { accounts, errorText, mailbox, showToast } from "../store";
@@ -21,6 +23,22 @@ export function ComposePage(props: { init: ComposeInit }) {
   const body = signal(start.text);
   const sending = signal(false);
   const error = signal<string | null>(null);
+  const fileError = signal<string | null>(null);
+  const files = createAttachments((message) => fileError.set(message));
+  if (props.init.mode === "forward" && props.init.source) files.forward(props.init.source);
+  const dragging = signal(false);
+  const attach = (list: Incoming[]) => {
+    fileError.set(null);
+    files.add(list);
+  };
+  onPageDrop((on) => dragging.set(on), attach);
+  const pick = async () => {
+    try {
+      attach((await Picker.pickFiles({ multiple: true })).map((p) => p.file));
+    } catch (e) {
+      fileError.set(errorText(e));
+    }
+  };
 
   const title = () =>
     ({ new: t("compose.new"), reply: t("compose.reply"), replyAll: t("compose.reply"), forward: t("compose.forward") })[props.init.mode];
@@ -34,6 +52,10 @@ export function ComposePage(props: { init: ComposeInit }) {
     if (!splitRecipients(to()).length) return error.set(t("compose.needRecipient"));
     if (bad) return error.set(t("compose.badAddress", { address: bad }));
     error.set(null);
+    if (files.pending()) return fileError.set(t("compose.stillUploading"));
+    if (files.items().some((a) => a.failed)) return fileError.set(t("compose.removeFailed"));
+    if (files.overLimit()) return fileError.set(files.limitText());
+    fileError.set(null);
     sending.set(true);
     try {
       await Mail.send({
@@ -45,7 +67,9 @@ export function ComposePage(props: { init: ComposeInit }) {
         text: body(),
         inReplyTo: start.inReplyTo,
         references: start.references,
+        attachments: files.draft(),
       });
+      files.sent();
       showToast(t("compose.sent"));
       nav.done();
     } catch (e) {
@@ -57,13 +81,24 @@ export function ComposePage(props: { init: ComposeInit }) {
   keymap.bind("mod+enter", () => void send(), { when: "always" });
 
   const actions = () => (
-    <Button variant="primary" icon="send" label={sending() ? t("compose.sending") : t("compose.send")} loading={sending()} onPress={() => void send()} testID="send" />
+    <>
+      <IconButton icon="paperclip" label={t("compose.attach")} onPress={() => void pick()} testID="compose-attach" />
+      <Button variant="primary" icon="send" label={sending() ? t("compose.sending") : t("compose.send")} loading={sending()} onPress={() => void send()} testID="send" />
+    </>
   );
   const label = touch ? "w-16 text-sm" : "w-14 text-xs";
   const replying = props.init.mode === "reply" || props.init.mode === "replyAll";
   return (
     <NavPage title={title()} header={<PageHeader title={title()} actions={actions()} />} headerRight={systemHeader ? actions() : undefined}>
-      <View class="min-h-0 flex-1 bg-background">
+      <View
+        class="min-h-0 flex-1 bg-background"
+        onFileDragEnter={() => dragging.set(true)}
+        onFileDragLeave={() => dragging.set(false)}
+        onFileDrop={(e: { uris: string[]; mimeTypes: string[] }) => {
+          dragging.set(false);
+          attach(e.uris.map((path, i) => ({ kind: "path", path, type: e.mimeTypes[i] ?? "" })));
+        }}
+      >
         <View class={`gap-2 border-b border-border ${touch ? "p-4" : "px-4 py-3"}`}>
           <If when={accounts().length > 1}>
             <View class="flex-row items-center gap-2">
@@ -124,12 +159,22 @@ export function ComposePage(props: { init: ComposeInit }) {
             ref={(input) => replying && setTimeout(() => input.setSelection(0), 0)}
             class="flex-1 border-0"
             testID="compose-body"
+            onPaste={(e) => {
+              if (e.files.length) attach(e.files);
+              else if (e.uris.length && platform.os !== "web") attach(e.uris.map((path) => ({ kind: "path", path, type: "" })));
+            }}
           />
         </View>
+        <AttachmentChips files={files} error={fileError()} />
         <If when={!touch}>
           <View class="flex-row items-center justify-end gap-2 border-t border-border px-4 py-2">
             <Text class="flex-1 text-xs text-muted-foreground">{t("compose.sendHint", { keys: keymap.label("mod+enter") })}</Text>
             <Button variant="ghost" label={t("compose.discard")} onPress={nav.close} />
+          </View>
+        </If>
+        <If when={dragging()}>
+          <View class="absolute inset-2 items-center justify-center rounded-(--radius) border-2 border-dashed border-primary bg-background/90" style={{ pointerEvents: "none" }} testID="compose-drop">
+            <Text class={`font-medium text-primary ${touch ? "text-base" : "text-sm"}`}>{t("compose.dropHere")}</Text>
           </View>
         </If>
       </View>

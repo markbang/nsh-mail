@@ -43,6 +43,7 @@ ts! {
     ServerSettings => "ServerSettings",
     Status => "Status",
     Summary => "Summary",
+    Upload => "Upload",
 }
 
 impl<T: Ts> Ts for Vec<T> {
@@ -190,7 +191,17 @@ const DECLARATIONS: &[(&str, &str)] = &[
         "/** A message to send. */\n\
          export interface Draft {\n  accountId: string;\n  to: Address[];\n  cc?: Address[];\n  bcc?: Address[];\n  subject: string;\n  \
          text: string;\n  html?: string | null;\n  /** The `Message-ID` replied to. */\n  inReplyTo?: string | null;\n  \
-         /** The thread's `References`. */\n  references?: string[];\n}",
+         /** The thread's `References`. */\n  references?: string[];\n  attachments?: DraftAttachment[];\n}",
+    ),
+    (
+        "DraftAttachment",
+        "/** A file a draft sends: one `Mail.stage` kept, or an attachment of a stored message (a forward keeps them). */\n\
+         export type DraftAttachment =\n  | { kind: \"upload\"; id: string }\n  | { kind: \"forward\"; messageId: string; index: number };",
+    ),
+    (
+        "Upload",
+        "/** A staged file. */\n\
+         export interface Upload {\n  id: string;\n  filename: string;\n  mimeType: string;\n  /** Bytes. */\n  size: number;\n}",
     ),
     (
         "ListQuery",

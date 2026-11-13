@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use mail_core::{
     Engine,
-    types::{Draft, Error, ErrorCode, Flags, FolderKind, ImapInput, ListQuery},
+    types::{Draft, DraftAttachment, Error, ErrorCode, Flags, FolderKind, ImapInput, ListQuery},
 };
 
 use crate::{AppState, crypto, push::parse_subscription_keys};
@@ -64,6 +64,7 @@ impl From<Error> for ApiError {
             | ErrorCode::InvalidInput
             | ErrorCode::OAuth
             | ErrorCode::Unsupported => StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorCode::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             ErrorCode::Network | ErrorCode::Tls | ErrorCode::Protocol => StatusCode::BAD_GATEWAY,
             ErrorCode::Secrets | ErrorCode::Storage | ErrorCode::Internal => {
                 tracing::error!("mail backend error: {}", e.message);
@@ -213,9 +214,11 @@ pub async fn logout(State(state): State<Arc<AppState>>, user: AuthUser) -> ApiRe
 
 pub async fn me(State(state): State<Arc<AppState>>, user: AuthUser) -> ApiResult<Json<Value>> {
     let u = state.db.user(user.id)?.ok_or_else(ApiError::unauthorized)?;
-    Ok(Json(
-        json!({ "email": u.email, "hideContent": u.hide_content }),
-    ))
+    Ok(Json(json!({
+        "email": u.email,
+        "hideContent": u.hide_content,
+        "maxAttachmentBytes": state.config.max_attachments,
+    })))
 }
 
 #[derive(Deserialize)]
@@ -408,7 +411,14 @@ pub async fn send(
     if d.to.is_empty() && d.cc.is_empty() && d.bcc.is_empty() {
         return Err(ApiError::bad_request("add at least one recipient"));
     }
-    mail(&s, &u).await?.send(d).await?;
+    let staged = crate::uploads::staged(&s, &u, &d.attachments).await?;
+    let attachments = d.attachments.clone();
+    mail(&s, &u).await?.send_with(d, staged).await?;
+    let sent = attachments.iter().filter_map(|a| match a {
+        DraftAttachment::Upload { id } => Some(id.as_str()),
+        DraftAttachment::Forward { .. } => None,
+    });
+    crate::uploads::remove(&s, &u, sent).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

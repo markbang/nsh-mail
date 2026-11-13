@@ -2,11 +2,13 @@
 
 use std::time::Duration;
 
-use lettre::message::{Mailbox, MultiPart, SinglePart, header::ContentType};
+use base64::Engine as _;
+use lettre::message::{Attachment, Mailbox, MultiPart, SinglePart, header::ContentType};
 use lettre::transport::smtp::authentication::{Credentials, Mechanism};
 use lettre::transport::smtp::client::{Tls, TlsParameters};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor};
 
+use crate::engine::StagedFile;
 use crate::error::err;
 use crate::types::*;
 
@@ -94,7 +96,11 @@ fn angle(id: &str) -> String {
     }
 }
 
-pub(crate) fn build(account: &Account, draft: &Draft) -> Result<lettre::Message> {
+pub(crate) fn build(
+    account: &Account,
+    draft: &Draft,
+    files: Vec<StagedFile>,
+) -> Result<lettre::Message> {
     if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {
         return Err(err(
             ErrorCode::InvalidInput,
@@ -133,16 +139,30 @@ pub(crate) fn build(account: &Account, draft: &Draft) -> Result<lettre::Message>
         }
         b = b.references(refs.join(" "));
     }
-    let built = match &draft.html {
-        Some(html) => b.multipart(MultiPart::alternative_plain_html(
+    let text = || {
+        SinglePart::builder()
+            .header(ContentType::TEXT_PLAIN)
+            .body(draft.text.clone())
+    };
+    let built = match (&draft.html, files.is_empty()) {
+        (Some(html), true) => b.multipart(MultiPart::alternative_plain_html(
             draft.text.clone(),
             html.clone(),
         )),
-        None => b.singlepart(
-            SinglePart::builder()
-                .header(ContentType::TEXT_PLAIN)
-                .body(draft.text.clone()),
-        ),
+        (None, true) => b.singlepart(text()),
+        (html, false) => {
+            let mut mixed = match html {
+                Some(html) => MultiPart::mixed().multipart(MultiPart::alternative_plain_html(
+                    draft.text.clone(),
+                    html.clone(),
+                )),
+                None => MultiPart::mixed().singlepart(text()),
+            };
+            for file in files {
+                mixed = mixed.singlepart(attachment(file));
+            }
+            b.multipart(mixed)
+        }
     };
     built.map_err(|e| {
         err(
@@ -150,4 +170,66 @@ pub(crate) fn build(account: &Account, draft: &Draft) -> Result<lettre::Message>
             format!("cannot build the message: {e}"),
         )
     })
+}
+
+/// An attachment part. The name goes in `Content-Disposition` as RFC 2231 (lettre) and in
+/// `Content-Type`'s `name` as RFC 2047, which older clients read instead.
+fn attachment(file: StagedFile) -> SinglePart {
+    let filename: String = file
+        .filename
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect();
+    let filename = if filename.trim().is_empty() {
+        "attachment".to_string()
+    } else {
+        filename
+    };
+    let essence = file
+        .mime_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let essence = if essence.contains('/') && ContentType::parse(&essence).is_ok() {
+        essence
+    } else {
+        "application/octet-stream".into()
+    };
+    let content_type =
+        ContentType::parse(&format!("{essence}; name=\"{}\"", encoded_word(&filename)))
+            .or_else(|_| ContentType::parse(&essence))
+            .unwrap_or(ContentType::TEXT_PLAIN);
+    Attachment::new(filename).body(file.data, content_type)
+}
+
+/// `name` as RFC 2047 encoded words when it is not plain ASCII; otherwise quoted-string safe.
+fn encoded_word(name: &str) -> String {
+    if name.chars().all(|c| c.is_ascii_graphic() || c == ' ') {
+        return name.replace(['"', '\\'], "_");
+    }
+    // Each word stays under 75 characters: 45 bytes of UTF-8 encode to 60.
+    let mut words = Vec::new();
+    let mut chunk = String::new();
+    for c in name.chars() {
+        if chunk.len() + c.len_utf8() > 45 {
+            words.push(std::mem::take(&mut chunk));
+        }
+        chunk.push(c);
+    }
+    words.push(chunk);
+    words
+        .iter()
+        .map(|w| {
+            format!(
+                "=?utf-8?b?{}?=",
+                base64::engine::general_purpose::STANDARD.encode(w)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }

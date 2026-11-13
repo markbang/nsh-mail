@@ -8,7 +8,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
 use mail_core::types::*;
 use nsh_core::{prelude::*, time::unix_ms};
 
-use crate::backend::{Backend, Events, MailFuture, invalid};
+use crate::backend::{Backend, Events, File, MailFuture, Progress, Staged, invalid};
 
 const MINUTE: f64 = 60_000.0;
 const HOUR: f64 = 60.0 * MINUTE;
@@ -106,12 +106,14 @@ impl Data {
 /// In-memory mail (see the module's docs).
 pub struct DemoBackend {
     data: Rc<RefCell<Data>>,
+    staged: Staged,
 }
 
 impl Default for DemoBackend {
     fn default() -> Self {
         Self {
             data: Rc::new(RefCell::new(seed(unix_ms()))),
+            staged: Staged::default(),
         }
     }
 }
@@ -336,8 +338,49 @@ impl Backend for DemoBackend {
             {
                 return Err(invalid(format!("{} is not an email address", bad.email)));
             }
+            let staged = self.staged.of(&draft)?;
             latency(600).await;
             let mut data = self.data.borrow_mut();
+            let mut attachments = Vec::new();
+            for a in &draft.attachments {
+                let (filename, mime_type, size) = match a {
+                    DraftAttachment::Upload { id } => {
+                        let (_, f) = staged.iter().find(|(s, _)| s == id).expect("staged above");
+                        (f.name.clone(), f.mime_type.clone(), f.data.len() as u64)
+                    }
+                    DraftAttachment::Forward { message_id, index } => {
+                        let source = data
+                            .messages
+                            .iter()
+                            .find(|m| &m.summary.id == message_id)
+                            .ok_or_else(|| not_found("message"))?;
+                        let a = source
+                            .attachments
+                            .iter()
+                            .find(|a| a.index == *index)
+                            .ok_or_else(|| not_found("attachment"))?;
+                        (
+                            a.filename.clone().unwrap_or_default(),
+                            a.mime_type.clone(),
+                            a.size,
+                        )
+                    }
+                };
+                attachments.push(Attachment {
+                    index: attachments.len() as u32,
+                    filename: Some(filename),
+                    mime_type,
+                    size,
+                    inline: false,
+                    content_id: None,
+                });
+            }
+            if attachments.iter().map(|a| a.size).sum::<u64>() > MAX_ATTACHMENTS {
+                return Err(Error::new(
+                    ErrorCode::TooLarge,
+                    "the attachments are too large",
+                ));
+            }
             let from = data.account(&draft.account_id)?.clone();
             let id = data.id();
             let sender = (
@@ -358,6 +401,8 @@ impl Backend for DemoBackend {
             sent.summary.seen = true;
             sent.in_reply_to = draft.in_reply_to.clone();
             sent.references = draft.references.clone();
+            sent.summary.has_attachments = !attachments.is_empty();
+            sent.attachments = attachments;
             data.messages.push(sent.clone());
             // Mail to one's own accounts arrives in their inboxes too.
             let own: Vec<Account> = data
@@ -380,8 +425,27 @@ impl Backend for DemoBackend {
                 data.messages.push(copy);
                 data.emit(MailEvent::NewMail { summary });
             }
+            drop(data);
+            self.staged.sent(&draft);
             Ok(())
         })
+    }
+
+    fn stage(&self, file: File, progress: Progress) -> MailFuture<'_, Upload> {
+        Box::pin(async move {
+            // In steps, so the composer's progress shows as it would against a server.
+            let size = file.data.len() as u64;
+            for step in 1..=4 {
+                latency(120).await;
+                progress(size * step / 4);
+            }
+            Ok(self.staged.add(file))
+        })
+    }
+
+    fn unstage(&self, id: String) -> MailFuture<'_, ()> {
+        self.staged.remove(&id);
+        ok(Ok(()))
     }
 
     fn search(&self, text: String, limit: u32) -> MailFuture<'_, Vec<Summary>> {
