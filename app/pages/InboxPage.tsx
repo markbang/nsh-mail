@@ -26,7 +26,7 @@ export function InboxPage() {
   );
   return (
     <Page title={mailboxTitle()} header={<PageHeader title={mailboxTitle()} leading={menu()} actions={actions()} />} root>
-      <View class="flex-1 bg-background">
+      <View class="flex-1 bg-surface">
         <MailboxList onOpen={open} onAddAccount={() => nav.stack.push({ name: "addAccount" })} searchable={false} />
       </View>
       <If when={!systemHeader}>

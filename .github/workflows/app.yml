@@ -67,6 +67,7 @@ jobs:
           [ -x ~/.nsh/bin/nsh ] || curl -fsSL https://nsh.dev/install.sh | sh
           echo "$HOME/.nsh/bin" >> "$GITHUB_PATH"
       - run: nsh check
+      - run: python3 ../scripts/contrast.py
       - name: Wait for GreenMail
         run: for i in $(seq 60); do (echo > /dev/tcp/127.0.0.1/3993) 2>/dev/null && exit 0; sleep 1; done; exit 1
       - run: nsh test

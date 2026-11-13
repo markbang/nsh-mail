@@ -29,8 +29,8 @@ export function AddAccountPage() {
     <Page title={t("accounts.add")} header={<PageHeader title={t("accounts.add")} />}>
       <PageScroll contentClass={touch ? "gap-6 p-4" : "gap-6 p-6"}>
         <View class="gap-1">
-          <Text class={`font-semibold text-foreground ${touch ? "text-xl" : "text-medium"}`}>{t("accounts.addTitle")}</Text>
-          <Text class={`text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>{t("accounts.addHint")}</Text>
+          <Text class={`font-semibold text-on-surface ${touch ? "text-xl" : "text-body-large"}`}>{t("accounts.addTitle")}</Text>
+          <Text class={`text-on-surface-variant ${touch ? "text-body-medium" : "text-body-small"}`}>{t("accounts.addHint")}</Text>
         </View>
         <View class="gap-2">
           <Button size="lg" variant="bordered" fullWidth mark={google} label={t("accounts.google")} loading={busy() === "google"} disabled={!!busy()} onPress={() => void oauth("google")} testID="add-google" />

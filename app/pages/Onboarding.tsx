@@ -26,12 +26,12 @@ function Choice(props: { icon: IconName; title: string; detail: string; selected
       selected={props.selected}
       onPress={props.onPress}
       testID={props.testID}
-      class={`flex-row items-start gap-3 rounded-large border-2 p-4 ${props.selected ? "border-primary" : "border-default-200"}`}
+      class={`flex-row items-start gap-3 rounded-large border-2 p-4 ${props.selected ? "border-primary" : "border-outline-variant"}`}
     >
-      <Icon name={props.icon} tone={props.selected ? "primary" : "default-500"} />
+      <Icon name={props.icon} tone={props.selected ? "primary" : "on-surface-variant"} />
       <View class="flex-1 gap-1">
-        <Text class={`font-medium text-foreground ${touch ? "text-medium" : "text-small"}`}>{props.title}</Text>
-        <Text class={`text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>{props.detail}</Text>
+        <Text class={`font-medium text-on-surface ${touch ? "text-body-large" : "text-body-medium"}`}>{props.title}</Text>
+        <Text class={`text-on-surface-variant ${touch ? "text-body-medium" : "text-body-small"}`}>{props.detail}</Text>
       </View>
     </Row>
   );
@@ -66,17 +66,17 @@ export function Onboarding() {
   };
 
   return (
-    <Scroll class="flex-1 bg-background" contentClass="grow items-center justify-center p-6 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+    <Scroll class="flex-1 bg-surface" contentClass="grow items-center justify-center p-6 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       <View class="w-full max-w-[420px] gap-6 py-8" testID="onboarding">
         <View class="gap-2">
           <Icon name="inboxes" size="lg" tone="primary" />
-          <Text role="header" class={`font-semibold text-foreground ${touch ? "text-2xl" : "text-xl"}`}>
+          <Text role="header" class={`font-semibold text-on-surface ${touch ? "text-2xl" : "text-xl"}`}>
             {t("onboarding.title")}
           </Text>
-          <Text class={`text-foreground-500 ${touch ? "text-medium" : "text-small"}`}>{web ? t("onboarding.subtitleWeb") : t("onboarding.subtitle")}</Text>
+          <Text class={`text-on-surface-variant ${touch ? "text-body-large" : "text-body-medium"}`}>{web ? t("onboarding.subtitleWeb") : t("onboarding.subtitle")}</Text>
         </View>
 
-        <If when={!web} else={<Text class={`text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>{t("onboarding.webOnlyCloud")}</Text>}>
+        <If when={!web} else={<Text class={`text-on-surface-variant ${touch ? "text-body-medium" : "text-body-small"}`}>{t("onboarding.webOnlyCloud")}</Text>}>
           <View class="gap-2">
             <Choice
               icon="device"
@@ -120,7 +120,7 @@ export function Onboarding() {
         </If>
 
         <If when={error()}>
-          <Text class={`text-danger ${touch ? "text-small" : "text-tiny"}`} testID="onboarding-error">
+          <Text class={`text-error ${touch ? "text-body-medium" : "text-body-small"}`} testID="onboarding-error">
             {error()}
           </Text>
         </If>

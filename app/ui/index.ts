@@ -1,9 +1,9 @@
-// The app's styled layer, HeroUI's design language on nsh/base: features build
+// The app's styled layer, Material 3 Expressive on nsh/base: features build
 // from these, never from nsh/base.
 export { systemHeader, touch } from "./density";
 export { duration, press, wash } from "./motion";
 export * as tokens from "./tokens";
-export type { Color, Radius, Size, Variant } from "./tokens";
+export type { Color, Radius, Size, Variant } from "./variants";
 export { BrandMark, Icon, type IconName } from "./icon";
 export { Button, ButtonGroup, ButtonRow, Fab, IconButton, type ButtonVariant } from "./button";
 export { Page } from "./page";
