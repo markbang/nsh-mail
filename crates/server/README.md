@@ -12,6 +12,8 @@ docker compose up -d          # repository root / 仓库根目录
 curl localhost:8080/healthz
 ```
 
+Images / 镜像: `ghcr.io/markbang/nsh-mail-server` (API only / 仅接口) and `ghcr.io/markbang/nsh-mail` (also serves the web client at `/` / 同时托管 Web 客户端), both `latest` and `sha-<commit>` from `main`. The container health check runs `nsh-mail-server healthcheck` (GET `/healthz`). 容器健康检查即 `nsh-mail-server healthcheck`。
+
 Without Docker / 不用 Docker: `NSHMAIL_MASTER_KEY=… cargo run -p nsh-mail-server`.
 
 Back up `data/` and the master key together; without the key the stored mail credentials cannot be decrypted.
