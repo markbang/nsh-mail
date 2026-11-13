@@ -13,7 +13,8 @@ trap 'rm -f "$body"' EXIT
   echo
   echo "| | Light | Dark |"
   echo "|---|---|---|"
-  for f in "$dir"/*-light.png; do
+  for f in "$dir"/web-{inbox,reader,compose,search,settings,add-account}-light.png; do
+    [ -f "$f" ] || continue
     name=$(basename "$f" -light.png)
     label=${name#*-}
     label=${label//-/ }
