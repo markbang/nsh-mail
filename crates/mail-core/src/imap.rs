@@ -141,6 +141,8 @@ pub(crate) async fn connect(ep: &Endpoint, login: Login<'_>) -> Result<Conn> {
             format!("cannot reach {}:{}: {e}", ep.host, ep.port),
         )
     })?;
+    // IMAP is small request/response; with Nagle each command waits on the server's delayed ACK (~40 ms).
+    tcp.set_nodelay(true)?;
     let client = match ep.security {
         Security::Tls => {
             let mut c = async_imap::Client::new(Stream::new(tls_wrap(tcp, &ep.host).await?));
