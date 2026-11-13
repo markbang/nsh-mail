@@ -1,6 +1,6 @@
 // One line-icon family (Lucide's geometry, ISC), drawn as SVG and tinted
 // with a theme token, so icons follow the appearance.
-import { Image, token, type ImageAsset, type Tokens } from "nsh";
+import { Image, type ImageAsset } from "nsh";
 import { touch } from "./density";
 
 const paths = {
@@ -27,6 +27,7 @@ const paths = {
   chevronRight: `<path d="m9 18 6-6-6-6"/>`,
   close: `<path d="M18 6 6 18"/><path d="m6 6 12 12"/>`,
   plus: `<path d="M5 12h14"/><path d="M12 5v14"/>`,
+  minus: `<path d="M5 12h14"/>`,
   paperclip: `<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>`,
   check: `<path d="M20 6 9 17l-5-5"/>`,
   image: `<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/>`,
@@ -53,7 +54,8 @@ const source = (name: IconName) => {
   return src;
 };
 
-export type IconTone = "foreground" | "muted-foreground" | "primary" | "primary-foreground" | "destructive" | "flag" | "unread";
+/** Any theme color: `foreground`, `primary`, `default-500`, `danger-600` … */
+export type IconTone = string;
 
 export type IconSize = "sm" | "md" | "lg";
 const iconPx = (size: IconSize = "md") => ({ sm: touch ? 16 : 14, md: touch ? 20 : 16, lg: touch ? 28 : 24 })[size];
@@ -69,19 +71,15 @@ export function BrandMark(props: { src: ImageAsset; size?: IconSize }) {
   );
 }
 
-/** A line icon in a theme color; decorative unless the control around it names it. */
-export function Icon(props: { name: IconName; tone?: IconTone; size?: IconSize }) {
-  const px = () => iconPx(props.size);
+/** A line icon tinted with a theme color; `class` adds state tints (`group-hover:tint-…`).
+ * Decorative unless the control around it names it. */
+export function Icon(props: { name: IconName; tone?: IconTone; size?: IconSize; class?: string }) {
   return (
     <Image
       src={source(props.name)}
       accessibilityElementsHidden
-      style={{
-        width: px(),
-        height: px(),
-        pointerEvents: "none",
-        tintColor: token((props.tone ?? "foreground") as keyof Tokens) as string,
-      }}
+      class={`${props.tone ? `tint-${props.tone}` : props.class ? "" : "tint-foreground"} ${props.class ?? ""}`}
+      style={{ width: iconPx(props.size), height: iconPx(props.size), pointerEvents: "none" }}
     />
   );
 }
