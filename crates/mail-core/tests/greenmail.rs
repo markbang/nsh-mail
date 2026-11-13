@@ -841,6 +841,7 @@ async fn html_mail_keeps_its_layout_and_inline_images() {
     assert!(m.attachments.is_empty());
     let (logo, _) = engine.attachment(&m.summary.id, 0).await.unwrap();
     assert_eq!(logo.content_id.as_deref(), Some("logo@example.com"));
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn archive_and_delete_move_messages_on_the_server() {
