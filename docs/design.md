@@ -1,205 +1,207 @@
-# nsh-mail 设计
+English | [简体中文](design.zh-CN.md)
 
-把多个邮箱账号放进一个收件箱的客户端，用 [Native Shell](https://nsh.dev)（NSH 0.5）写成，目标平台 Web、Android、Linux、Windows。两种模式：
+# nsh-mail design
 
-- **本地模式**：凭据和邮件只在本机，客户端直连 IMAP/SMTP。
-- **云端模式**：nsh-mail 服务端代为同步，向客户端推送新邮件。
+A client that puts several mail accounts into one inbox, written with [Native Shell](https://nsh.dev) (NSH 0.5), targeting Web, Android, Linux and Windows. Two modes:
 
-## 1. 平台事实（来自 NSH 文档）
+- **Local mode**: credentials and mail stay on the device; the client connects to IMAP/SMTP directly.
+- **Cloud mode**: the nsh-mail server syncs on the client's behalf and pushes new mail to clients.
 
-| 能力 | NSH 提供 | 结论 |
+## 1. Platform facts (from the NSH docs)
+
+| Capability | What NSH provides | Conclusion |
 |---|---|---|
-| 原始 TCP | Rust crate 在原生平台可用 `tokio::net`（`background(..)`）；TSX `net` 模块仅原生平台，浏览器里报 `ERR_FEATURE_UNAVAILABLE_ON_PLATFORM` | IMAP/SMTP 放在 Rust，原生平台直连 |
-| 浏览器网络 | 只有 `fetch`（受 CORS）和 WebSocket | Web 无法直连 IMAP/SMTP |
-| 存储 | `Storage` 是 5 MB 键值；`data_dir()` 给出应用私有目录（Web 上为 `None`） | 邮件库用 SQLite 放在 `data_dir()`；`Storage` 只放设置 |
-| 系统通知 | `Notifications`：Android（POST_NOTIFICATIONS）、Windows toast、Linux `org.freedesktop.Notifications`、Web `Notification` | 前台/常驻时直接用 |
-| 桌面常驻 | `nsh/desktop` 的 `Tray` + 主窗口 `closeOnPress: false` | 关窗后留在托盘继续同步 |
-| Android 打包 | `nsh package` 不经 Gradle，打包的应用不能加原生代码 | FCM 需要自有 Gradle 工程嵌入 NSH（见 §5） |
-| 打包机器 | Linux 包只能在 Linux 上打，Windows 包只能在 Windows 上打；Android、Web 任意 | CI 用对应 runner |
-| 选文件 | `Picker.pickFiles` 各平台都有（Web 为 `<input type=file>`），给出 `File`，整份读进内存（单个上限 512 MiB） | 附件按钮用它 |
-| 粘贴 | `Input` 的 `onPaste` 给出剪贴板里的图片等文件（`File`）和文件管理器复制的 `file:` URL（Web 上读不到） | 正文框监听粘贴 |
-| 拖放 | `View` 的 `onFileDrop` 只在桌面（GTK、Win32、AppKit）给出 `file:` URL；Web 没有，而 Web 上 TSX 跑在单独的 realm（同源 iframe）里，收不到页面的拖放事件 | 桌面用 `onFileDrop`，路径交给 Rust 读（TSX 的 `fs/promises` 要 `capabilities.fs` 授权）；Web 由 Rust 经 web-sys 在页面 `window` 上听 `dragover`/`drop`（`PageDrop.listen`） |
-| TSX ↔ Rust 传字节 | `Vec<u8>` 对应 `Uint8Array`，调用时复制 | 附件字节经 `Mail.stage` 一次过边界，之后只传 id |
+| Raw TCP | Rust crates can use `tokio::net` on native platforms (`background(..)`); the TSX `net` module is native-only and fails in the browser with `ERR_FEATURE_UNAVAILABLE_ON_PLATFORM` | IMAP/SMTP live in Rust and connect directly on native platforms |
+| Browser networking | Only `fetch` (subject to CORS) and WebSocket | The web cannot reach IMAP/SMTP directly |
+| Storage | `Storage` is a 5 MB key-value store; `data_dir()` gives the app's private directory (`None` on the web) | The mail store is SQLite in `data_dir()`; `Storage` holds only settings |
+| System notifications | `Notifications`: Android (POST_NOTIFICATIONS), Windows toast, Linux `org.freedesktop.Notifications`, Web `Notification` | Used directly while in the foreground / resident |
+| Staying resident on desktop | `Tray` from `nsh/desktop` + main window `closeOnPress: false` | After the window closes the app stays in the tray and keeps syncing |
+| Android packaging | `nsh package` does not use Gradle; packaged apps cannot add native code | FCM needs our own Gradle project embedding NSH (see §5) |
+| Packaging machines | Linux packages can only be built on Linux, Windows packages only on Windows; Android and Web anywhere | CI uses the matching runner |
+| Picking files | `Picker.pickFiles` exists on every platform (`<input type=file>` on the web) and yields a `File`, read whole into memory (512 MiB limit per file) | Used by the attach button |
+| Paste | `Input`'s `onPaste` yields files on the clipboard such as images (`File`) and `file:` URLs copied from the file manager (not readable on the web) | The body field listens for paste |
+| Drag and drop | `View`'s `onFileDrop` yields `file:` URLs only on desktop (GTK, Win32, AppKit); the web has none, and on the web TSX runs in a separate realm (a same-origin iframe) that never sees the page's drop events | Desktop uses `onFileDrop` and hands the paths to Rust to read (TSX's `fs/promises` needs the `capabilities.fs` grant); on the web Rust listens for `dragover`/`drop` on the page's `window` via web-sys (`PageDrop.listen`) |
+| Passing bytes TSX ↔ Rust | `Vec<u8>` maps to `Uint8Array`, copied on each call | Attachment bytes cross the boundary once through `Mail.stage`; after that only the id is passed |
 
-## 2. Web 上的本地模式：不提供
+## 2. Local mode on the web: not offered
 
-浏览器不能开 TCP 连接。可选的"用户自己的中继"（WebSocket 转 TCP，TLS 在浏览器内的 wasm 里终止）技术上能做到中继看不到明文，但：
+Browsers cannot open TCP connections. An optional "user-run relay" (WebSocket to TCP, with TLS terminated in wasm inside the browser) could technically keep plaintext hidden from the relay, but:
 
-1. 凭据要存进浏览器存储（localStorage / OPFS），任何同源脚本或扩展都能读到，比系统钥匙串弱一档；
-2. 开放的 TCP 中继容易被滥用为跳板，需要再做一套鉴权；
-3. 标签页关掉就没有同步和通知，体验仍然依赖一台常驻机器。
+1. Credentials would have to live in browser storage (localStorage / OPFS), readable by any same-origin script or extension, a step weaker than the system keychain;
+2. An open TCP relay is easily abused as a hop and would need its own authentication;
+3. Once the tab closes there is no sync and no notification, so the experience still depends on an always-on machine.
 
-既然用户总要运行一台常驻机器，那台机器直接跑 **nsh-mail 服务端** 更好：同一个二进制，自托管即可，Web 客户端连它就是"用户自己的中继"，并且得到同步、搜索和推送。所以 **Web 只有云端模式**，服务端地址可填官方或自托管实例；登录页明确说明这一点。
+Since the user has to run an always-on machine anyway, that machine is better off running the **nsh-mail server** directly: the same binary, self-hosted, and the web client connecting to it is the "user-run relay", with sync, search and push on top. So **the web has cloud mode only**; the server address can be the official instance or a self-hosted one, and the sign-in page says so plainly.
 
-## 3. 架构
+## 3. Architecture
 
 ```
-crates/mail-core     Rust 库，不依赖 NSH：IMAP 同步、SMTP 发送、MIME 解析、SQLite+FTS5 存储、
-                     OAuth（PKCE）、服务商预设、凭据库。客户端和服务端共用。
-crates/server        nsh-mail-server：axum + tokio。账号、同步调度、REST/WebSocket API、推送（FCM、Web Push）、
-                     顺带托管 Web 客户端静态文件（同源，免 CORS）。
-app/                 NSH 混合应用（TSX 界面 + Rust crate）。crate 导出 `nsh-mail/native`，TSX 只调它。
-android/             Gradle 宿主工程：NshView + Firebase Messaging（§5）。
+crates/mail-core     Rust library, no NSH dependency: IMAP sync, SMTP sending, MIME parsing, SQLite+FTS5 storage,
+                     OAuth (PKCE), provider presets, credential store. Shared by client and server.
+crates/server        nsh-mail-server: axum + tokio. Accounts, sync scheduling, REST/WebSocket API, push (FCM, Web Push),
+                     and it also serves the web client's static files (same origin, no CORS).
+app/                 NSH mixed app (TSX UI + Rust crate). The crate exports `nsh-mail/native`; TSX only calls that.
+android/             Gradle host project: NshView + Firebase Messaging (§5).
 ```
 
-客户端内部只有一个 `Mail` 接口（Rust 导出给 TSX），背后两个实现：
+Inside the client there is a single `Mail` interface (exported from Rust to TSX) with two implementations behind it:
 
-- `LocalBackend`（仅原生平台，`cfg(not(target_arch = "wasm32"))`）：mail-core 直连邮箱。
-- `CloudBackend`（全平台）：经 NSH `fetch` 调服务端 REST，WebSocket 收事件（原生用 tokio-tungstenite，Web 用 NSH 的浏览器 WebSocket 传输），断线按退避重连。原生平台缓存列表和正文留待后续：mail-core 没有写入服务端结果的公开接口。
+- `LocalBackend` (native platforms only, `cfg(not(target_arch = "wasm32"))`): mail-core talks to the mailboxes directly.
+- `CloudBackend` (all platforms): calls the server's REST API through NSH `fetch` and receives events over WebSocket (tokio-tungstenite on native, NSH's browser WebSocket transport on the web), reconnecting with backoff when the connection drops. Caching lists and bodies on native platforms is left for later: mail-core has no public interface for writing server results.
 
-TSX 不知道当前是哪种模式，界面一套。状态归属：邮件、账号、同步状态在 Rust；当前选中、草稿、筛选在 TSX。
+TSX does not know which mode is active; there is one UI. State ownership: mail, accounts and sync state live in Rust; the current selection, drafts and filters live in TSX.
 
-### TSX ↔ Rust 接口（`nsh-mail/native`）
+### TSX ↔ Rust interface (`nsh-mail/native`)
 
 ```ts
-Mail.init(): Promise<Status>                       // 打开库、恢复会话、开始同步
+Mail.init(): Promise<Status>                       // open the store, restore the session, start syncing
 Mail.status(): Status                              // { mode: "none"|"local"|"cloud", server?, user?, syncing, error? }
-Mail.useLocal(): Promise<void>                     // Web 上 reject：ERR_UNSUPPORTED
-Mail.signIn(server, email, password, signUp): Promise<void>   // 进入云端模式
+Mail.useLocal(): Promise<void>                     // rejects on the web: ERR_UNSUPPORTED
+Mail.signIn(server, email, password, signUp): Promise<void>   // enter cloud mode
 Mail.signOut(): Promise<void>
 Mail.accounts(): Promise<Account[]>
-Mail.detect(email): Promise<ServerSettings | null> // 预设表 + Mozilla autoconfig
-Mail.addImap(input: ImapInput): Promise<Account>   // 先连通 IMAP 和 SMTP 再保存
+Mail.detect(email): Promise<ServerSettings | null> // preset table + Mozilla autoconfig
+Mail.addImap(input: ImapInput): Promise<Account>   // connects to IMAP and SMTP before saving
 Mail.addOAuth(provider: "google"|"microsoft"): Promise<Account>
 Mail.removeAccount(id): Promise<void>
 Mail.list(q: { folder: "inbox"|"sent"|"drafts"|"archive"|"trash", account?, before?, limit }): Promise<Summary[]>
-Mail.get(id): Promise<Message>                     // 正文已清洗，排版表格已改成块（见 §7）；附件元数据
-Mail.openAttachment(id, attachment): Promise<string | null>  // Web：图片/PDF 新标签页打开，其余下载；桌面：系统保存对话框后用默认程序打开；
-                                                   // 没有保存对话框时（Android）存进应用目录再打开。返回已保存但没有程序打开的文件路径
-Mail.attachmentPreview(id, attachment): Promise<string>      // PNG/JPEG/GIF/WebP（≤ 8 MB）的 data: URI，阅读页缩略图
+Mail.get(id): Promise<Message>                     // body already sanitized, layout tables turned into blocks (see §7); attachment metadata
+Mail.openAttachment(id, attachment): Promise<string | null>  // web: images/PDF open in a new tab, everything else downloads; desktop: system save dialog, then open with the default app;
+                                                   // without a save dialog (Android) saved to the app directory, then opened. Returns the path of a saved file no app could open
+Mail.attachmentPreview(id, attachment): Promise<string>      // data: URI of a PNG/JPEG/GIF/WebP (≤ 8 MB), thumbnail in the reader
 Mail.setFlags(id, { seen?, flagged? }): Promise<void>
-Mail.send(draft: Draft): Promise<void>             // 回复时带 inReplyTo / references；attachments 见 §4 附件
-Mail.stage(name, type, bytes: Uint8Array, onProgress: (sent) => void): Promise<Upload>   // 暂存附件，得到 id
-Mail.stageFile(path, type, onProgress): Promise<Upload>   // 本地文件（桌面拖放、文件管理器复制后粘贴），Rust 读；Web 上 reject
+Mail.send(draft: Draft): Promise<void>             // replies carry inReplyTo / references; attachments see §4 Attachments
+Mail.stage(name, type, bytes: Uint8Array, onProgress: (sent) => void): Promise<Upload>   // stage an attachment, get an id
+Mail.stageFile(path, type, onProgress): Promise<Upload>   // local file (desktop drop, paste after copying in the file manager), read by Rust; rejects on the web
 Mail.unstage(id): Promise<void>
-Mail.attachmentLimit(): number                     // 一封信附件总大小上限（字节）
+Mail.attachmentLimit(): number                     // most a message's attachments may add up to (bytes)
 Mail.search(text, limit): Promise<Summary[]>
-Mail.unread(): Promise<Record<accountId, number>>  // 各账号收件箱的未读数
+Mail.unread(): Promise<Record<accountId, number>>  // unread count of each account's inbox
 Mail.refresh(): Promise<void>
 Mail.on(listener: (e: MailEvent) => void): () => void   // newMail / changed / syncState / error
-Push.setToken(token): Promise<void>                // Android 宿主的 FCM token（§5），云端模式登记到服务端
+Push.setToken(token): Promise<void>                // FCM token from the Android host (§5), registered with the server in cloud mode
 ```
 
-消息 id 是本地库的稳定字符串 id；云端模式下是服务端 id。统一收件箱 = 所有账号 INBOX 按日期倒序合并。
+A message id is the local store's stable string id; in cloud mode it is the server's id. Unified inbox = every account's INBOX merged, newest first.
 
-各类型的字段与 `mail_core::types` 一一对应，JSON 形状相同（serde 的 tag 成为 `type`/`kind` 字段，`Message` 平铺 `Summary` 的字段）；`list` 的 `before` 是上一页最后一封的 id；`MailEvent` 以 `type` 区分。这些类型就是 `mail_core::types`：后端直接用它们，经 `app/src/types.rs` 的 `Js<T>` 以 serde JSON 过边界，TS 声明在同一文件里手写（Web 只编译 mail-core 的 `types`，不带引擎）。
+Every type's fields match `mail_core::types` one to one, with the same JSON shape (serde tags become `type`/`kind` fields, `Message` flattens `Summary`'s fields); `list`'s `before` is the id of the last message of the previous page; `MailEvent` is discriminated by `type`. These types are `mail_core::types`: the backends use them directly and they cross the boundary as serde JSON through `Js<T>` in `app/src/types.rs`, whose TS declarations are hand-written in the same file (the web compiles only mail-core's `types`, without the engine).
 
-## 4. 数据流
+## 4. Data flow
 
-### 本地模式（Linux、Windows、Android）
+### Local mode (Linux, Windows, Android)
 
 ```
 TSX ──Mail.*──▶ Rust LocalBackend ──tokio/rustls──▶ IMAP (993 / 143+STARTTLS)
                        │                       └──▶ SMTP (465 / 587+STARTTLS)
                        ▼
-              SQLite（data_dir/mail.sqlite，FTS5）◀── 凭据：系统钥匙串
+              SQLite (data_dir/mail.sqlite, FTS5) ◀── credentials: system keychain
 ```
 
-1. 添加账号：`detect` 填好服务器 → 连通测试 → 凭据进钥匙串，账号元数据进 SQLite。
-2. 首次同步：每个文件夹取最近 500 封。不超过 32 KB 的整封下载（离线可读、全文索引）；更大的只取信头和第一个文本部分做摘要（按 `BODYSTRUCTURE` 定位，不用部分 FETCH），正文打开时按需下载并缓存。
-3. 增量：新信取本地已有最大 UID 之上的（`UID FETCH n:*`，RFC 4549 §4.3.1），`UIDNEXT` 只用来判断有没有新信，不当水位线（服务器可能先分配 UID、后让信可见）；支持 `CONDSTORE` 时用 `HIGHESTMODSEQ` 同步标记；UIDVALIDITY 变了就重建该文件夹。
-4. 实时：INBOX 上 `IDLE`，收到 `EXISTS`/`EXPUNGE`/`FETCH`（别的客户端改了标记）就同步 INBOX；每 30 秒重发一次 IDLE，因为有的服务器（如 GreenMail）把别处的标记改动攒到 IDLE 结束才发；每 29 分钟全量同步。不支持 IDLE 的服务器每 2 分钟轮询。命令连接每账户一条、复用；复用的连接已被服务器关掉（空闲超时）时，在新连接上重试一次，其他错误不重试。连接或同步出错时记日志（带账户 id），按 5 秒到 5 分钟退避重连并全量同步。新信写库后发 `newMail` 事件，并在应用不在前台时发系统通知。
-5. 发送：lettre 经 SMTP 发出，成功后 `APPEND` 到"已发送"（Gmail 自动保存的除外）。
-6. 搜索：本地 FTS5（主题、发件人、收件人、正文）；本地没有的旧信，后续版本再补 IMAP `SEARCH`。
+1. Adding an account: `detect` fills in the servers → connection test → credentials go to the keychain, account metadata to SQLite.
+2. First sync: fetch the latest 500 messages of each folder. Messages up to 32 KB are downloaded whole (readable offline, full-text indexed); for larger ones only the headers and the first text part are fetched for the snippet (located through `BODYSTRUCTURE`, not partial FETCH), and the body is downloaded and cached on demand when opened.
+3. Incremental: new mail is whatever lies above the highest UID stored locally (`UID FETCH n:*`, RFC 4549 §4.3.1); `UIDNEXT` is only used to tell whether there is new mail, never as a high-water mark (a server may assign a UID before the message becomes visible); with `CONDSTORE`, flags are synced through `HIGHESTMODSEQ`; when UIDVALIDITY changes the folder is rebuilt.
+4. Real time: `IDLE` on INBOX; an `EXISTS`/`EXPUNGE`/`FETCH` (flags changed by another client) triggers an INBOX sync; IDLE is reissued every 30 seconds because some servers (such as GreenMail) hold flag changes made elsewhere until IDLE ends; a full sync runs every 29 minutes. Servers without IDLE are polled every 2 minutes. One command connection per account, reused; when the reused connection has been closed by the server (idle timeout), the command is retried once on a new connection, and other errors are not retried. Connection or sync errors are logged (with the account id), followed by a reconnect with backoff from 5 seconds to 5 minutes and a full sync. After new mail is written to the store a `newMail` event fires, plus a system notification when the app is not in the foreground.
+5. Sending: lettre sends over SMTP, then on success `APPEND`s to "Sent" (except Gmail, which saves it on its own).
+6. Search: local FTS5 (subject, from, to, body); old mail not stored locally will get IMAP `SEARCH` in a later version.
 
-桌面端主窗口关闭后留在托盘，IDLE 继续，系统通知照常。Android 本地模式只在应用打开时同步（没有后台服务），需要后台推送请用云端模式，设置页写明。
+On desktop, closing the main window leaves the app in the tray, IDLE continues and system notifications work as usual. Android local mode syncs only while the app is open (no background service); background push needs cloud mode, as the settings page says.
 
-### 云端模式（全部平台）
+### Cloud mode (all platforms)
 
 ```
-客户端 ──HTTPS REST──▶ nsh-mail-server ──mail-core──▶ 各邮箱 IMAP/SMTP
-   ▲  ◀──WebSocket 事件──┘   │
-   │                         ├──FCM HTTP v1──▶ Android
-   └─ 系统通知 ◀──────────────┴──Web Push (VAPID)──▶ 浏览器 Service Worker
+client ──HTTPS REST──▶ nsh-mail-server ──mail-core──▶ each mailbox's IMAP/SMTP
+   ▲  ◀──WebSocket events──┘   │
+   │                           ├──FCM HTTP v1──▶ Android
+   └─ system notification ◀────┴──Web Push (VAPID)──▶ browser Service Worker
 ```
 
-1. 用户在服务端注册/登录（邮箱 + 密码），拿到会话 token；客户端存 token（原生平台进钥匙串，Web 进 localStorage）。
-2. 添加账号：普通 IMAP 把应用专用密码交给服务端；OAuth 走服务端的 Web 流程（打开 `/v1/oauth/{provider}/start`，回调存 token，再跳回 `nshmail://oauth-done` 或 Web 页面）。
-3. 服务端为每个邮箱账号常驻一个 tokio 任务，复用 mail-core 的同步逻辑，数据写进共享的 `data/server.sqlite`，每行带 `user_id`。
-4. 新信：写库 → 通过 WebSocket 发给在线客户端 → 给不在线的设备发推送：Android 用 FCM，Web 用 Web Push；桌面端是常驻进程，挂着 WebSocket，收到事件后自己弹系统通知。
-5. 读、搜、发都走 REST。原生客户端在本地 SQLite 缓存列表和正文（离线可读）尚未实现，待 mail-core 提供写入接口。
+1. The user signs up / signs in on the server (email + password) and gets a session token; the client stores the token (keychain on native platforms, localStorage on the web).
+2. Adding an account: plain IMAP hands the app password to the server; OAuth goes through the server's web flow (open `/v1/oauth/{provider}/start`, the callback stores the token, then redirects back to `nshmail://oauth-done` or the web page).
+3. The server keeps one resident tokio task per mail account, reusing mail-core's sync logic, and writes data into the shared `data/server.sqlite`, every row carrying a `user_id`.
+4. New mail: written to the store → sent to online clients over WebSocket → pushed to offline devices: FCM on Android, Web Push on the web; the desktop app is a resident process holding a WebSocket and shows its own system notification when an event arrives.
+5. Reading, searching and sending all go through REST. Caching lists and bodies in the native client's local SQLite (readable offline) is not implemented yet, pending a write interface in mail-core.
 
-### 附件
+### Attachments
 
-草稿的 `attachments` 是 `{kind: "upload", id}`（`Mail.stage` 暂存的文件）或 `{kind: "forward", messageId, index}`（已存邮件的附件，转发默认全带、可逐个去掉）。
+A draft's `attachments` are `{kind: "upload", id}` (a file staged with `Mail.stage`) or `{kind: "forward", messageId, index}` (an attachment of a stored message; forwarding includes all of them by default and each can be removed).
 
-- 来源：附件按钮 `Picker.pickFiles`；正文框粘贴（`onPaste` 的 `files`，桌面上还有 `uris`）；拖放（桌面 `onFileDrop`，Web 用 `PageDrop.listen`）。`File` 的字节由 TSX 交给 `Mail.stage`，本地路径交给 `Mail.stageFile`。
-- 暂存：本地模式放在 Rust 内存里，发出后丢弃；云端模式 `POST /v1/uploads` 建档（名字、类型、大小），再按 1 MiB 分块 `PATCH /v1/uploads/{id}?offset=` 上传，每块之后报进度（NSH 的 Rust `fetch` 整体收发，没有上传进度）。关掉写信页时 `unstage` 未发出的文件。
-- 上限：附件合计默认 25 MB（Gmail、Outlook 的上限），按原始字节算。客户端加入文件时就检查（`Mail.attachmentLimit()`，云端模式取服务端 `/v1/me` 的 `maxAttachmentBytes`）；mail-core 发送前、服务端建档和发送时再检查，超限是 `ERR_TOO_LARGE`（HTTP 413）。
-- 编码：lettre 组 `multipart/mixed`，文件名在 `Content-Disposition` 里按 RFC 2231，`Content-Type` 的 `name` 按 RFC 2047（老客户端只认这个）。"已发送"里 `APPEND` 的就是发出的整封信，附件随之保存。
-- 服务端：分块存在 `data/uploads/<用户>/<id>`（元数据 `<id>.json`），发送成功即删除，其余 24 小时后由每小时一次的清理删除。
+- Sources: the attach button `Picker.pickFiles`; pasting into the body field (`onPaste`'s `files`, plus `uris` on desktop); drag and drop (`onFileDrop` on desktop, `PageDrop.listen` on the web). TSX hands a `File`'s bytes to `Mail.stage` and a local path to `Mail.stageFile`.
+- Staging: local mode keeps them in Rust memory and drops them after sending; cloud mode creates a record with `POST /v1/uploads` (name, type, size), then uploads in 1 MiB chunks with `PATCH /v1/uploads/{id}?offset=`, reporting progress after each chunk (NSH's Rust `fetch` sends and receives whole bodies, with no upload progress). Closing the compose page `unstage`s files that were not sent.
+- Limit: attachments add up to 25 MB by default (Gmail's and Outlook's limit), counted in raw bytes. The client checks as files are added (`Mail.attachmentLimit()`; cloud mode takes `maxAttachmentBytes` from the server's `/v1/me`); mail-core checks again before sending, and the server when creating the record and when sending; going over is `ERR_TOO_LARGE` (HTTP 413).
+- Encoding: lettre builds `multipart/mixed`, with the file name in `Content-Disposition` per RFC 2231 and the `name` of `Content-Type` per RFC 2047 (the only one old clients understand). What gets `APPEND`ed to "Sent" is the whole message as sent, attachments included.
+- Server: chunks are stored in `data/uploads/<user>/<id>` (metadata in `<id>.json`), deleted once sending succeeds; the rest are deleted after 24 hours by an hourly cleanup.
 
-### 服务端 API
+### Server API
 
 ```
 POST /v1/auth/signup | /v1/auth/login        {email, password} → {token}
-POST /v1/auth/logout      GET /v1/me    PATCH /v1/me  {hideContent}（通知不显示内容）
+POST /v1/auth/logout      GET /v1/me    PATCH /v1/me  {hideContent} (notifications without content)
 GET  /v1/accounts        POST /v1/accounts (imap)        DELETE /v1/accounts/{id}
-GET  /v1/detect?email=   POST /v1/sync（立即同步全部账号）
+GET  /v1/detect?email=   POST /v1/sync (sync every account now)
 GET  /v1/oauth/{google|microsoft}/start?token=…           GET /v1/oauth/{provider}/callback
 GET  /v1/messages?folder=&account=&before=&limit=         GET /v1/messages/{id}
-GET  /v1/messages/{id}/attachments/{index}  附件字节：Content-Type 为其类型，Content-Disposition: attachment（filename* 按 RFC 5987 带 UTF-8 原名），
-                                            CSP sandbox + nosniff；本地没有正文时从 IMAP 取并缓存
+GET  /v1/messages/{id}/attachments/{index}  attachment bytes: Content-Type is its type, Content-Disposition: attachment (filename* per RFC 5987 with the UTF-8 original name),
+                                            CSP sandbox + nosniff; fetched from IMAP and cached when the body is not stored locally
 PATCH /v1/messages/{id}  {seen?, flagged?}
-POST /v1/send            GET /v1/search?q=&limit=      GET /v1/unread → {accountId: 未读数}
+POST /v1/send            GET /v1/search?q=&limit=      GET /v1/unread → {accountId: unread count}
 POST /v1/uploads         {filename, mimeType, size} → Upload {id, filename, mimeType, size}
-PATCH /v1/uploads/{id}?offset=   分块原始字节（≤ 4 MiB）→ {received}      DELETE /v1/uploads/{id}
+PATCH /v1/uploads/{id}?offset=   raw chunk bytes (≤ 4 MiB) → {received}      DELETE /v1/uploads/{id}
 POST /v1/devices         {kind: "fcm"|"webpush", token | subscription, vapidKey?}  DELETE /v1/devices/{id}
-GET  /v1/push/vapid-key  GET /v1/events (WebSocket，Authorization 或 ?token=；带 ?device=<id> 时该设备在线期间不发推送)
-GET  /                   Web 客户端静态文件         GET /healthz
+GET  /v1/push/vapid-key  GET /v1/events (WebSocket, Authorization or ?token=; with ?device=<id> that device gets no push while connected)
+GET  /                   web client static files         GET /healthz
 ```
 
-错误响应体是 `{code, message}`（即 mail-core 的 `Error`，`code` 如 `ERR_AUTH`），HTTP 状态码表示类别。OAuth 结束时跳到 `nshmail://oauth-done?account=<id>`（`start` 带 `return=native`）或 `<公开地址>/?oauth-done&account=<id>`，失败时带 `error=<说明>`。服务端配置见 `crates/server/README.md`。
+Error response bodies are `{code, message}` (mail-core's `Error`, `code` such as `ERR_AUTH`); the HTTP status gives the category. OAuth ends by redirecting to `nshmail://oauth-done?account=<id>` (when `start` had `return=native`) or `<public URL>/?oauth-done&account=<id>`, with `error=<message>` on failure. Server configuration: `crates/server/README.md`.
 
-## 5. 推送方案
+## 5. Push
 
-| 平台 | 应用不在前台时 | 实现 |
+| Platform | When the app is not in the foreground | Implementation |
 |---|---|---|
-| Android | FCM data 消息 → `FirebaseMessagingService` 弹通知，点击打开该信 | `android/` Gradle 工程（见下） |
-| Web | Web Push → Service Worker `push` 事件 → `showNotification` | NSH 打包不带额外文件，打包后把 `app/web/sw.js` 复制到 `index.html` 旁（CI 的 web job 已做）；Rust 侧经 wasm-bindgen 调 `PushManager.subscribe`（VAPID 公钥来自服务端），在用户允许通知后订阅 |
-| Linux / Windows | 常驻进程（托盘）挂 WebSocket，收到 `newMail` 调 `Notifications.show` | NSH 自带，无需额外服务 |
+| Android | FCM data message → `FirebaseMessagingService` shows a notification; tapping it opens the message | `android/` Gradle project (see below) |
+| Web | Web Push → Service Worker `push` event → `showNotification` | NSH packaging carries no extra files, so after packaging `app/web/sw.js` is copied next to `index.html` (CI's web job does this); the Rust side calls `PushManager.subscribe` through wasm-bindgen (VAPID public key from the server), subscribing once the user allows notifications |
+| Linux / Windows | Resident process (tray) holds a WebSocket and calls `Notifications.show` on `newMail` | Built into NSH, no extra service |
 
-服务端：FCM 用 HTTP v1 API + 服务账号 JWT；Web Push 用 `web-push` crate（aes128gcm 加密，VAPID 签名）。推送失效（404/410、`UNREGISTERED`）即删除该设备。Web Push 订阅绑定订阅时的 VAPID 公钥：服务端随设备记下当时的公钥，启动时删掉公钥不同的订阅；登记时带的 `vapidKey` 不是当前公钥就回 409。Web 客户端每次启动取 `/v1/push/vapid-key`，已有订阅的 `applicationServerKey` 不同就先退订再订阅，然后照常 `POST /v1/devices`。
+Server: FCM uses the HTTP v1 API + a service account JWT; Web Push uses the `web-push` crate (aes128gcm encryption, VAPID signing). A dead push target (404/410, `UNREGISTERED`) deletes that device. A Web Push subscription is bound to the VAPID public key it was made with: the server records that key with the device and at start deletes subscriptions whose key differs; a registration whose `vapidKey` is not the current key gets 409. The web client fetches `/v1/push/vapid-key` on every start; if an existing subscription's `applicationServerKey` differs it unsubscribes and subscribes again, then `POST /v1/devices` as usual.
 
-隐私：Web Push 内容端到端加密；FCM 载荷经过 Google，只带发件人名和主题，设置里可选"通知不显示内容"（只发消息 id，客户端自取）。
+Privacy: Web Push content is end-to-end encrypted; FCM payloads pass through Google and carry only the sender name and subject, and settings offer "notifications without content" (only the message id is sent; the client fetches the rest).
 
-Android 宿主（`android/`，用法见其 README）：
+Android host (`android/`, usage in its README):
 
-- **运行时**：`prepare.sh` 取与 CLI 同版本的 `nsh.aar`（Java 运行时，校验 sha256），其中的 `libnsh.so` 换成 `nsh package --target android` 用本 crate 构建的那份（`.nsh/rust/android-release/lib`，含 `nsh-mail/native`），bundle 用 `nsh build --release` 放进 assets。`MainActivity` 照 nsh 的 `AppActivity` 写：`NshView.loadAssetBundle`、通知与 URL intent、返回键、沉浸式系统栏。
-- **token**：宿主把 FCM token 作为 host 事件 `push.token` `{kind: "fcm", token}` 发给应用，`app/push.ts` 交给 `Push.setToken`，云端模式登录后经 `on_token` 拿到并 `POST /v1/devices`。用事件而不是 `host.call`：事件不需要授权，而 `host.call` 要声明 `capabilities.host`，声明任何 capabilities 都会让没列出的能力（网络、通知……）全部被拒。
-- **通知**：data 消息按应用自己的通知的样子显示（nsh 的通知渠道、标签 `message:<id>`、启动 extra），点击后 `handleNotificationIntent` 交给应用已有的 `Notifications` 监听（`app/resident.ts`）打开该信，无需新的 TSX。
-- 没有 `google-services.json` 时照常构建运行，只是不推送；CI 有 secret `GOOGLE_SERVICES_JSON` 时写入。
+- **Runtime**: `prepare.sh` fetches `nsh.aar` (the Java runtime) at the CLI's version, verifying its sha256, replaces its `libnsh.so` with the one `nsh package --target android` builds from this crate (`.nsh/rust/android-release/lib`, containing `nsh-mail/native`), and puts the bundle built by `nsh build --release` into assets. `MainActivity` follows nsh's `AppActivity`: `NshView.loadAssetBundle`, notification and URL intents, the back key, immersive system bars.
+- **Token**: the host sends the FCM token to the app as the host event `push.token` `{kind: "fcm", token}`; `app/push.ts` passes it to `Push.setToken`, and once signed in to cloud mode `on_token` picks it up and `POST /v1/devices`. An event rather than `host.call`: events need no grant, while `host.call` needs `capabilities.host` declared, and declaring any capabilities denies every capability not listed (network, notifications, …).
+- **Notifications**: data messages are shown like the app's own notifications (nsh's notification channel, tag `message:<id>`, launch extra); on tap `handleNotificationIntent` hands it to the app's existing `Notifications` listener (`app/resident.ts`), which opens the message, with no new TSX.
+- Without `google-services.json` it builds and runs as usual, just without push; CI writes the file when the secret `GOOGLE_SERVICES_JSON` exists.
 
-## 6. 云端服务技术选型
+## 6. Cloud service technology choices
 
-- **Rust + axum + tokio**：与 mail-core 同语言，同步逻辑一份代码。
-- **存储**：一个 `server.sqlite` 存用户、会话、设备，以及所有用户的邮件（与客户端同一套表和 FTS5）。邮件表每行带 `user_id`，索引以它开头；mail-core 只在绑定了用户的 `Store` 上提供查询，漏写用户的查询写不出来。客户端本地库是同一套表，只有一个用户（`LOCAL_USER` = 0）。一个文件好备份、好迁移；代价是单机。v1 单实例足够。旧版每用户一份的 `data/users/<id>.sqlite` 在启动时导入（逐表核对行数和内容，事务内完成），原文件改名为 `*.migrated` 保留；导入或核对失败则拒绝启动、原文件不动。
-- **密码**：Argon2id；会话 token 随机 32 字节，库里只存 SHA-256。
-- **邮箱凭据**：AES-256-GCM 加密存储在每个用户的 `data/users/<id>.secrets.json`（mail-core 的 `EncryptedFileStore`），主密钥来自环境变量 `NSHMAIL_MASTER_KEY`，不落盘。轮换：新钥放 `NSHMAIL_MASTER_KEY`、旧钥放 `NSHMAIL_MASTER_KEY_OLD`，启动时先读全部文件，有条目两把钥匙都解不开就拒绝启动、不改任何文件；否则把旧钥加密的条目逐文件重写（先留 `.bak-old-key`，原子替换，只用新钥重读核对后删副本），之后可去掉 `NSHMAIL_MASTER_KEY_OLD`。只设一把钥匙时解不开同样拒绝启动。
-- **部署**：CI 构建 Docker 镜像推到 ghcr.io；`docker compose` 一键自托管。正式上线的主机和域名需要另行确认（付费、对外）。
+- **Rust + axum + tokio**: same language as mail-core, one copy of the sync logic.
+- **Storage**: one `server.sqlite` holds users, sessions, devices and every user's mail (the same tables and FTS5 as the client). Every row of the mail tables carries a `user_id` and the indexes start with it; mail-core offers queries only on a `Store` bound to a user, so a query that forgets the user cannot be written. The client's local store uses the same tables with a single user (`LOCAL_USER` = 0). One file is easy to back up and migrate; the cost is a single machine. One instance is enough for v1. The old per-user `data/users/<id>.sqlite` files are imported at start (row counts and contents checked table by table, inside a transaction) and the originals are kept, renamed `*.migrated`; if import or the check fails the server refuses to start and leaves the originals untouched.
+- **Passwords**: Argon2id; session tokens are 32 random bytes, and the store keeps only their SHA-256.
+- **Mail credentials**: encrypted with AES-256-GCM in each user's `data/users/<id>.secrets.json` (mail-core's `EncryptedFileStore`), with the master key from the environment variable `NSHMAIL_MASTER_KEY`, never written to disk. Rotation: put the new key in `NSHMAIL_MASTER_KEY` and the old one in `NSHMAIL_MASTER_KEY_OLD`; at start every file is read first, and if any entry opens with neither key the server refuses to start and changes no file; otherwise entries encrypted with the old key are rewritten file by file (a `.bak-old-key` copy is kept first, the file is replaced atomically, and the copy is deleted only after re-reading with the new key alone checks out), after which `NSHMAIL_MASTER_KEY_OLD` can be removed. With only one key set, entries it cannot open likewise stop the server from starting.
+- **Deployment**: CI builds the Docker image and pushes it to ghcr.io; `docker compose` self-hosts in one step. The host and domain for the public service need separate confirmation (paid, public).
 
-## 7. 安全
+## 7. Security
 
-- **OAuth 优先**：Gmail 和 Outlook 只引导 OAuth（XOAUTH2）。本地模式在客户端做授权码 + PKCE，回调用回环地址 `http://127.0.0.1:<随机端口>`（Google "桌面应用"客户端、Microsoft 公共客户端都支持，Android 也可用）；云端模式由服务端做 Web 流程。Google 范围 `https://mail.google.com/`，Microsoft 范围 `IMAP.AccessAsUser.All SMTP.Send offline_access`；两家都另加 `openid email`，从 ID token 取账号邮箱。客户端 ID 在构建时注入（`NSHMAIL_GOOGLE_CLIENT_ID`、`NSHMAIL_MS_CLIENT_ID`）。
-- **普通 IMAP**：只接受应用专用密码（界面说明怎样生成，并给常见服务商的链接）；QQ、163、iCloud、Fastmail、Yahoo 等预设服务器。
-- **凭据存储**：Windows 凭据管理器、Linux Secret Service（`keyring` crate）；没有 Secret Service 的 Linux 会话退回应用私有目录下 0600 的加密文件并提示。Android v1 存应用私有目录（系统沙箱隔离）的加密文件，Gradle 宿主就位后改用 Android Keystore。
-- **传输**：只允许 TLS（993/465 或 STARTTLS），拒绝明文；rustls + webpki 根证书。
-- **邮件内容**：HTML 在 mail-core 里用 ammonia 清洗一次（去掉脚本、事件属性、`javascript:`、表单、iframe/object/embed、`<meta>`/`<link>`/`<base>`；保留 `<style>`、`style`/`class` 和表格排版属性），`cid:` 内嵌图片换成 `data:` URI（每封合计 10 MB 内）。客户端用 NSH `WebView` 显示（Web 上是不带 `allow-scripts` 的 sandbox iframe，原生关闭 JS、`incognito`），文档里的 CSP 默认挡住所有远程资源（图片、CSS `url()`、字体），用户点“显示图片”才放开。`nsh.json` 的 `capabilities.webview.hosts` 为空：WebView 里的链接导航被原生拒绝并以 `onError` 报回，客户端交给系统浏览器打开；Web 上靠 `<base target="_blank">` 开新标签页。HTML 放在浅色卡片里（`color-scheme: light`），深色模式不反色。没有 HTML 部分的邮件、没有 Web 引擎的平台（Linux 缺 WebKitGTK 6.0、Windows 缺 WebView2）显示纯文本。
-- **附件**：Web 上只有图片和 PDF 以原类型的 blob 在新标签页打开，其余一律以 `application/octet-stream` 下载，防止 HTML/SVG 附件在本站源下运行；服务端附件接口同样带 `Content-Security-Policy: sandbox`。
-- **日志**：不记录凭据、token 和正文。
+- **OAuth first**: Gmail and Outlook are steered to OAuth (XOAUTH2) only. Local mode does authorization code + PKCE in the client with a loopback redirect `http://127.0.0.1:<random port>` (supported by Google's "Desktop app" clients and Microsoft's public clients, usable on Android too); cloud mode does the web flow on the server. Google scope `https://mail.google.com/`, Microsoft scopes `IMAP.AccessAsUser.All SMTP.Send offline_access`; both add `openid email` and take the account's address from the ID token. Client IDs are injected at build time (`NSHMAIL_GOOGLE_CLIENT_ID`, `NSHMAIL_MS_CLIENT_ID`).
+- **Plain IMAP**: app passwords only (the UI explains how to create one and links to common providers); preset servers for QQ, 163, iCloud, Fastmail, Yahoo and others.
+- **Credential storage**: Windows Credential Manager, Linux Secret Service (`keyring` crate); Linux sessions without Secret Service fall back to an encrypted 0600 file in the app's private directory, with a notice. Android v1 stores an encrypted file in the app's private directory (isolated by the system sandbox), moving to the Android Keystore once the Gradle host is in place.
+- **Transport**: TLS only (993/465 or STARTTLS), plaintext refused; rustls + webpki roots.
+- **Mail content**: HTML is sanitized once in mail-core with ammonia (removing scripts, event attributes, `javascript:`, forms, iframe/object/embed, `<meta>`/`<link>`/`<base>`; keeping `<style>`, `style`/`class` and table layout attributes), and `cid:` inline images become `data:` URIs (up to 10 MB in total per message). The client shows it in an NSH `WebView` (on the web a sandboxed iframe without `allow-scripts`; on native with JS off and `incognito`), and the document's CSP blocks every remote resource by default (images, CSS `url()`, fonts) until the user taps "Show images". `capabilities.webview.hosts` in `nsh.json` is empty: link navigation inside the WebView is refused natively and reported through `onError`, and the client opens it in the system browser; on the web `<base target="_blank">` opens a new tab. HTML sits on a light card (`color-scheme: light`) and is not inverted in dark mode. Mail without an HTML part, and platforms without a web engine (Linux lacking WebKitGTK 6.0, Windows lacking WebView2), show plain text.
+- **Attachments**: on the web only images and PDFs open in a new tab as a blob of their own type; everything else downloads as `application/octet-stream`, so HTML/SVG attachments never run under the site's origin; the server's attachment endpoint likewise sends `Content-Security-Policy: sandbox`.
+- **Logs**: never record credentials, tokens or bodies.
 
-## 8. CI 与产物
+## 8. CI and artifacts
 
-GitHub Actions，每个 PR 跑：
+GitHub Actions, on every PR:
 
-| Job | Runner | 产物 |
+| Job | Runner | Artifacts |
 |---|---|---|
-| core + server | ubuntu-24.04 | `cargo test`、`clippy`；服务端 Docker 镜像（main 上推 ghcr） |
-| linux | ubuntu-24.04（GTK 4.14） | `nsh package --target linux` → `.tar.gz` |
-| windows | windows-latest（只在 `v*` 标签和手动运行） | `nsh package --target windows` → `.zip` + 安装器；有证书 secret 时 signtool 签名（带时间戳） |
-| android | ubuntu-24.04 + SDK/NDK | `nsh package` 的 `.apk`，以及 Gradle 宿主（FCM）的 `.apk`，只含 arm64-v8a；PR 和 main 用调试签名。`v*` 标签和手动运行在有密钥 secret 时用正式签名，发布产物是两份 `.aab`（arm64-v8a + armeabi-v7a，Play 按设备只下发一份 `libnsh.so`），旁边的 `nsh package` `.apk` 仍只含 arm64-v8a，Gradle 宿主按 ABI 各出一份 `.apk` |
-| web | ubuntu-24.04 + wasm32 | 静态站点 `.zip` |
+| core + server | ubuntu-24.04 | `cargo test`, `clippy`; server Docker image (pushed to ghcr on main) |
+| linux | ubuntu-24.04 (GTK 4.14) | `nsh package --target linux` → `.tar.gz` |
+| windows | windows-latest (only on `v*` tags and manual runs) | `nsh package --target windows` → `.zip` + installer; signed with signtool (timestamped) when the certificate secret exists |
+| android | ubuntu-24.04 + SDK/NDK | `nsh package`'s `.apk` and the Gradle host's (FCM) `.apk`, arm64-v8a only; PRs and main use debug signing. `v*` tags and manual runs use release signing when the key secrets exist, and the release artifacts are two `.aab`s (arm64-v8a + armeabi-v7a; Play delivers only one `libnsh.so` per device), next to the `nsh package` `.apk`, still arm64-v8a only, and one Gradle host `.apk` per ABI |
+| web | ubuntu-24.04 + wasm32 | static site `.zip` |
 
-## 9. 第一版范围
+## 9. First version scope
 
-添加账号（IMAP + OAuth）、统一收件箱、读信、写信和回复、搜索、本地模式完整可用；云端模式能同步并推送；CI 出四个平台的产物。暂不做：多选批量操作、文件夹管理、规则、PGP。
+Adding accounts (IMAP + OAuth), unified inbox, reading, composing and replying, search, local mode fully working; cloud mode syncs and pushes; CI produces artifacts for all four platforms. Not yet: multi-select bulk actions, folder management, rules, PGP.
