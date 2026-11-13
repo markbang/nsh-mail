@@ -46,7 +46,10 @@ def matches(n, key):
 def bounds(key, timeout=20):
     end = time.time() + timeout
     while time.time() < end:
-        for n in nodes():
+        found = nodes()
+        if dismiss_anr(found):
+            continue
+        for n in found:
             if matches(n, key):
                 x1, y1, x2, y2 = map(int, re.findall(r"\d+", n.get("bounds")))
                 if x2 > x1 and y2 > y1:
@@ -65,10 +68,25 @@ def during(gesture, name, at=0.7):
     print("shot", name, flush=True)
 
 
+def dismiss_anr(found):
+    """The emulator's own apps (the launcher) sometimes stop responding: wait for them, keep going."""
+    for n in found:
+        if n.get("resource-id") == "android:id/aerr_wait":
+            x1, y1, x2, y2 = map(int, re.findall(r"\d+", n.get("bounds")))
+            adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+            print("dismissed a system ANR dialog", flush=True)
+            time.sleep(1)
+            return True
+    return False
+
+
 def find(key, timeout=20):
     end = time.time() + timeout
     while time.time() < end:
-        for n in nodes():
+        found = nodes()
+        if dismiss_anr(found):
+            continue
+        for n in found:
             if matches(n, key):
                 x1, y1, x2, y2 = map(int, re.findall(r"\d+", n.get("bounds")))
                 if x2 > x1 and y2 > y1:
