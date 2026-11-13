@@ -1,7 +1,6 @@
 // A message on its own page (phones and narrow windows).
-import { NavPage } from "nsh/base";
 import { t } from "nsh/i18n";
-import { Empty, Spinner, systemHeader } from "../ui";
+import { Empty, Page, Spinner, systemHeader } from "../ui";
 import { PageHeader } from "../components/PageHeader";
 import { Reader, ReaderActions } from "../components/Reader";
 import { NavContext } from "../nav";
@@ -13,8 +12,8 @@ export function MessagePage(props: { id: string }) {
   const message = () => (current()?.id === props.id ? current() : undefined);
   const compose = (mode: ComposeMode) => nav.stack.push({ name: "compose", init: { mode, source: message() } });
   return (
-    <NavPage
-      title={message()?.subject ?? ""}
+    <Page
+      title=""
       header={
         <PageHeader
           title=""
@@ -32,6 +31,6 @@ export function MessagePage(props: { id: string }) {
       >
         {(m) => <Reader message={m()} onCompose={compose} toolbar={!systemHeader} />}
       </If>
-    </NavPage>
+    </Page>
   );
 }

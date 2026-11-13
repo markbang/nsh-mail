@@ -4,7 +4,7 @@
 mod attachments;
 mod backend;
 mod cloud;
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, nshmail_demo))]
 mod demo;
 mod drop;
 mod layout;

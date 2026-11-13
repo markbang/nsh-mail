@@ -1,10 +1,9 @@
 // An IMAP account: the address first, then its servers (found from the
 // address, editable) and an app password.
 import { openUrl, signal, Text, View } from "nsh";
-import { NavPage } from "nsh/base";
 import { t } from "nsh/i18n";
 import { Mail, type Endpoint, type Security, type ServerSettings } from "nsh-mail/native";
-import { Button, Field, Icon, SectionLabel, SelectField, TextField, touch } from "../ui";
+import { Button, Field, Icon, Page, SectionLabel, SelectField, TextField, touch } from "../ui";
 import { PageHeader, PageScroll } from "../components/PageHeader";
 import { NavContext } from "../nav";
 import { isAddress, providerName } from "../lib/format";
@@ -84,7 +83,7 @@ export function ImapPage() {
   const note = touch ? "text-small" : "text-tiny";
   const provider = () => providerName(settings().provider, settings().displayName ?? "");
   return (
-    <NavPage title={t("accounts.other")} header={<PageHeader title={t("accounts.other")} />}>
+    <Page title={t("accounts.other")} header={<PageHeader title={t("accounts.other")} />}>
       <PageScroll contentClass={touch ? "gap-5 p-4" : "gap-5 p-6"} testID="imap">
         <Field label={t("imap.email")}>
           <TextField
@@ -180,6 +179,6 @@ export function ImapPage() {
           <Button color="primary" label={busy() ? t("imap.connecting") : t("imap.add")} loading={busy()} onPress={() => void add()} class="self-start" testID="imap-add" />
         </If>
       </PageScroll>
-    </NavPage>
+    </Page>
   );
 }

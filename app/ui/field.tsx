@@ -121,7 +121,7 @@ export function Field(props: { label: string; description?: string; error?: stri
         <Text class="px-1 text-tiny text-danger">{props.error}</Text>
       </If>
       <If when={!props.error && props.description}>
-        <Text class="px-1 text-tiny text-foreground-400">{props.description}</Text>
+        <Text class="px-1 text-tiny text-foreground-500">{props.description}</Text>
       </If>
     </View>
   );

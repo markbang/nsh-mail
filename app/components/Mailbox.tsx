@@ -20,8 +20,9 @@ export function resultCount(count: number) {
   return count === 1 ? t("search.countOne") : t("search.count", { count });
 }
 
-export function MailboxList(props: { onOpen: (id: string) => void; onAddAccount: () => void; highlight?: boolean }) {
-  const searching = () => searchResults() !== null;
+export function MailboxList(props: { onOpen: (id: string) => void; onAddAccount: () => void; highlight?: boolean; searchable?: boolean }) {
+  // Phones search on a page of their own; the list there stays the mailbox's.
+  const searching = () => props.searchable !== false && searchResults() !== null;
   return (
     <If
       when={searching()}

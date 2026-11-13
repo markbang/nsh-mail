@@ -13,7 +13,7 @@ const folders: { folder: Folder; icon: IconName }[] = [
   { folder: "trash", icon: "trash" },
 ];
 
-export function Mailboxes(props: { onCompose?: () => void; onSettings: () => void; onChosen?: () => void }) {
+export function Mailboxes(props: { onCompose?: () => void; onSettings?: () => void; onChosen?: () => void }) {
   const choose = (account: string | null, folder: Folder) => {
     openMailbox({ account, folder });
     props.onChosen?.();
@@ -24,7 +24,7 @@ export function Mailboxes(props: { onCompose?: () => void; onSettings: () => voi
     return n ? <Badge label={String(n)} color="primary" variant="flat" /> : undefined;
   };
   return (
-    <View class="flex-1 bg-sidebar">
+    <View class={`flex-1 ${props.onSettings ? "bg-sidebar" : "bg-background"}`}>
       <If when={props.onCompose}>
         <View class="px-3 pb-1 pt-3">
           <Button color="primary" icon="compose" label={t("actions.compose")} onPress={() => props.onCompose?.()} fullWidth testID="compose" />
@@ -73,7 +73,9 @@ export function Mailboxes(props: { onCompose?: () => void; onSettings: () => voi
           </If>
         </View>
         <IconButton icon="refresh" label={t("actions.refresh")} size="sm" onPress={() => void refresh()} />
-        <IconButton icon="settings" label={t("settings.title")} size="sm" onPress={props.onSettings} testID="open-settings" />
+        <If when={props.onSettings}>
+          <IconButton icon="settings" label={t("settings.title")} size="sm" onPress={() => props.onSettings?.()} testID="open-settings" />
+        </If>
       </View>
     </View>
   );
