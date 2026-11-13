@@ -139,6 +139,22 @@ fn to_json(value: &impl serde::Serialize) -> Option<Value> {
     serde_json::to_value(value).ok()
 }
 
+/// `GET` path of a page of `/messages` or `/threads`.
+fn page(base: &str, query: &ListQuery) -> String {
+    let folder = to_json(&query.folder);
+    let mut path = format!(
+        "{base}?folder={}&limit={}",
+        folder.as_ref().and_then(Value::as_str).unwrap_or("inbox"),
+        query.limit.max(1)
+    );
+    for (key, value) in [("account", &query.account), ("before", &query.before)] {
+        if let Some(value) = value {
+            path.push_str(&format!("&{key}={}", enc(value)));
+        }
+    }
+    path
+}
+
 fn enc(s: &str) -> String {
     url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
 }
@@ -528,18 +544,38 @@ impl Backend for CloudBackend {
 
     fn list(&self, query: ListQuery) -> MailFuture<'_, Vec<Summary>> {
         Box::pin(async move {
-            let folder = to_json(&query.folder);
-            let mut path = format!(
-                "/messages?folder={}&limit={}",
-                folder.as_ref().and_then(Value::as_str).unwrap_or("inbox"),
-                query.limit.max(1)
-            );
-            for (key, value) in [("account", &query.account), ("before", &query.before)] {
-                if let Some(value) = value {
-                    path.push_str(&format!("&{key}={}", enc(value)));
-                }
-            }
+            let path = page("/messages", &query);
             self.api().call("GET", &path, None).await
+        })
+    }
+
+    fn threads(&self, query: ListQuery) -> MailFuture<'_, Vec<Thread>> {
+        Box::pin(async move {
+            let path = page("/threads", &query);
+            self.api().call("GET", &path, None).await
+        })
+    }
+
+    fn thread(&self, id: String) -> MailFuture<'_, Vec<Summary>> {
+        Box::pin(async move {
+            let path = format!("/threads/{}", enc(&id));
+            self.api().call("GET", &path, None).await
+        })
+    }
+
+    fn set_thread_flags(&self, id: String, flags: Flags) -> MailFuture<'_, ()> {
+        Box::pin(async move {
+            let path = format!("/threads/{}", enc(&id));
+            self.api().call("PATCH", &path, to_json(&flags)).await
+        })
+    }
+
+    fn move_thread(&self, id: String, folder: FolderKind) -> MailFuture<'_, ()> {
+        Box::pin(async move {
+            let path = format!("/threads/{}/move", enc(&id));
+            self.api()
+                .call("POST", &path, to_json(&json!({ "folder": folder })))
+                .await
         })
     }
 

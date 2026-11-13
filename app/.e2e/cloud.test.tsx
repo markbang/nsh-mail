@@ -104,7 +104,9 @@ test("cloud mode: sign up, add a mailbox, read, get new mail live, reply, sign o
   await alices.type("id:compose-body", "Sounds good.");
   await alices.press("id:send");
   await alices.waitFor("text:Message sent", slow);
-  await bobs.waitFor("id:messages >> text:Re: Lunch at noon?", slow);
+  // Bob's inbox lists the reply in the conversation his question started.
+  await bobs.waitFor("id:messages >> text:Lunch at noon?", slow);
+  await bobs.waitFor("id:messages >> id:thread-count", slow);
 
   // Signing out ends the session on the server and on the device.
   bobs.onDialog(() => "Sign out");

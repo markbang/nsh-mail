@@ -92,6 +92,53 @@ impl Data {
         Some(summary)
     }
 
+    /// Conversations with a message in the query's folder, newest first ([`in_view`]).
+    fn threads(&self, query: &ListQuery) -> Vec<Thread> {
+        let of_account = |m: &Message| {
+            query
+                .account
+                .as_ref()
+                .is_none_or(|a| &m.summary.account_id == a)
+        };
+        let listed: Vec<&str> = self
+            .messages
+            .iter()
+            .filter(|m| m.summary.folder == query.folder && of_account(m))
+            .map(|m| m.summary.thread_id.as_str())
+            .collect();
+        let mut groups: Vec<(String, Vec<(Summary, Option<String>)>)> = Vec::new();
+        for m in self.messages.iter().filter(|m| {
+            listed.contains(&m.summary.thread_id.as_str())
+                && in_view(m.summary.folder, query.folder)
+                && of_account(m)
+        }) {
+            let entry = (m.summary.clone(), m.message_id.clone());
+            match groups.iter_mut().find(|(id, _)| *id == m.summary.thread_id) {
+                Some((_, v)) => v.push(entry),
+                None => groups.push((m.summary.thread_id.clone(), vec![entry])),
+            }
+        }
+        let mut threads: Vec<Thread> = groups
+            .into_iter()
+            .filter_map(|(id, v)| Thread::of(id, &conversation(v)))
+            .collect();
+        threads.sort_by(|a, b| {
+            b.latest
+                .date
+                .cmp(&a.latest.date)
+                .then_with(|| b.id.cmp(&a.id))
+        });
+        threads
+    }
+
+    fn thread(&self, id: &str) -> Vec<(Summary, Option<String>)> {
+        self.messages
+            .iter()
+            .filter(|m| m.summary.thread_id == id)
+            .map(|m| (m.summary.clone(), m.message_id.clone()))
+            .collect()
+    }
+
     /// Newest first; equal dates by id, so a page boundary is stable.
     fn sorted(&self, keep: impl Fn(&Message) -> bool) -> Vec<&Message> {
         let mut found: Vec<&Message> = self.messages.iter().filter(|m| keep(m)).collect();
@@ -284,6 +331,95 @@ impl Backend for DemoBackend {
         })
     }
 
+    fn threads(&self, query: ListQuery) -> MailFuture<'_, Vec<Thread>> {
+        Box::pin(async move {
+            latency(120).await;
+            let found = self.data.borrow().threads(&query);
+            let start = match &query.before {
+                Some(before) => found
+                    .iter()
+                    .position(|t| &t.id == before)
+                    .map_or(found.len(), |at| at + 1),
+                None => 0,
+            };
+            Ok(found
+                .into_iter()
+                .skip(start)
+                .take(query.limit.max(1) as usize)
+                .collect())
+        })
+    }
+
+    fn thread(&self, id: String) -> MailFuture<'_, Vec<Summary>> {
+        Box::pin(async move {
+            latency(60).await;
+            let messages = conversation(self.data.borrow().thread(&id));
+            if messages.is_empty() {
+                return Err(not_found("conversation"));
+            }
+            Ok(messages)
+        })
+    }
+
+    fn set_thread_flags(&self, id: String, flags: Flags) -> MailFuture<'_, ()> {
+        let mut data = self.data.borrow_mut();
+        let latest = data
+            .messages
+            .iter()
+            .filter(|m| m.summary.thread_id == id && m.summary.folder != FolderKind::Trash)
+            .max_by_key(|m| m.summary.date)
+            .map(|m| m.summary.id.clone());
+        let mut changed = Vec::new();
+        for Message { summary: m, .. } in data
+            .messages
+            .iter_mut()
+            .filter(|m| m.summary.thread_id == id)
+        {
+            m.seen = flags.seen.unwrap_or(m.seen);
+            match flags.flagged {
+                Some(true) if latest.as_ref() == Some(&m.id) => m.flagged = true,
+                Some(false) => m.flagged = false,
+                _ => {}
+            }
+            changed.push((m.account_id.clone(), m.folder));
+        }
+        if changed.is_empty() {
+            return ok(Err(not_found("conversation")));
+        }
+        changed.dedup();
+        for (account_id, folder) in changed {
+            data.emit(MailEvent::Changed { account_id, folder });
+        }
+        ok(Ok(()))
+    }
+
+    fn move_thread(&self, id: String, folder: FolderKind) -> MailFuture<'_, ()> {
+        let mut data = self.data.borrow_mut();
+        let moves = |m: &Message| {
+            m.summary.thread_id == id
+                && match folder {
+                    FolderKind::Archive => m.summary.folder == FolderKind::Inbox,
+                    _ => m.summary.folder != FolderKind::Trash,
+                }
+        };
+        if !matches!(folder, FolderKind::Archive | FolderKind::Trash) {
+            return ok(Err(invalid("a conversation moves to archive or trash")));
+        }
+        let mut changed = Vec::new();
+        for Message { summary: m, .. } in data.messages.iter_mut().filter(|m| moves(m)) {
+            changed.push((
+                m.account_id.clone(),
+                std::mem::replace(&mut m.folder, folder),
+            ));
+            changed.push((m.account_id.clone(), folder));
+        }
+        changed.dedup();
+        for (account_id, folder) in changed {
+            data.emit(MailEvent::Changed { account_id, folder });
+        }
+        ok(Ok(()))
+    }
+
     fn get(&self, id: String) -> MailFuture<'_, Message> {
         Box::pin(async move {
             latency(80).await;
@@ -419,6 +555,13 @@ impl Backend for DemoBackend {
             sent.summary.seen = true;
             sent.in_reply_to = draft.in_reply_to.clone();
             sent.references = draft.references.clone();
+            if let Some(parent) = data.messages.iter().find(|m| {
+                m.message_id.is_some()
+                    && (m.message_id == draft.in_reply_to
+                        || draft.references.contains(m.message_id.as_ref().unwrap()))
+            }) {
+                sent.summary.thread_id = parent.summary.thread_id.clone();
+            }
             sent.summary.has_attachments = !attachments.is_empty();
             sent.attachments = attachments;
             data.messages.push(sent.clone());
@@ -586,7 +729,7 @@ fn message(
     Message {
         message_id: Some(format!("<{id}@demo.nsh-mail>")),
         summary: Summary {
-            id,
+            id: id.clone(),
             account_id: account.id.clone(),
             folder,
             from: Some(Address {
@@ -603,6 +746,7 @@ fn message(
             seen: false,
             flagged: false,
             has_attachments: false,
+            thread_id: format!("t-{id}"),
         },
         cc: Vec::new(),
         reply_to: Vec::new(),
@@ -724,6 +868,8 @@ struct Seed {
     flagged: bool,
     attachments: &'static [(&'static str, &'static str, f64)],
     remote_images: &'static [&'static str],
+    /// Seeds with the same tag are one conversation, each replying to the one before.
+    thread: Option<&'static str>,
 }
 
 const fn seed_msg(
@@ -745,6 +891,7 @@ const fn seed_msg(
         flagged: false,
         attachments: &[],
         remote_images: &[],
+        thread: None,
     }
 }
 
@@ -877,13 +1024,26 @@ const SEEDS: &[Seed] = &[
             "Your receipt from Fastmail\n\nStandard plan, 12 months: $60.00\nTax: $0.00\nTotal: $60.00\n\nPaid with Visa ending 4242 on 3 November.",
         )
     },
-    seed_msg(
-        GMAIL,
-        1.4 * DAY,
-        ("Mom", "chen.meiling@163.com"),
-        "Re: Thanksgiving plans",
-        "We'd love to have you both. Dad is already planning the menu. Let me know your train times when you book.\n\nLove, Mom",
-    ),
+    Seed {
+        thread: Some("thanksgiving"),
+        ..seed_msg(
+            GMAIL,
+            3.0 * DAY,
+            ("Mom", "chen.meiling@163.com"),
+            "Thanksgiving plans",
+            "Are you two coming home for Thanksgiving this year? Your aunt is flying in on Wednesday.\n\nLove, Mom",
+        )
+    },
+    Seed {
+        thread: Some("thanksgiving"),
+        ..seed_msg(
+            GMAIL,
+            1.4 * DAY,
+            ("Mom", "chen.meiling@163.com"),
+            "Re: Thanksgiving plans",
+            "We'd love to have you both. Dad is already planning the menu. Let me know your train times when you book.\n\nLove, Mom",
+        )
+    },
     seed_msg(
         WORK,
         1.8 * DAY,
@@ -1077,6 +1237,50 @@ const SEEDS: &[Seed] = &[
         "Laptop setup",
         "Your laptop is ready for pickup at the front desk.",
     ),
+    // A conversation: Priya asks, Lin answers from Sent, Jonas and Maya follow.
+    Seed {
+        thread: Some("offsite"),
+        ..seed_msg(
+            WORK,
+            2.0 * DAY,
+            ("Priya Raman", "priya@northwind.dev"),
+            "Offsite in March: Lisbon or Porto?",
+            "Hi all,\n\nWe have budget for a three-day offsite in March. Lisbon or Porto? Vote by Friday and I'll book.\n\nPriya",
+        )
+    },
+    Seed {
+        folder: FolderKind::Sent,
+        thread: Some("offsite"),
+        ..seed_msg(
+            WORK,
+            1.9 * DAY,
+            ("Lin Chen", "lin.chen@northwind.dev"),
+            "Re: Offsite in March: Lisbon or Porto?",
+            "Porto gets my vote: easier flights for the Berlin folks, and the venue near the river has a big room for the hack day.\n\nLin",
+        )
+    },
+    Seed {
+        thread: Some("offsite"),
+        ..seed_msg(
+            WORK,
+            1.2 * DAY,
+            ("Jonas Weber", "jonas@northwind.dev"),
+            "Re: Offsite in March: Lisbon or Porto?",
+            "Porto works for me too. I can look at train times from Lisbon airport for anyone flying in there.\n\nJonas",
+        )
+    },
+    Seed {
+        seen: false,
+        thread: Some("offsite"),
+        attachments: &[("offsite-agenda.pdf", "application/pdf", 96_512.0)],
+        ..seed_msg(
+            WORK,
+            4.0 * HOUR,
+            ("Maya Patel", "maya@northwind.dev"),
+            "Re: Offsite in March: Lisbon or Porto?",
+            "Porto it is. I booked the river venue for 12–14 March; the agenda draft is attached. Add your session ideas by next Wednesday.\n\nMaya",
+        )
+    },
     // Other folders.
     Seed {
         folder: FolderKind::Sent,
@@ -1090,6 +1294,7 @@ const SEEDS: &[Seed] = &[
     },
     Seed {
         folder: FolderKind::Sent,
+        thread: Some("thanksgiving"),
         ..seed_msg(
             GMAIL,
             1.5 * DAY,
@@ -1226,6 +1431,21 @@ fn seed(now: f64) -> Data {
             })
             .collect();
         m.summary.has_attachments = !m.attachments.is_empty();
+        if let Some(tag) = s.thread {
+            m.summary.thread_id = format!("t-{tag}");
+            let parent = data
+                .messages
+                .iter()
+                .filter(|p| {
+                    p.summary.thread_id == m.summary.thread_id && p.summary.date < m.summary.date
+                })
+                .max_by_key(|p| p.summary.date);
+            if let Some(parent) = parent {
+                m.in_reply_to = parent.message_id.clone();
+                m.references = parent.references.clone();
+                m.references.extend(parent.message_id.clone());
+            }
+        }
         data.messages.push(m);
     }
     data

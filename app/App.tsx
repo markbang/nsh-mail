@@ -21,7 +21,7 @@ import { SearchPage } from "./pages/SearchPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { listenForPushToken } from "./push";
 import { stayResident } from "./resident";
-import { current, isStarted, mailStatus, moveMessages, openMessage, selectedId, start, stepMessage } from "./store";
+import { current, isStarted, mailStatus, moveOpen, openMessage, selectedId, start, stepMessage } from "./store";
 import type { ComposeMode } from "./lib/format";
 
 function page(route: Route) {
@@ -69,8 +69,8 @@ function Main() {
       c: key(() => compose("new")),
       r: key(() => wide() && selectedId() && compose("reply")),
       "/": key(() => (wide() ? search?.focus() : selectTab(1))),
-      e: key(() => wide() && selectedId() && moveMessages([selectedId()!], "archive")),
-      "shift+3": key(() => wide() && selectedId() && moveMessages([selectedId()!], "trash")),
+      e: key(() => wide() && selectedId() && moveOpen("archive")),
+      "shift+3": key(() => wide() && selectedId() && moveOpen("trash")),
       j: key(() => wide() && stepMessage(1)),
       k: key(() => wide() && stepMessage(-1)),
     },

@@ -44,8 +44,63 @@ test("opens a message, replies with it quoted, and finds the reply in Sent", asy
   expect(app.value("id:compose-body")).toMatch(/^\n\nOn .*\n> Attached is the first draft of the Q4 roadmap\.[^]*\n$/);
   await app.press("id:send");
   await app.waitFor("text:Message sent");
+  // The reply joins the conversation, which Sent lists with Jonas's message.
   await app.press("text:Sent");
-  await app.waitFor("id:messages >> text:Re: Q4 roadmap draft");
+  await app.press("id:messages >> text:Q4 roadmap draft");
+  await app.waitFor("id:thread-older >> text:Jonas Weber");
+  await app.waitFor("id:reader >> text:Re: Q4 roadmap draft", { state: "gone" });
+});
+
+test("a conversation is one row; it opens on its latest message, the earlier ones collapsed", async () => {
+  const app = await open("./App.tsx", { ...desktop, ...demo });
+  await app.waitFor("id:messages >> text:Offsite in March: Lisbon or Porto?");
+  expect(app.count("id:messages >> text:Offsite in March: Lisbon or Porto?")).toBe(1);
+  await app.waitFor("id:messages >> text:Priya … Jonas, Maya");
+  await app.press("text:Offsite in March: Lisbon or Porto?");
+  await app.waitFor("id:reader >> text:offsite-agenda.pdf");
+  await app.waitFor("id:thread-older >> text:Priya Raman");
+  await app.waitFor("id:thread-older >> text:me");
+  await app.press("id:thread-older >> text:Jonas Weber");
+  await app.waitFor("id:reader >> text:/^Porto works for me too/");
+  await app.waitFor("id:thread-newer >> text:Maya Patel");
+  await app.press("id:reply");
+  await app.waitFor("id:compose-to");
+  expect(app.value("id:compose-to")).toBe("Jonas Weber <jonas@northwind.dev>");
+  await app.press("id:header-back");
+  await app.waitFor("id:modal", { state: "gone" });
+
+  // Archive takes the whole conversation out of the inbox.
+  await app.press("id:archive");
+  await app.waitFor("id:messages >> text:Offsite in March: Lisbon or Porto?", { state: "gone" });
+  await app.waitFor("text:Archived", { state: "gone", timeout: 15000 });
+  await app.press("text:Archive");
+  await app.waitFor("id:messages >> text:Offsite in March: Lisbon or Porto?");
+});
+
+test("search lists messages; one opens in its conversation", async () => {
+  const app = await open("./App.tsx", { ...desktop, ...demo });
+  await app.waitFor("id:search");
+  await app.type("id:search", "train times");
+  await app.waitFor("id:results >> text:Re: Offsite in March: Lisbon or Porto?");
+  await app.press("id:results >> text:Re: Offsite in March: Lisbon or Porto?");
+  await app.waitFor("id:reader >> text:/^Porto works for me too/");
+  await app.waitFor("id:thread-older >> text:Priya Raman");
+  await app.waitFor("id:thread-newer >> text:Maya Patel");
+});
+
+test("with conversations off, every message is a row of its own", async () => {
+  const app = await open("./App.tsx", { ...desktop, ...demo });
+  await app.waitFor("id:messages >> text:Offsite in March: Lisbon or Porto?");
+  await app.press("id:open-settings");
+  await app.press("id:conversations");
+  await app.press("id:header-back");
+  await app.waitFor("id:modal", { state: "gone" });
+  await app.waitFor("id:messages >> text:Re: Offsite in March: Lisbon or Porto?");
+  expect(app.count("id:messages >> text:Re: Offsite in March: Lisbon or Porto?")).toBe(2);
+  expect(app.storage()["nshmail.threads"]).toBe("off");
+  await app.press("id:messages >> text:Re: Offsite in March: Lisbon or Porto? >> nth=0");
+  await app.waitFor("id:reader >> text:offsite-agenda.pdf");
+  expect(app.shows("id:thread-older")).toBe(false);
 });
 
 test("attaches picked files, keeps a forward's, and refuses more than the limit", async () => {

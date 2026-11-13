@@ -73,6 +73,8 @@ Reduced motion: transitions off (`motion-reduce:`), motions not started (`reduce
 | List | Rows arrive, unread → read | No motion: rows are recycled data |
 | List | Refresh, load more | M3E loading indicator in the list header / footer, morphing through soft burst → cookie 9 → pentagon → pill → sunny → cookie 4 → oval while it turns |
 | Reader | Another message opens | The reader fades in (150ms) |
+| Reader | A collapsed message of the conversation is tapped | Its row shows a small loading indicator until the message loads, then the reader fades in with it expanded (150ms); the conversation stays on screen meanwhile |
+| Reader | "N more" between collapsed messages | The hidden rows appear in place: no motion, the list only grows |
 | Reader | Floating toolbar | Stays at the bottom center; its buttons square up while pressed |
 | Inbox (narrow) | FAB menu opens | The FAB morphs to a round primary close button; the items rise one after another on the fast spatial spring (40ms apart) |
 | Fields | Focus, typing | The label floats up and shrinks to body-small, the indicator thickens to 2pt primary: spatial fast / effects fast |

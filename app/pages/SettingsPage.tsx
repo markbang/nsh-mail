@@ -1,4 +1,4 @@
-// Settings: the accounts, where mail comes from, notifications, signing out.
+// Settings: the accounts, where mail comes from, reading, notifications, signing out.
 import { Notifications, platform, Text, View } from "nsh";
 import { AlertDialog } from "nsh/base";
 import { t } from "nsh/i18n";
@@ -7,7 +7,17 @@ import { AccountMark, AppBar, Button, Card, Divider, Icon, IconButton, Menu, Pag
 import { PageHeader, PageScroll } from "../components/PageHeader";
 import { NavContext } from "../nav";
 import { providerName as named } from "../lib/format";
-import { accounts, errorText, mailStatus, notificationsEnabled, sessionChanged, setNotificationsEnabled, showToast } from "../store";
+import {
+  accounts,
+  conversationsEnabled,
+  errorText,
+  mailStatus,
+  notificationsEnabled,
+  sessionChanged,
+  setConversationsEnabled,
+  setNotificationsEnabled,
+  showToast,
+} from "../store";
 
 /** "QQ Mail", "IMAP": who runs the account, as people know it. */
 const providerName = (a: Account) => named(a.provider, t("provider.imap"));
@@ -121,6 +131,19 @@ export function SettingsPage() {
               <Text class="text-body-medium tracking-body-medium text-on-surface-variant">{t("settings.androidLocal")}</Text>
             </If>
             <Button variant="outlined" tone="error" icon="logOut" label={t("settings.signOut")} onPress={() => void signOut()} class="self-start" testID="sign-out" />
+          </Card>
+        </View>
+
+        <View class="gap-1">
+          <SectionLabel label={t("settings.reading")} class="px-1" />
+          <Card class="px-4 py-3">
+            <Switch
+              checked={conversationsEnabled()}
+              onChange={(on) => void setConversationsEnabled(on)}
+              label={t("settings.conversations")}
+              description={t("settings.conversationsDetail")}
+              testID="conversations"
+            />
           </Card>
         </View>
 

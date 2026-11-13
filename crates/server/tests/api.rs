@@ -325,6 +325,73 @@ async fn auth_accounts_and_messages() {
         StatusCode::NOT_FOUND
     );
 
+    let threads: Vec<Value> = s
+        .get(&alice.token, "/threads?folder=inbox")
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(threads.len(), 2);
+    let thread_id = lunch["threadId"].as_str().unwrap();
+    let thread = threads.iter().find(|t| t["id"] == thread_id).unwrap();
+    assert_eq!(
+        (thread["count"].as_u64(), thread["unread"].as_u64()),
+        (Some(1), Some(0))
+    );
+    let messages: Vec<Value> = s
+        .get(&alice.token, &format!("/threads/{thread_id}"))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["id"], lunch_id);
+    // Bob holds a copy of the same message (his Sent), in a thread of his own.
+    let bobs = s.get(&bob.token, &format!("/threads/{thread_id}")).await;
+    assert_eq!(bobs.status(), StatusCode::NOT_FOUND);
+    for (method, path, body) in [
+        (
+            "PATCH",
+            format!("/threads/{thread_id}"),
+            json!({ "seen": false }),
+        ),
+        (
+            "POST",
+            format!("/threads/{thread_id}/move"),
+            json!({ "folder": "trash" }),
+        ),
+    ] {
+        let res = s
+            .http
+            .request(method.parse().unwrap(), format!("{}{path}", s.base))
+            .bearer_auth(&bob.token)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            res.status(),
+            StatusCode::NOT_FOUND,
+            "{method} {path} as bob"
+        );
+    }
+    let unread = s
+        .http
+        .patch(format!("{}/threads/{thread_id}", s.base))
+        .bearer_auth(&alice.token)
+        .json(&json!({ "seen": false }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unread.status(), StatusCode::NO_CONTENT);
+    let msg: Value = s
+        .get(&alice.token, &format!("/messages/{lunch_id}"))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(msg["seen"], false);
+
     let out = s
         .http
         .post(format!("{}/auth/logout", s.base))

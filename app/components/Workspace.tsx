@@ -9,7 +9,7 @@ import { MailboxList, mailboxTitle, resultCount } from "./Mailbox";
 import { MailboxRail } from "./Mailboxes";
 import { Reader } from "./Reader";
 import { SearchField } from "./SearchField";
-import { current, listStatus, openMessage, refresh, searchQuery, searchResults, selectedId } from "../store";
+import { conversation, current, listStatus, openRow, refresh, searchQuery, searchResults, selectedId, shownMessage } from "../store";
 import type { ComposeMode } from "../lib/format";
 
 export interface WorkspaceProps {
@@ -22,7 +22,7 @@ export interface WorkspaceProps {
 export const RAIL_EXPANDED = 1200;
 
 export function Workspace(props: WorkspaceProps) {
-  const open = () => (current()?.id === selectedId() ? current() : undefined);
+  const open = () => shownMessage();
   const expanded = () => windowSize().width >= RAIL_EXPANDED;
   const fab = () => (
     <If when={expanded()} else={<Fab icon="compose" label={t("actions.compose")} onPress={() => props.onCompose("new")} testID="compose" />}>
@@ -62,7 +62,7 @@ export function Workspace(props: WorkspaceProps) {
             <View class="px-3 pb-2">
               <SearchField ref={props.searchRef} />
             </View>
-            <MailboxList onOpen={(id) => openMessage(id)} onAddAccount={props.onAddAccount} highlight />
+            <MailboxList onOpen={openRow} onAddAccount={props.onAddAccount} highlight />
           </View>
         </Pane>
         <Pane minSize={360} last>
@@ -79,7 +79,7 @@ export function Workspace(props: WorkspaceProps) {
             >
               {(m) => (
                 <Each of={[m()]} key={(x) => x.id}>
-                  {(message) => <Reader message={message()} onCompose={props.onCompose} toolbar />}
+                  {(message) => <Reader message={message()} conversation={conversation()} onCompose={props.onCompose} toolbar />}
                 </Each>
               )}
             </If>

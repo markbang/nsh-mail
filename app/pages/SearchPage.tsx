@@ -7,7 +7,7 @@ import { MessageList } from "../components/MessageList";
 import { PageHeader } from "../components/PageHeader";
 import { SearchField } from "../components/SearchField";
 import { NavContext } from "../nav";
-import { clearSearch, openMessage, searchQuery, searchResults } from "../store";
+import { clearSearch, openRow, searchQuery, searchResults } from "../store";
 
 export function SearchPage() {
   const nav = NavContext();
@@ -26,7 +26,9 @@ export function SearchPage() {
             <MessageList
               items={found()}
               onOpen={(id) => {
-                openMessage(id);
+                const row = found().find((r) => r.key === id);
+                if (!row) return;
+                openRow(row);
                 nav.stack.push({ name: "message", id });
               }}
               showAccount

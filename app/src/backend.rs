@@ -34,6 +34,14 @@ pub trait Backend {
     fn add_oauth(&self, provider: OAuthProvider) -> MailFuture<'_, Account>;
     fn remove_account(&self, id: String) -> MailFuture<'_, ()>;
     fn list(&self, query: ListQuery) -> MailFuture<'_, Vec<Summary>>;
+    /// Conversations, as `list` pages messages; `before` is a thread id.
+    fn threads(&self, query: ListQuery) -> MailFuture<'_, Vec<Thread>>;
+    /// A conversation's messages, oldest first.
+    fn thread(&self, id: String) -> MailFuture<'_, Vec<Summary>>;
+    /// Read or unread for the whole conversation; flagging flags its latest message.
+    fn set_thread_flags(&self, id: String, flags: Flags) -> MailFuture<'_, ()>;
+    /// Archive takes the conversation out of the inbox; Trash takes all of it.
+    fn move_thread(&self, id: String, folder: FolderKind) -> MailFuture<'_, ()>;
     fn get(&self, id: String) -> MailFuture<'_, Message>;
     /// The decoded bytes of attachment `index` of message `id`.
     fn attachment(&self, id: String, index: u32) -> MailFuture<'_, Vec<u8>>;

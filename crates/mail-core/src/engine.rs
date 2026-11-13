@@ -20,7 +20,7 @@ use crate::oauth::{self, LoopbackAuthorization, OAuthApps, OAuthGrant, OAuthToke
 use crate::provider;
 use crate::secrets::SecretStore;
 use crate::smtp::{self, SmtpAuth};
-use crate::store::{LOCAL_USER, MailDb, Store, StoredMessage, new_id};
+use crate::store::{LOCAL_USER, Located, MailDb, Store, StoredMessage, new_id};
 use crate::types::*;
 
 const IDLE_RENEW: Duration = Duration::from_secs(29 * 60);
@@ -566,6 +566,16 @@ impl Engine {
         self.store().run(move |s| s.list(&query)).await
     }
 
+    pub async fn threads(&self, query: ListQuery) -> Result<Vec<Thread>> {
+        self.store().run(move |s| s.threads(&query)).await
+    }
+
+    /// A conversation's messages, oldest first; open each with [`get`](Self::get).
+    pub async fn thread(&self, id: &str) -> Result<Vec<Summary>> {
+        let id = id.to_string();
+        self.store().run(move |s| s.thread(&id)).await
+    }
+
     pub async fn unread(&self) -> Result<HashMap<AccountId, u32>> {
         self.store().run(|s| s.unread()).await
     }
@@ -648,21 +658,74 @@ impl Engine {
     /// Writes flags to the server, then to the local copy.
     pub async fn set_flags(&self, id: &str, flags: Flags) -> Result<()> {
         let mid = id.to_string();
-        let stored = self.store().run(move |s| s.message(&mid)).await?;
-        let account = self.account(&stored.summary.account_id).await?;
-        let (folder, uid) = (stored.folder_name.clone(), stored.uid);
-        self.with_imap(&account, async |conn| {
-            imap::store_flags(&mut conn.session, &folder, uid, flags).await
-        })
-        .await?;
-        let mid = id.to_string();
-        self.store()
-            .run(move |s| s.set_local_flags(&mid, flags))
+        let message = self.store().run(move |s| s.located(&mid)).await?;
+        self.store_flags(vec![message], flags).await
+    }
+
+    /// Marks a whole conversation read or unread; flagging flags its latest message (as Gmail
+    /// stars one), unflagging clears every flag in it.
+    pub async fn set_thread_flags(&self, id: &str, flags: Flags) -> Result<()> {
+        let tid = id.to_string();
+        let copies = self.store().run(move |s| s.thread_copies(&tid)).await?;
+        if let Some(seen) = flags.seen {
+            let changed = copies.iter().filter(|m| m.seen != seen).cloned().collect();
+            self.store_flags(
+                changed,
+                Flags {
+                    seen: Some(seen),
+                    flagged: None,
+                },
+            )
             .await?;
-        self.emit(MailEvent::Changed {
-            account_id: account.id,
-            folder: stored.summary.folder,
-        });
+        }
+        if let Some(flagged) = flags.flagged {
+            let targets: Vec<Located> = if flagged {
+                let shown = copies.iter().filter(|m| m.folder != FolderKind::Trash);
+                shown.max_by_key(|m| m.date).into_iter().cloned().collect()
+            } else {
+                copies.iter().filter(|m| m.flagged).cloned().collect()
+            };
+            self.store_flags(
+                targets,
+                Flags {
+                    seen: None,
+                    flagged: Some(flagged),
+                },
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Writes flags to the server, one command per folder, then to the local copies.
+    async fn store_flags(&self, messages: Vec<Located>, flags: Flags) -> Result<()> {
+        for (account_id, folders) in by_account(messages) {
+            let account = self.account(&account_id).await?;
+            let sets: Vec<(String, String)> = folders
+                .iter()
+                .map(|(name, ms)| (name.clone(), imap::uid_set(ms.iter().map(|m| m.uid))))
+                .collect();
+            self.with_imap(&account, async |conn| {
+                for (folder, uids) in &sets {
+                    imap::store_flags(&mut conn.session, folder, uids, flags).await?;
+                }
+                Ok(())
+            })
+            .await?;
+            let ids: Vec<String> = folders
+                .iter()
+                .flat_map(|(_, ms)| ms.iter().map(|m| m.id.clone()))
+                .collect();
+            self.store()
+                .run(move |s| ids.iter().try_for_each(|id| s.set_local_flags(id, flags)))
+                .await?;
+            for kind in kinds(&folders) {
+                self.emit(MailEvent::Changed {
+                    account_id: account.id.clone(),
+                    folder: kind,
+                });
+            }
+        }
         Ok(())
     }
 
@@ -671,69 +734,115 @@ impl Engine {
     /// it shows in the other folder once that one syncs, which this starts.
     pub async fn move_to(&self, id: &str, to: FolderKind) -> Result<()> {
         let mid = id.to_string();
-        let stored = self.store().run(move |s| s.message(&mid)).await?;
-        let from = stored.summary.folder;
-        if from == to {
+        let message = self.store().run(move |s| s.located(&mid)).await?;
+        if message.folder == to {
             return Ok(());
         }
-        let account = self.account(&stored.summary.account_id).await?;
-        let gmail = is_gmail(&account);
-        let store = self.store().clone();
-        let account_id = account.id.clone();
-        let (folder, uid) = (stored.folder_name.clone(), stored.uid);
-        let target = self
-            .with_imap(&account, async |conn| {
-                let id = account_id.clone();
-                let mut target = store.run(move |s| s.folder(&id, to)).await?;
-                if target.is_none() {
-                    let mut found = imap::discover(&mut conn.session).await?;
-                    let name = match to {
-                        FolderKind::Archive => "Archive",
-                        FolderKind::Trash => "Trash",
-                        _ => "",
-                    };
-                    if !found.iter().any(|(k, _)| *k == to) && !gmail && !name.is_empty() {
-                        imap::create(&mut conn.session, name).await?;
-                        found.push((to, name.to_string()));
-                    }
+        self.move_messages(vec![message], to).await
+    }
+
+    /// Archives a conversation (its messages in the inbox go to Archive) or deletes it (all its
+    /// messages go to Trash, the replies in Sent too, as Gmail does).
+    pub async fn move_thread(&self, id: &str, to: FolderKind) -> Result<()> {
+        let tid = id.to_string();
+        let copies = self.store().run(move |s| s.thread_copies(&tid)).await?;
+        let mut moving: Vec<Located> = match to {
+            FolderKind::Archive => copies
+                .into_iter()
+                .filter(|m| m.folder == FolderKind::Inbox)
+                .collect(),
+            FolderKind::Trash => copies
+                .into_iter()
+                .filter(|m| m.folder != FolderKind::Trash)
+                .collect(),
+            _ => {
+                return Err(err(
+                    ErrorCode::InvalidInput,
+                    "a conversation moves to archive or trash",
+                ));
+            }
+        };
+        // Gmail's All Mail holds a copy of everything: moving the others first takes those
+        // copies along, and what is left of All Mail goes last.
+        moving.sort_by_key(|m| m.folder == FolderKind::Archive);
+        self.move_messages(moving, to).await
+    }
+
+    async fn move_messages(&self, messages: Vec<Located>, to: FolderKind) -> Result<()> {
+        for (account_id, folders) in by_account(messages) {
+            let account = self.account(&account_id).await?;
+            let gmail = is_gmail(&account);
+            let store = self.store().clone();
+            let sets: Vec<(String, String)> = folders
+                .iter()
+                .map(|(name, ms)| (name.clone(), imap::uid_set(ms.iter().map(|m| m.uid))))
+                .collect();
+            let target = self
+                .with_imap(&account, async |conn| {
                     let id = account_id.clone();
-                    target = store
-                        .run(move |s| {
-                            s.set_folders(&id, &found)?;
-                            s.folder(&id, to)
-                        })
-                        .await?;
-                }
-                let target = target.ok_or_else(|| {
-                    err(
-                        ErrorCode::Unsupported,
-                        format!(
-                            "{} has no {to:?} folder to move the message to",
-                            account.email
-                        ),
-                    )
-                })?;
-                imap::move_message(conn, &folder, uid, &target.name).await?;
-                Ok(target)
-            })
-            .await?;
-        let mid = id.to_string();
-        self.store().run(move |s| s.delete_message(&mid)).await?;
-        self.emit(MailEvent::Changed {
-            account_id: account.id.clone(),
-            folder: from,
-        });
-        let store = self.store().clone();
-        let synced = self
-            .with_imap(&account, async |conn| {
-                imap::sync_folder(conn, &store, target).await
-            })
-            .await;
-        if synced.is_ok_and(|r| r.changed) {
-            self.emit(MailEvent::Changed {
-                account_id: account.id,
-                folder: to,
-            });
+                    let mut target = store.run(move |s| s.folder(&id, to)).await?;
+                    if target.is_none() {
+                        let mut found = imap::discover(&mut conn.session).await?;
+                        let name = match to {
+                            FolderKind::Archive => "Archive",
+                            FolderKind::Trash => "Trash",
+                            _ => "",
+                        };
+                        if !found.iter().any(|(k, _)| *k == to) && !gmail && !name.is_empty() {
+                            imap::create(&mut conn.session, name).await?;
+                            found.push((to, name.to_string()));
+                        }
+                        let id = account_id.clone();
+                        target = store
+                            .run(move |s| {
+                                s.set_folders(&id, &found)?;
+                                s.folder(&id, to)
+                            })
+                            .await?;
+                    }
+                    let target = target.ok_or_else(|| {
+                        err(
+                            ErrorCode::Unsupported,
+                            format!(
+                                "{} has no {to:?} folder to move the message to",
+                                account.email
+                            ),
+                        )
+                    })?;
+                    for (folder, uids) in &sets {
+                        if *folder != target.name {
+                            imap::move_messages(conn, folder, uids, &target.name).await?;
+                        }
+                    }
+                    Ok(target)
+                })
+                .await?;
+            let ids: Vec<String> = folders
+                .iter()
+                .filter(|(name, _)| *name != target.name)
+                .flat_map(|(_, ms)| ms.iter().map(|m| m.id.clone()))
+                .collect();
+            self.store()
+                .run(move |s| ids.iter().try_for_each(|id| s.delete_message(id)))
+                .await?;
+            for kind in kinds(&folders) {
+                self.emit(MailEvent::Changed {
+                    account_id: account.id.clone(),
+                    folder: kind,
+                });
+            }
+            let store = self.store().clone();
+            let synced = self
+                .with_imap(&account, async |conn| {
+                    imap::sync_folder(conn, &store, target).await
+                })
+                .await;
+            if synced.is_ok_and(|r| r.changed) {
+                self.emit(MailEvent::Changed {
+                    account_id: account.id,
+                    folder: to,
+                });
+            }
         }
         Ok(())
     }
@@ -829,6 +938,41 @@ impl Engine {
         }
         Ok(())
     }
+}
+
+type Folders = Vec<(String, Vec<Located>)>;
+
+/// Messages by account, then by server folder, in the order given.
+fn by_account(messages: Vec<Located>) -> Vec<(AccountId, Folders)> {
+    let mut out: Vec<(AccountId, Folders)> = Vec::new();
+    for m in messages {
+        let at = match out.iter().position(|(a, _)| *a == m.account_id) {
+            Some(at) => at,
+            None => {
+                out.push((m.account_id.clone(), Vec::new()));
+                out.len() - 1
+            }
+        };
+        let folders = &mut out[at].1;
+        match folders.iter_mut().find(|(name, _)| *name == m.folder_name) {
+            Some((_, ms)) => ms.push(m),
+            None => folders.push((m.folder_name.clone(), vec![m])),
+        }
+    }
+    out
+}
+
+fn kinds(folders: &Folders) -> Vec<FolderKind> {
+    let mut out: Vec<FolderKind> = Vec::new();
+    for kind in folders
+        .iter()
+        .filter_map(|(_, ms)| ms.first().map(|m| m.folder))
+    {
+        if !out.contains(&kind) {
+            out.push(kind);
+        }
+    }
+    out
 }
 
 pub(crate) fn too_large(limit: u64) -> Error {

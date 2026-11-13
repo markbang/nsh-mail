@@ -133,6 +133,12 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/messages/{id}/attachments/{index}",
             get(api::get_attachment),
         )
+        .route("/threads", get(api::list_threads))
+        .route(
+            "/threads/{id}",
+            get(api::get_thread).patch(api::patch_thread),
+        )
+        .route("/threads/{id}/move", post(api::move_thread))
         .route("/send", post(api::send))
         .route("/uploads", post(uploads::create))
         .route(

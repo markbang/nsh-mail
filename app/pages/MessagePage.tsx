@@ -4,18 +4,19 @@ import { Empty, LoadingIndicator, Page, systemHeader } from "../ui";
 import { PageHeader } from "../components/PageHeader";
 import { PhoneReaderActions, Reader } from "../components/Reader";
 import { NavContext } from "../nav";
-import { current } from "../store";
+import { conversation, current, shownMessage } from "../store";
 import type { ComposeMode } from "../lib/format";
 
+// `id` is the message first opened; in a conversation the reader may expand another.
 export function MessagePage(props: { id: string }) {
   const nav = NavContext();
-  const message = () => (current()?.id === props.id ? current() : undefined);
+  const message = () => shownMessage();
   const compose = (mode: ComposeMode) => nav.stack.push({ name: "compose", init: { mode, source: message() } });
   return (
     <Page
       title=""
       header={<PageHeader title="" />}
-      headerRight={<If when={message()}>{(m) => <PhoneReaderActions message={m()} onLeave={nav.close} />}</If>}
+      headerRight={<If when={message()}>{(m) => <PhoneReaderActions message={m()} conversation={conversation()} onLeave={nav.close} />}</If>}
     >
       <If
         when={message()}
@@ -25,7 +26,7 @@ export function MessagePage(props: { id: string }) {
           </If>
         }
       >
-        {(m) => <Reader message={m()} onCompose={compose} toolbar={!systemHeader} phone={systemHeader} onLeave={nav.close} />}
+        {(m) => <Reader message={m()} conversation={conversation()} onCompose={compose} toolbar={!systemHeader} phone={systemHeader} onLeave={nav.close} />}
       </If>
     </Page>
   );

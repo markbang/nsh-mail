@@ -1,4 +1,4 @@
-// The chosen mailbox's messages, or the search's results while a search runs.
+// The chosen mailbox's conversations (or messages), or the search's results while a search runs.
 import { View } from "nsh";
 import { t } from "nsh/i18n";
 import { Button, Empty, LoadingIndicator } from "../ui";
@@ -11,16 +11,18 @@ import {
   listStatus,
   loadMore,
   mailbox,
-  messages,
   moveMessages,
   picking,
   refresh,
   reload,
+  rows,
   SEARCH_LIMIT,
   searchQuery,
   searchResults,
   selectedId,
+  selectedKey,
   togglePicked,
+  type Row,
 } from "../store";
 
 /** The chosen mailbox's name. */
@@ -39,27 +41,35 @@ export function resultCount(count: number) {
   return count === 1 ? t("search.countOne") : t("search.count", { count });
 }
 
-export function MailboxList(props: { onOpen: (id: string) => void; onAddAccount: () => void; highlight?: boolean; searchable?: boolean; touchActions?: boolean }) {
+export function MailboxList(props: { onOpen: (row: Row) => void; onAddAccount: () => void; highlight?: boolean; searchable?: boolean; touchActions?: boolean }) {
   // Phones search on a page of their own; the list there stays the mailbox's.
   const searching = () => props.searchable !== false && searchResults() !== null;
   const folder = () => mailbox().folder;
+  const open = (list: () => Row[]) => (key: string) => {
+    const row = list().find((r) => r.key === key);
+    if (row) props.onOpen(row);
+  };
+  const move = (folder: "archive" | "trash") => (key: string) => {
+    const row = rows().find((r) => r.key === key);
+    if (row) moveMessages([key], folder, row.thread);
+  };
   return (
     <If
       when={searching()}
       else={
         <MessageList
-          items={messages()}
-          selectedId={props.highlight ? selectedId() : null}
-          onOpen={props.onOpen}
+          items={rows()}
+          selectedId={props.highlight ? selectedKey() : null}
+          onOpen={open(rows)}
           refreshing={listStatus() === "refreshing"}
           onRefresh={() => void refresh()}
           onLoadMore={() => void loadMore()}
-          loadingMore={listStatus() === "more" || (hasMore() && messages().length > 0 && listStatus() !== "loading")}
+          loadingMore={listStatus() === "more" || (hasMore() && rows().length > 0 && listStatus() !== "loading")}
           showAccount={mailbox().account === null}
           showRecipients={mailbox().folder === "sent" || mailbox().folder === "drafts"}
           testID="messages"
-          onArchive={props.touchActions && folder() !== "archive" && folder() !== "trash" ? (id) => moveMessages([id], "archive") : undefined}
-          onDelete={props.touchActions && folder() !== "trash" ? (id) => moveMessages([id], "trash") : undefined}
+          onArchive={props.touchActions && folder() !== "archive" && folder() !== "trash" ? move("archive") : undefined}
+          onDelete={props.touchActions && folder() !== "trash" ? move("trash") : undefined}
           picked={isPicked}
           picking={!!props.touchActions && picking()}
           onPick={props.touchActions ? (id) => togglePicked(id) : undefined}
@@ -100,7 +110,7 @@ export function MailboxList(props: { onOpen: (id: string) => void; onAddAccount:
       <MessageList
         items={searchResults() ?? []}
         selectedId={props.highlight ? selectedId() : null}
-        onOpen={props.onOpen}
+        onOpen={open(() => searchResults() ?? [])}
         showAccount
         highlight={searchQuery()}
         testID="results"

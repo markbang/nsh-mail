@@ -310,18 +310,60 @@ pub struct ListParams {
 
 const MAX_LIMIT: u32 = 200;
 
+impl ListParams {
+    fn query(self) -> ListQuery {
+        ListQuery {
+            folder: self.folder.unwrap_or(FolderKind::Inbox),
+            account: self.account,
+            before: self.before,
+            limit: self.limit.unwrap_or(50).clamp(1, MAX_LIMIT),
+        }
+    }
+}
+
 pub async fn list_messages(
     State(s): State<Arc<AppState>>,
     u: AuthUser,
     Query(p): Query<ListParams>,
 ) -> ApiResult<impl IntoResponse> {
-    let query = ListQuery {
-        folder: p.folder.unwrap_or(FolderKind::Inbox),
-        account: p.account,
-        before: p.before,
-        limit: p.limit.unwrap_or(50).clamp(1, MAX_LIMIT),
-    };
-    Ok(Json(mail(&s, &u).await?.list(query).await?))
+    Ok(Json(mail(&s, &u).await?.list(p.query()).await?))
+}
+
+/// Conversations, as `GET /v1/messages` pages messages; `before` is a thread id.
+pub async fn list_threads(
+    State(s): State<Arc<AppState>>,
+    u: AuthUser,
+    Query(p): Query<ListParams>,
+) -> ApiResult<impl IntoResponse> {
+    Ok(Json(mail(&s, &u).await?.threads(p.query()).await?))
+}
+
+pub async fn get_thread(
+    State(s): State<Arc<AppState>>,
+    u: AuthUser,
+    Path(id): Path<String>,
+) -> ApiResult<impl IntoResponse> {
+    Ok(Json(mail(&s, &u).await?.thread(&id).await?))
+}
+
+pub async fn patch_thread(
+    State(s): State<Arc<AppState>>,
+    u: AuthUser,
+    Path(id): Path<String>,
+    Json(f): Json<Flags>,
+) -> ApiResult<StatusCode> {
+    mail(&s, &u).await?.set_thread_flags(&id, f).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn move_thread(
+    State(s): State<Arc<AppState>>,
+    u: AuthUser,
+    Path(id): Path<String>,
+    Json(m): Json<MoveTo>,
+) -> ApiResult<StatusCode> {
+    mail(&s, &u).await?.move_thread(&id, m.folder).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn get_message(

@@ -179,6 +179,12 @@ actions.deletedOne:
 actions.deleted:
   en: "%{count} moved to Trash"
   zh-CN: 已将 %{count} 封移到废纸篓
+actions.archivedThreads:
+  en: "%{count} conversations archived"
+  zh-CN: 已归档 %{count} 个会话
+actions.deletedThreads:
+  en: "%{count} conversations moved to Trash"
+  zh-CN: 已将 %{count} 个会话移到废纸篓
 actions.newMenu:
   en: New
   zh-CN: 新建
@@ -213,6 +219,12 @@ list.unread:
 list.flagged:
   en: Flagged
   zh-CN: 已加旗标
+list.me:
+  en: me
+  zh-CN: 我
+list.messages:
+  en: "%{count} messages"
+  zh-CN: "%{count} 封邮件"
 list.refreshing:
   en: Checking for mail
   zh-CN: 正在检查新邮件
@@ -281,6 +293,22 @@ reader.openingAttachment:
 reader.savedTo:
   en: "Saved to %{path}"
   zh-CN: 已保存到 %{path}
+
+thread.more:
+  en: "%{count} more"
+  zh-CN: 还有 %{count} 封
+thread.draft:
+  en: Draft
+  zh-CN: 草稿
+thread.inTrash:
+  en: In Trash
+  zh-CN: 在废纸篓中
+thread.messageActions:
+  en: Actions on this message
+  zh-CN: 这封邮件的操作
+thread.deleteMessage:
+  en: Delete this message
+  zh-CN: 删除这封邮件
 
 compose.new:
   en: New message
@@ -443,6 +471,15 @@ settings.signOutLocal:
 settings.signOutCloud:
   en: This device stops syncing. Your accounts stay on the server.
   zh-CN: 此设备将停止同步，账号仍保留在服务器上。
+settings.reading:
+  en: Reading
+  zh-CN: 阅读
+settings.conversations:
+  en: Group by conversation
+  zh-CN: 按会话分组
+settings.conversationsDetail:
+  en: Replies show together with the message they answer.
+  zh-CN: 回复和它回复的邮件显示在一起。
 settings.notifications:
   en: Notifications
   zh-CN: 通知

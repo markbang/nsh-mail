@@ -43,6 +43,7 @@ ts! {
     ServerSettings => "ServerSettings",
     Status => "Status",
     Summary => "Summary",
+    Thread => "Thread",
     Upload => "Upload",
 }
 
@@ -164,7 +165,15 @@ const DECLARATIONS: &[(&str, &str)] = &[
         "/** A message in a list. */\n\
          export interface Summary {\n  id: string;\n  accountId: string;\n  folder: Folder;\n  from?: Address | null;\n  to: Address[];\n  \
          subject: string;\n  /** The start of the plain text. */\n  snippet: string;\n  /** When it was sent (ms since the epoch). */\n  date: number;\n  \
-         seen: boolean;\n  flagged: boolean;\n  hasAttachments: boolean;\n}",
+         seen: boolean;\n  flagged: boolean;\n  hasAttachments: boolean;\n  \
+         /** Its conversation (`Mail.thread`); one conversation can span accounts. */\n  threadId: string;\n}",
+    ),
+    (
+        "Thread",
+        "/** A conversation in a list: its messages in the listed folder's view, each message once. */\n\
+         export interface Thread {\n  id: string;\n  /** The first message's subject. */\n  subject: string;\n  \
+         /** The newest message. */\n  latest: Summary;\n  count: number;\n  unread: number;\n  \
+         /** Who wrote, oldest first, each once. */\n  participants: Address[];\n  hasAttachments: boolean;\n  flagged: boolean;\n}",
     ),
     (
         "Attachment",
@@ -207,7 +216,7 @@ const DECLARATIONS: &[(&str, &str)] = &[
         "ListQuery",
         "/** A page of a folder. */\n\
          export interface ListQuery {\n  folder: Folder;\n  /** One account's id; every account's when left out (the unified view). */\n  \
-         account?: string | null;\n  /** The id of the previous page's last message: the next page. */\n  before?: string | null;\n  limit: number;\n}",
+         account?: string | null;\n  /** The id of the previous page's last message (or conversation): the next page. */\n  before?: string | null;\n  limit: number;\n}",
     ),
     (
         "MailEvent",

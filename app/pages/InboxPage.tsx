@@ -9,13 +9,13 @@ import { AppBar, IconButton, Menu, Page, systemHeader } from "../ui";
 import { MailboxList, mailboxTitle } from "../components/Mailbox";
 import { PageHeader } from "../components/PageHeader";
 import { NavContext, selectTab } from "../nav";
-import { clearPicked, mailbox, messages, moveMessages, openMessage, pickedIds, picking, refresh, setFlags } from "../store";
+import { clearPicked, mailbox, moveMessages, openRow, pickedIds, picking, refresh, rows, setFlags, setThreadFlags, type Row } from "../store";
 
 export function InboxPage() {
   const nav = NavContext();
-  const open = (id: string) => {
-    openMessage(id);
-    nav.stack.push({ name: "message", id });
+  const open = (row: Row) => {
+    openRow(row);
+    nav.stack.push({ name: "message", id: row.latest.id });
   };
   // Android back ends a selection; a browser has no BackHandler (it throws there).
   if (systemHeader) BackHandler.on("press", () => {
@@ -24,15 +24,19 @@ export function InboxPage() {
     return true;
   });
   // The top bar of iOS and Android: search and more, or the selection's actions.
-  const picked = () => messages().filter((m) => pickedIds().includes(m.id));
+  const picked = () => rows().filter((r) => pickedIds().includes(r.key));
   const move = (folder: "archive" | "trash") => {
-    const ids = pickedIds();
+    const chosen = picked();
     clearPicked();
-    moveMessages(ids, folder);
+    moveMessages(
+      chosen.map((r) => r.key),
+      folder,
+      chosen.some((r) => r.thread),
+    );
   };
   const mark = () => {
-    const unread = picked().some((m) => !m.seen);
-    for (const m of picked()) void setFlags(m.id, { seen: unread });
+    const unread = picked().some((r) => r.unread > 0);
+    for (const r of picked()) void (r.thread ? setThreadFlags(r.key, { seen: unread }) : setFlags(r.key, { seen: unread }));
     clearPicked();
   };
   const more = () => (
@@ -54,8 +58,8 @@ export function InboxPage() {
         <IconButton icon="trash" label={t("actions.delete")} onPress={() => move("trash")} testID="picked-delete" />
       </If>
       <IconButton
-        icon={picked().some((m) => !m.seen) ? "mailOpen" : "mail"}
-        label={picked().some((m) => !m.seen) ? t("actions.markRead") : t("actions.markUnread")}
+        icon={picked().some((r) => r.unread > 0) ? "mailOpen" : "mail"}
+        label={picked().some((r) => r.unread > 0) ? t("actions.markRead") : t("actions.markUnread")}
         onPress={mark}
         testID="picked-seen"
       />

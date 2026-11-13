@@ -65,6 +65,10 @@ Mail.addImap(input: ImapInput): Promise<Account>   // 先连通 IMAP 和 SMTP �
 Mail.addOAuth(provider: "google"|"microsoft"): Promise<Account>
 Mail.removeAccount(id): Promise<void>
 Mail.list(q: { folder: "inbox"|"sent"|"drafts"|"archive"|"trash", account?, before?, limit }): Promise<Summary[]>
+Mail.threads(q): Promise<Thread[]>                 // 会话，分页方式同 `list`（见 §4 会话）；`before` 是会话 id
+Mail.thread(id): Promise<Summary[]>                // 会话里的邮件，从旧到新，跨文件夹、跨账号
+Mail.setThreadFlags(id, { seen?, flagged? }): Promise<void>   // 已读/未读作用于整个会话；加旗标只标最新一封，取消则全部取消
+Mail.moveThread(id, "archive" | "trash"): Promise<void>       // 归档：会话在收件箱里的邮件；删除：整个会话，含已发送
 Mail.get(id): Promise<Message>                     // 正文已清洗，排版表格已改成块（见 §7）；附件元数据
 Mail.openAttachment(id, attachment): Promise<string | null>  // Web：图片/PDF 新标签页打开，其余下载；桌面：系统保存对话框后用默认程序打开；
                                                    // 没有保存对话框时（Android）存进应用目录再打开。返回已保存但没有程序打开的文件路径
@@ -83,7 +87,7 @@ Mail.on(listener: (e: MailEvent) => void): () => void   // newMail / changed / s
 Push.setToken(token): Promise<void>                // Android 宿主的 FCM token（§5），云端模式登记到服务端
 ```
 
-消息 id 是本地库的稳定字符串 id；云端模式下是服务端 id。统一收件箱 = 所有账号 INBOX 按日期倒序合并。
+消息 id 是本地库的稳定字符串 id；云端模式下是服务端 id。统一收件箱 = 所有账号 INBOX 按日期倒序合并。每个 `Summary` 带 `threadId`；`Thread` 为 `{id, subject, latest: Summary, count, unread, participants, hasAttachments, flagged}`。
 
 各类型的字段与 `mail_core::types` 一一对应，JSON 形状相同（serde 的 tag 成为 `type`/`kind` 字段，`Message` 平铺 `Summary` 的字段）；`list` 的 `before` 是上一页最后一封的 id；`MailEvent` 以 `type` 区分。这些类型就是 `mail_core::types`：后端直接用它们，经 `app/src/types.rs` 的 `Js<T>` 以 serde JSON 过边界，TS 声明在同一文件里手写（Web 只编译 mail-core 的 `types`，不带引擎）。
 
@@ -103,7 +107,7 @@ TSX ──Mail.*──▶ Rust LocalBackend ──tokio/rustls──▶ IMAP (99
 3. 增量：新信取本地已有最大 UID 之上的（`UID FETCH n:*`，RFC 4549 §4.3.1），`UIDNEXT` 只用来判断有没有新信，不当水位线（服务器可能先分配 UID、后让信可见）；支持 `CONDSTORE` 时用 `HIGHESTMODSEQ` 同步标记；UIDVALIDITY 变了就重建该文件夹。
 4. 实时：INBOX 上 `IDLE`，收到 `EXISTS`/`EXPUNGE`/`FETCH`（别的客户端改了标记）就同步 INBOX；每 30 秒重发一次 IDLE，因为有的服务器（如 GreenMail）把别处的标记改动攒到 IDLE 结束才发；每 29 分钟全量同步。不支持 IDLE 的服务器每 2 分钟轮询。命令连接每账户一条、复用；复用的连接已被服务器关掉（空闲超时）时，在新连接上重试一次，其他错误不重试。连接或同步出错时记日志（带账户 id），按 5 秒到 5 分钟退避重连并全量同步。新信写库后发 `newMail` 事件，并在应用不在前台时发系统通知。
 5. 发送：lettre 经 SMTP 发出，成功后 `APPEND` 到"已发送"（Gmail 自动保存的除外）。
-6. 搜索：本地 FTS5（主题、发件人、收件人、正文）；本地没有的旧信，后续版本再补 IMAP `SEARCH`。
+6. 搜索：本地 FTS5（主题、发件人、收件人、正文）；本地没有的旧信，后续版本再补 IMAP `SEARCH`。结果仍按单封邮件列出，打开时进入它所在的会话。
 
 桌面端主窗口关闭后留在托盘，IDLE 继续，系统通知照常。Android 本地模式只在应用打开时同步（没有后台服务），需要后台推送请用云端模式，设置页写明。
 
@@ -133,6 +137,18 @@ TSX ──Mail.*──▶ Rust LocalBackend ──tokio/rustls──▶ IMAP (99
 - 编码：lettre 组 `multipart/mixed`，文件名在 `Content-Disposition` 里按 RFC 2231，`Content-Type` 的 `name` 按 RFC 2047（老客户端只认这个）。"已发送"里 `APPEND` 的就是发出的整封信，附件随之保存。
 - 服务端：分块存在 `data/uploads/<用户>/<id>`（元数据 `<id>.json`），发送成功即删除，其余 24 小时后由每小时一次的清理删除。
 
+### 会话
+
+mail-core 在每封邮件入库时为它归入会话（`store.rs`），本地模式和服务端的每个用户都一样：
+
+- **键**：邮件自己的 `Message-ID`、`In-Reply-To` 和 `References` 里的 id，以及 Gmail（`X-GM-EXT-1`）上的 `X-GM-THRID`（记作 `gm:<账号>:<id>`），在 `thread_keys (user_id, key, thread_id)` 里映射到会话 id。邮件加入它的键已映射到的会话；键指向多个会话时把它们合并（JWZ 的"这些属于同一组"，不建它的容器树）。键在邮件删除后仍保留，迟到的回复也能找到会话；`messages.thread_id` 有 `(user_id, thread_id)` 索引。
+- **没有引用时**：不引用任何邮件的回复（`Re:`、`Fwd:`、`AW:`、`回复：`、`转发：`、邮件列表标签等），加入 30 天内基础主题相同、且除用户本人外有共同参与者的最近一封。只有主题相同不会合并：两封陌生人发来的 "Lunch" 仍是两个会话。
+- **跨账号**：会话属于用户而不属于某个账号，所以自己两个账号之间的往来是同一个会话。同一封邮件的多个副本（`Message-ID` 相同：Gmail 的 All Mail 与收件箱、自己账号之间的邮件）只算一次，优先取收件箱里的那份。
+- **列表**：一个文件夹列出在其中有邮件的会话，按最新一封排序。一行统计的是收件箱、已发送和归档里的邮件（废纸篓和草稿箱只算自己的）；只看一个账号时只算该账号。分页按 `(最新日期, 会话 id)`。列表查询每页都要对用户的邮件分组，耗时与邮箱大小成正比；对每个文件夹 500 封的窗口足够，不够时下一步是加一张 `threads` 汇总表。
+- **操作**：归档移走会话在收件箱里的邮件，删除把整个会话移到废纸篓（含已发送，同 Gmail）；每个文件夹一条 IMAP 命令（带 UID 集合的 `UID MOVE`）；已读/未读每个文件夹一条 `UID STORE`。
+- **迁移**：打开没有会话的旧数据库时加列，并在一个事务里按从旧到新为所有邮件归入会话；导入服务端旧的按用户数据库也一样。
+- **客户端**："按会话分组"（设置 → 阅读，默认开，`Storage` 键 `nshmail.threads`）让列表在 `threads` 与 `list` 之间切换。阅读区把会话显示为叠放的邮件：展开的一封（打开时是最新一封）显示正文，更早的折叠在上方（超过三封时显示第一封、"还有 N 封"和最后一封），更新的在下方；点一下展开另一封。HTML 正文没有自身高度（Web 视图不运行脚本，量不了高度），所以一次只展开一封。回复和转发作用于展开的那封；它的菜单可以单独标为未读或删除。
+
 ### 服务端 API
 
 ```
@@ -146,6 +162,8 @@ GET  /v1/messages/{id}/attachments/{index}  附件字节：Content-Type 为其�
                                             CSP sandbox + nosniff；本地没有正文时从 IMAP 取并缓存
 PATCH /v1/messages/{id}  {seen?, flagged?}
 POST /v1/messages/{id}/move  {folder}     移到同一账号的另一个文件夹（归档、删除到废纸篓）
+GET  /v1/threads?folder=&account=&before=&limit=          GET /v1/threads/{id}（会话里的邮件，从旧到新）
+PATCH /v1/threads/{id}  {seen?, flagged?}   POST /v1/threads/{id}/move  {folder: "archive"|"trash"}
 POST /v1/send            GET /v1/search?q=&limit=      GET /v1/unread → {accountId: 未读数}
 POST /v1/uploads         {filename, mimeType, size} → Upload {id, filename, mimeType, size}
 PATCH /v1/uploads/{id}?offset=   分块原始字节（≤ 4 MiB）→ {received}      DELETE /v1/uploads/{id}

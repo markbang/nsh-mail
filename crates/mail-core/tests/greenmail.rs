@@ -935,3 +935,160 @@ async fn archive_and_delete_move_messages_on_the_server() {
     other.select("Trash").await.unwrap();
     assert!(uid_of(&mut other, "delete me").await.parse::<u32>().is_ok());
 }
+
+fn unified(folder: FolderKind) -> ListQuery {
+    ListQuery {
+        folder,
+        account: None,
+        before: None,
+        limit: 50,
+    }
+}
+
+/// Replies thread by `References` across one user's accounts, a copy of one message in two
+/// accounts counts once, a reply without `References` joins by subject and sender, a subject
+/// alone never merges strangers, and conversations archive and read as one.
+#[tokio::test(flavor = "multi_thread")]
+async fn conversations_group_replies_across_accounts() {
+    let dir = tempfile::tempdir().unwrap();
+    let (alice_email, bob_email, carol, dave) = (
+        unique("alice"),
+        unique("bob"),
+        unique("carol"),
+        unique("dave"),
+    );
+    let (engine, alice) = engine_with_account(&dir, &alice_email).await;
+    let bob = engine.add_imap_account(input(&bob_email)).await.unwrap();
+    engine
+        .send(draft(
+            &alice,
+            &bob_email,
+            "Offsite plan",
+            "Lisbon or Porto?",
+        ))
+        .await
+        .unwrap();
+    engine.sync(&bob.id).await.unwrap();
+    let original = only_message(&engine, FolderKind::Inbox, &bob).await;
+    engine
+        .send(Draft {
+            in_reply_to: original.message_id.clone(),
+            references: original.message_id.iter().cloned().collect(),
+            ..draft(&bob, &alice_email, "Re: Offsite plan", "Porto.")
+        })
+        .await
+        .unwrap();
+
+    let lunch = |from: &str, subject: &str, n: u32| {
+        format!(
+            "From: {from}\r\nTo: {{to}}\r\nSubject: {subject}\r\nMessage-ID: <lunch-{n}@test.local>\r\n\
+             Date: Fri, 13 Nov 2026 09:0{n}:00 +0000\r\n\r\nbody\r\n"
+        )
+    };
+    deliver_raw(&alice_email, lunch(&carol, "Lunch", 1).as_bytes()).await;
+    // Carol's client drops References: subject and sender still match.
+    deliver_raw(&alice_email, lunch(&carol, "RE: Lunch", 2).as_bytes()).await;
+    // Same subjects from someone else: no relation.
+    deliver_raw(&alice_email, lunch(&dave, "Re: Lunch", 3).as_bytes()).await;
+    deliver_raw(&alice_email, lunch(&dave, "Lunch", 4).as_bytes()).await;
+    engine.sync_all().await.unwrap();
+
+    let threads = engine.threads(unified(FolderKind::Inbox)).await.unwrap();
+    let shape = |t: &Thread| {
+        let mut who: Vec<String> = t.participants.iter().map(|a| a.email.clone()).collect();
+        who.sort();
+        (t.subject.clone(), t.count, who)
+    };
+    let mut shapes: Vec<_> = threads.iter().map(shape).collect();
+    shapes.sort();
+    let mut pair = vec![alice_email.clone(), bob_email.clone()];
+    pair.sort();
+    assert_eq!(
+        shapes,
+        [
+            ("Lunch".to_string(), 1, vec![dave.clone()]),
+            ("Lunch".to_string(), 2, vec![carol.clone()]),
+            ("Offsite plan".to_string(), 2, pair),
+            ("Re: Lunch".to_string(), 1, vec![dave.clone()]),
+        ]
+    );
+    let offsite = threads
+        .iter()
+        .find(|t| t.subject == "Offsite plan")
+        .unwrap();
+    assert_eq!(offsite.unread, 2);
+    let messages = engine.thread(&offsite.id).await.unwrap();
+    let subjects: Vec<&str> = messages.iter().map(|m| m.subject.as_str()).collect();
+    assert_eq!(subjects, ["Offsite plan", "Re: Offsite plan"]);
+    assert!(messages.iter().all(|m| m.folder == FolderKind::Inbox));
+    let one_account = engine
+        .threads(query(FolderKind::Inbox, &alice, None, 50))
+        .await
+        .unwrap();
+    assert_eq!(one_account.len(), 4);
+    assert_eq!(
+        one_account
+            .iter()
+            .find(|t| t.id == offsite.id)
+            .unwrap()
+            .count,
+        2,
+        "alice's view: her sent original and bob's reply"
+    );
+
+    // Paging continues after the last thread of a page.
+    let first = engine
+        .threads(ListQuery {
+            limit: 2,
+            ..unified(FolderKind::Inbox)
+        })
+        .await
+        .unwrap();
+    let rest = engine
+        .threads(ListQuery {
+            before: Some(first[1].id.clone()),
+            ..unified(FolderKind::Inbox)
+        })
+        .await
+        .unwrap();
+    let mut paged: Vec<&str> = first.iter().chain(&rest).map(|t| t.id.as_str()).collect();
+    let mut all: Vec<&str> = threads.iter().map(|t| t.id.as_str()).collect();
+    assert_eq!(paged.len(), 4);
+    paged.sort();
+    all.sort();
+    assert_eq!(paged, all);
+
+    engine
+        .set_thread_flags(
+            &offsite.id,
+            Flags {
+                seen: Some(true),
+                flagged: None,
+            },
+        )
+        .await
+        .unwrap();
+    engine
+        .move_thread(&offsite.id, FolderKind::Archive)
+        .await
+        .unwrap();
+    let inbox = engine.threads(unified(FolderKind::Inbox)).await.unwrap();
+    assert!(inbox.iter().all(|t| t.id != offsite.id));
+    let archived = engine.threads(unified(FolderKind::Archive)).await.unwrap();
+    let archived = archived.iter().find(|t| t.id == offsite.id).unwrap();
+    assert_eq!((archived.count, archived.unread), (2, 0));
+
+    // Reopening the store keeps the threads; a database from before threads gets them.
+    drop(engine);
+    let db = dir.path().join("mail.sqlite");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute_batch("DROP TABLE thread_keys; DROP INDEX messages_by_thread; ALTER TABLE messages DROP COLUMN thread_id;")
+        .unwrap();
+    drop(conn);
+    let engine = self::engine(&dir);
+    let again = engine.threads(unified(FolderKind::Inbox)).await.unwrap();
+    let mut shapes_again: Vec<_> = again.iter().map(shape).collect();
+    shapes_again.sort();
+    assert_eq!(shapes_again.len(), 3);
+    assert!(shapes_again.iter().any(|(s, n, _)| s == "Lunch" && *n == 2));
+}
