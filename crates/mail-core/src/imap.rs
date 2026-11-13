@@ -721,8 +721,16 @@ fn walk(
                 });
             }
         }
-        // Inline images of an HTML body are not attachments.
-        BodyStructure::Basic { .. } if parent == "related" => {}
+        // An HTML body's images (`cid:` targets) are not attachments; on open `mime::index`
+        // checks the HTML itself.
+        BodyStructure::Basic { common, other, .. }
+            if parent == "related"
+                && other.id.is_some()
+                && common.ty.ty.eq_ignore_ascii_case("image")
+                && !common
+                    .disposition
+                    .as_ref()
+                    .is_some_and(|d| d.ty.eq_ignore_ascii_case("attachment")) => {}
         BodyStructure::Basic { .. } | BodyStructure::Message { .. } => shape.has_attachments = true,
     }
 }

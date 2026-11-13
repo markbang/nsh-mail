@@ -579,7 +579,19 @@ impl Engine {
     pub async fn get(&self, id: &str) -> Result<Message> {
         let (mut stored, raw) = self.body(id).await?;
         let body = tokio::task::spawn_blocking(move || mime::parse_body(&raw)).await?;
-        stored.summary.has_attachments = !body.attachments.is_empty();
+        let has_attachments = !body.attachments.is_empty();
+        // Rows synced before inline images stopped counting are corrected as they are opened.
+        if stored.summary.has_attachments != has_attachments {
+            let mid = id.to_string();
+            self.store()
+                .run(move |s| s.set_has_attachments(&mid, has_attachments))
+                .await?;
+            stored.summary.has_attachments = has_attachments;
+            self.emit(MailEvent::Changed {
+                account_id: stored.summary.account_id.clone(),
+                folder: stored.summary.folder,
+            });
+        }
         Ok(Message {
             summary: stored.summary,
             cc: stored.cc,

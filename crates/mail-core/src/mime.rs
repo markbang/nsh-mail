@@ -110,13 +110,19 @@ pub(crate) struct Body {
     pub reply_to: Vec<Address>,
 }
 
-/// The search index's text and whether anything is attached: what syncing needs of a body.
+/// The search index's text and whether `parse_body` lists any attachment: what syncing needs of a body.
 pub(crate) fn index(raw: &[u8]) -> (String, bool) {
     match MessageParser::new().parse(raw) {
-        Some(msg) => (
-            first_text(&msg.root()).unwrap_or_default(),
-            msg.root().attachments().len() > 0,
-        ),
+        Some(msg) => {
+            let m = msg.root();
+            // Only an image with a Content-ID can be shown by the HTML: render only when that
+            // could hide every attachment.
+            let mut parts = m.attachments().peekable();
+            let has_attachments = parts.peek().is_some()
+                && (!parts.all(|p| p.content_id().is_some() && is_image(&p))
+                    || listed(&m, &rendered(&msg).2).next().is_some());
+            (first_text(&m).unwrap_or_default(), has_attachments)
+        }
         None => (String::from_utf8_lossy(raw).into_owned(), false),
     }
 }
@@ -133,33 +139,46 @@ pub(crate) fn parse_body(raw: &[u8]) -> Body {
         };
     };
     let m = msg.root();
-    let text = first_text(&m);
+    let (html, remote_images, shown) = rendered(&msg);
+    Body {
+        text: first_text(&m),
+        html,
+        remote_images,
+        attachments: listed(&m, &shown)
+            .map(|(i, part)| attachment_meta(i as u32, &part))
+            .collect(),
+        reply_to: addresses(m.reply_to()),
+    }
+}
+
+/// The sanitized HTML body, its remote images and the Content-IDs of the inline images it shows.
+fn rendered(msg: &mail_parser::Message<'_>) -> (Option<String>, Vec<String>, Vec<String>) {
     let mut budget = INLINE_BUDGET;
-    let (html, remote_images, shown) = match html_of(&m, &mut budget) {
+    match html_of(&msg.root(), &mut budget) {
         Some(h) => {
-            let (clean, remote, shown) = sanitize_html(&h, &inline_images(&msg, &mut budget));
+            let (clean, remote, shown) = sanitize_html(&h, &inline_images(msg, &mut budget));
             (Some(clean), remote, shown)
         }
         None => (None, Vec::new(), Vec::new()),
-    };
-    // Images the HTML shows are not listed again as attachments; indices stay those of `attachment`.
-    let attachments = m
-        .attachments()
-        .enumerate()
-        .filter(|(_, part)| {
-            !part
-                .content_id()
-                .is_some_and(|id| shown.iter().any(|s| s == id.trim()))
-        })
-        .map(|(i, part)| attachment_meta(i as u32, &part))
-        .collect();
-    Body {
-        text,
-        html,
-        remote_images,
-        attachments,
-        reply_to: addresses(m.reply_to()),
     }
+}
+
+/// The attachments a reader lists: images the HTML shows are not listed again; indices stay
+/// those of `attachment`.
+fn listed<'m>(
+    m: &MessageRef<'m>,
+    shown: &[String],
+) -> impl Iterator<Item = (usize, MessagePart<'m>)> {
+    m.attachments().enumerate().filter(|(_, part)| {
+        !part
+            .content_id()
+            .is_some_and(|id| shown.iter().any(|s| s == id.trim()))
+    })
+}
+
+fn is_image(part: &MessagePart<'_>) -> bool {
+    part.content_type()
+        .is_some_and(|ct| ct.ctype().eq_ignore_ascii_case("image"))
 }
 
 fn attachment_meta(index: u32, part: &MessagePart<'_>) -> Attachment {
