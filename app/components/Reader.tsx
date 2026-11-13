@@ -25,6 +25,7 @@ import {
   showToast,
 } from "../store";
 import { MailView, webViewAvailable } from "./MailView";
+import { wide } from "../layout";
 
 export interface ReaderProps {
   message: Message;
@@ -381,7 +382,7 @@ export function Reader(props: ReaderProps) {
             </If>
           </View>
           {/* The mail card stays white in both appearances on purpose: mail is designed on white and its colors are not inverted. */}
-          <View class={`min-h-48 flex-1 overflow-hidden rounded-large border border-outline-variant bg-white ${touch ? "mx-2" : "mx-6"}`}>
+          <View class={`min-h-48 flex-1 overflow-hidden rounded-large border border-outline-variant bg-white ${touch || !wide() ? "mx-2" : "mx-6"}`}>
             <MailView html={source()} remote={showImages()} onUnavailable={() => webViewAvailable.set(false)} class="flex-1" />
           </View>
           <If when={m().attachments.length}>

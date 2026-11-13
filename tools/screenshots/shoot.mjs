@@ -187,6 +187,16 @@ for (const theme of ["light", "dark"]) {
   await id("reader").waitFor();
   await page.getByText("E-ticket-K7Q2XM.pdf").first().waitFor();
   await shot("narrow-reader", theme);
+  // The 600px booking mail fits the phone's width: no sideways scroll.
+  let overflow = null;
+  for (const f of page.frames()) {
+    const o = await f
+      .evaluate(() => (document.querySelector('table[width="600"]') ? document.documentElement.scrollWidth - document.documentElement.clientWidth : null))
+      .catch(() => null);
+    if (o !== null) overflow = o;
+  }
+  log("narrow reader scrolls sideways by", overflow, "px");
+  if (overflow === null || overflow > 0) throw new Error(`the booking mail at 412px: sideways overflow ${overflow}`);
 }
 await browser.close();
 log("done");
