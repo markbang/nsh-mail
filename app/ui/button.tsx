@@ -1,13 +1,13 @@
 // HeroUI's Button: seven variants × six colors, three sizes, the 0.97 press,
 // the hover dim, the 2px focus ring and the disabled fade, on nsh/base's
 // Button for presses, focus and the button role.
-import { Text, View, type ImageAsset, type JSX } from "nsh";
+import { Text, token, View, type ImageAsset, type JSX } from "nsh";
 import { Button as BaseButton } from "nsh/base";
 import { BrandMark, Icon, type IconName } from "./icon";
 import { tip } from "./tooltip";
 import { press } from "./motion";
 import { Spinner } from "./feedback";
-import { disabled, focusRing, rounded, type Color, type Radius, type Size, type Variant } from "./tokens";
+import { disabled, focusRing, rounded, shadow, type Color, type Radius, type Size, type Variant } from "./tokens";
 import { look } from "./variants";
 
 /** HeroUI's variants; `primary`, `default` and `danger` are the earlier names (solid primary, flat default, flat danger). */
@@ -138,6 +138,26 @@ export function ButtonGroup(props: { children?: JSX.Element; label: string; clas
   return (
     <View accessibilityLabel={props.label} class={`flex-row items-center overflow-hidden rounded-medium ${props.class ?? ""}`}>
       {props.children}
+    </View>
+  );
+}
+
+/** Material 3's floating action button, the screen's one main action at its bottom end (phones);
+ * `extended` puts the label beside the icon. */
+export function Fab(props: { icon: IconName; label: string; extended?: boolean; onPress: () => void; class?: string; testID?: string }) {
+  return (
+    <View
+      role="button"
+      accessibilityLabel={props.label}
+      onPress={props.onPress}
+      testID={props.testID}
+      android={{ ripple: { color: `${token("primary-700").slice(0, 7)}1f` }, elevation: 3 }}
+      class={`h-14 flex-row items-center justify-center gap-3 overflow-hidden rounded-[16px] bg-primary-100 ${props.extended ? "px-5" : "w-14"} ${shadow.md} android:shadow-none ${press} ${props.class ?? ""}`}
+    >
+      <Icon name={props.icon} class="tint-primary-700" />
+      <If when={props.extended}>
+        <Text class="text-medium font-medium text-primary-700">{props.label}</Text>
+      </If>
     </View>
   );
 }

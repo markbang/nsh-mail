@@ -1,10 +1,9 @@
 // Adding an account: Gmail and Outlook sign in with OAuth, anything else
 // with IMAP and an app password.
 import { signal, Text, View } from "nsh";
-import { NavPage } from "nsh/base";
 import { t } from "nsh/i18n";
 import { Mail, type OAuthProvider } from "nsh-mail/native";
-import { Button, touch } from "../ui";
+import { Button, Page, touch } from "../ui";
 import { PageHeader, PageScroll } from "../components/PageHeader";
 import { NavContext } from "../nav";
 import { errorText, showToast } from "../store";
@@ -27,7 +26,7 @@ export function AddAccountPage() {
     }
   };
   return (
-    <NavPage title={t("accounts.add")} header={<PageHeader title={t("accounts.add")} />}>
+    <Page title={t("accounts.add")} header={<PageHeader title={t("accounts.add")} />}>
       <PageScroll contentClass={touch ? "gap-6 p-4" : "gap-6 p-6"}>
         <View class="gap-1">
           <Text class={`font-semibold text-foreground ${touch ? "text-xl" : "text-medium"}`}>{t("accounts.addTitle")}</Text>
@@ -39,6 +38,6 @@ export function AddAccountPage() {
           <Button size="lg" variant="bordered" fullWidth icon="mail" label={t("accounts.other")} disabled={!!busy()} onPress={() => nav.stack.push({ name: "imap" })} testID="add-imap" />
         </View>
       </PageScroll>
-    </NavPage>
+    </Page>
   );
 }

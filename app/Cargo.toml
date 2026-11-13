@@ -6,6 +6,10 @@ publish = false
 
 [workspace]
 
+# The emulator job's demo build (.github/workflows/android-ui.yml).
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(nshmail_demo)"] }
+
 [dependencies]
 nsh-core = "0.5.0"
 nsh-base = "0.5.0"

@@ -1,9 +1,8 @@
 // Writing a message: a new one, a reply (quoted) or a forward.
 import { keymap, Picker, platform, signal, Text, View } from "nsh";
-import { NavPage } from "nsh/base";
 import { t } from "nsh/i18n";
 import { Mail } from "nsh-mail/native";
-import { Button, IconButton, SelectField, TextField, touch, systemHeader } from "../ui";
+import { Button, IconButton, Page, SelectField, TextField, touch, systemHeader } from "../ui";
 import { PageHeader } from "../components/PageHeader";
 import { AttachmentChips } from "../components/Attachments";
 import { createAttachments, onPageDrop, type Incoming } from "../lib/attachments";
@@ -83,13 +82,18 @@ export function ComposePage(props: { init: ComposeInit }) {
   const actions = () => (
     <>
       <IconButton icon="paperclip" label={t("compose.attach")} onPress={() => void pick()} testID="compose-attach" />
-      <Button color="primary" icon="send" label={sending() ? t("compose.sending") : t("compose.send")} loading={sending()} onPress={() => void send()} testID="send" />
+      <If
+        when={systemHeader}
+        else={<Button color="primary" icon="send" label={sending() ? t("compose.sending") : t("compose.send")} loading={sending()} onPress={() => void send()} testID="send" />}
+      >
+        <IconButton icon="send" tone="primary" label={sending() ? t("compose.sending") : t("compose.send")} disabled={sending()} onPress={() => void send()} testID="send" />
+      </If>
     </>
   );
   const label = touch ? "w-16 text-small" : "w-14 text-small";
   const replying = props.init.mode === "reply" || props.init.mode === "replyAll";
   return (
-    <NavPage title={title()} header={<PageHeader title={title()} actions={actions()} />} headerRight={systemHeader ? actions() : undefined}>
+    <Page title={title()} header={<PageHeader title={title()} actions={actions()} />} headerRight={systemHeader ? actions() : undefined}>
       <View
         class={`min-h-0 flex-1 ${nav.modal ? "bg-content1" : "bg-background"}`}
         onFileDragEnter={() => dragging.set(true)}
@@ -179,6 +183,6 @@ export function ComposePage(props: { init: ComposeInit }) {
           </View>
         </If>
       </View>
-    </NavPage>
+    </Page>
   );
 }

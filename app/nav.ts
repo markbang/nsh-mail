@@ -1,6 +1,7 @@
-// Navigation. Phones (and narrow windows) push every screen on one stack;
-// wide windows keep the three panes and open compose, settings and adding
-// an account in a dialog with a stack of its own.
+// Navigation. iOS and Android phones have a tab bar with a stack per tab;
+// narrow browser windows push every screen on one stack; wide windows keep
+// the three panes and open compose, settings and adding an account in a
+// dialog with a stack of its own.
 import { context, signal } from "nsh";
 import { createNavStack, type NavStackState } from "nsh/base";
 import type { ComposeInit } from "./lib/format";
@@ -10,10 +11,12 @@ export type Route =
   | { name: "message"; id: string }
   | { name: "compose"; init: ComposeInit }
   | { name: "search" }
+  | { name: "folders" }
   | { name: "settings" }
   | { name: "addAccount" }
   | { name: "imap" };
 
+/** The phone's stack: the only one in a narrow browser, the Mail tab's on iOS and Android. */
 export const phoneStack = createNavStack<Route>([{ name: "inbox" }]);
 export const modalStack = createNavStack<Route>([{ name: "settings" }]);
 
@@ -68,9 +71,26 @@ export const modalNavigator: Navigator = {
     }),
 };
 
+function stackNavigator(stack: NavStackState<Route>): Navigator {
+  return { stack, close: () => stack.pop(), done: () => stack.popToRoot(), modal: false };
+}
+
+/** The tab bar's sections in order, each with its own stack, so each keeps its pages and scroll position. */
+export const tabs = (["mail", "search", "folders", "settings"] as const).map((name) => {
+  const stack = name === "mail" ? phoneStack : createNavStack<Route>([{ name }]);
+  return { name, stack, navigator: name === "mail" ? phoneNavigator : stackNavigator(stack) };
+});
+
+const tabIndex = signal(0);
+export const selectedTab = () => tabIndex();
+export function selectTab(index: number) {
+  tabIndex.set(index);
+}
+
 /** Opens `route` as the wide layout or the phone layout shows it. */
 export function show(route: Route, wide: boolean) {
   if (!wide) {
+    tabIndex.set(0);
     phoneStack.push(route);
     return;
   }

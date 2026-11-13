@@ -1,8 +1,9 @@
-// The phone's first page: the chosen mailbox, its mailbox list in a sheet.
+// The phone's first page: the chosen mailbox. iOS and Android reach search,
+// the mailboxes and compose from the tab bar and its button; a narrow browser
+// from the header, the mailbox list in a sheet.
 import { signal, View } from "nsh";
-import { NavPage } from "nsh/base";
 import { t } from "nsh/i18n";
-import { IconButton, Sheet, systemHeader } from "../ui";
+import { IconButton, Page, Sheet, systemHeader } from "../ui";
 import { MailboxList, mailboxTitle } from "../components/Mailbox";
 import { Mailboxes } from "../components/Mailboxes";
 import { PageHeader } from "../components/PageHeader";
@@ -24,19 +25,21 @@ export function InboxPage() {
     </>
   );
   return (
-    <NavPage title={mailboxTitle()} header={<PageHeader title={mailboxTitle()} leading={menu()} actions={actions()} />} headerLeft={systemHeader ? menu() : undefined} headerRight={systemHeader ? actions() : undefined}>
+    <Page title={mailboxTitle()} header={<PageHeader title={mailboxTitle()} leading={menu()} actions={actions()} />} root>
       <View class="flex-1 bg-background">
-        <MailboxList onOpen={open} onAddAccount={() => nav.stack.push({ name: "addAccount" })} />
+        <MailboxList onOpen={open} onAddAccount={() => nav.stack.push({ name: "addAccount" })} searchable={false} />
       </View>
-      <Sheet open={sheet()} onClose={() => sheet.set(false)} side="left" label={t("mailbox.choose")}>
-        <Mailboxes
-          onSettings={() => {
-            sheet.set(false);
-            nav.stack.push({ name: "settings" });
-          }}
-          onChosen={() => sheet.set(false)}
-        />
-      </Sheet>
-    </NavPage>
+      <If when={!systemHeader}>
+        <Sheet open={sheet()} onClose={() => sheet.set(false)} side="left" label={t("mailbox.choose")}>
+          <Mailboxes
+            onSettings={() => {
+              sheet.set(false);
+              nav.stack.push({ name: "settings" });
+            }}
+            onChosen={() => sheet.set(false)}
+          />
+        </Sheet>
+      </If>
+    </Page>
   );
 }

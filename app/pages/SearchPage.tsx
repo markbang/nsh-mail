@@ -1,8 +1,7 @@
 // Search on its own page (phones and narrow windows).
 import { cleanup, Text, View } from "nsh";
-import { NavPage } from "nsh/base";
 import { t } from "nsh/i18n";
-import { Empty, touch } from "../ui";
+import { Empty, Page, systemHeader, touch } from "../ui";
 import { resultCount } from "../components/Mailbox";
 import { MessageList } from "../components/MessageList";
 import { PageHeader } from "../components/PageHeader";
@@ -14,7 +13,7 @@ export function SearchPage() {
   const nav = NavContext();
   cleanup(clearSearch);
   return (
-    <NavPage title={t("search.label")} header={<PageHeader title={t("search.label")} />}>
+    <Page title={t("search.label")} header={<PageHeader title={t("search.label")} />} root={systemHeader}>
       <View class="flex-1 bg-background">
         <View class="gap-2 border-b border-divider p-3">
           <SearchField autoFocus />
@@ -38,6 +37,6 @@ export function SearchPage() {
           )}
         </If>
       </View>
-    </NavPage>
+    </Page>
   );
 }

@@ -103,9 +103,11 @@ fn changed(account_id: String, folder: FolderKind) {
 }
 
 /// The backend of local mode. The in-memory demo backs the UI tests
-/// (`nshmail.mode` = `demo`); release builds have no demo.
+/// (`nshmail.mode` = `demo`) and the emulator's screenshots (a release build
+/// with `--cfg nshmail_demo`, where it is the mode until one is chosen);
+/// other release builds have no demo.
 fn local_backend(demo: bool) -> Result<Rc<dyn Backend>, JsError> {
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, nshmail_demo))]
     if demo {
         return Ok(Rc::new(crate::demo::DemoBackend::default()));
     }
@@ -202,11 +204,12 @@ impl Mail {
         #[cfg(target_arch = "wasm32")]
         crate::cloud::finish_oauth();
         let server = Storage::get_item(SERVER_KEY);
-        match (Storage::get_item(MODE_KEY).as_deref(), server) {
+        let mode = Storage::get_item(MODE_KEY).or_else(|| cfg!(nshmail_demo).then(|| "demo".to_owned()));
+        match (mode.as_deref(), server) {
             (Some("local"), _) if cfg!(not(target_arch = "wasm32")) => {
                 open(Mode::Local, None, None, local_backend(false)?).await?
             }
-            (Some("demo"), _) if cfg!(debug_assertions) => {
+            (Some("demo"), _) if cfg!(any(debug_assertions, nshmail_demo)) => {
                 open(Mode::Local, None, None, local_backend(true)?).await?
             }
             (Some("cloud"), Some(server)) => {

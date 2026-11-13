@@ -1,13 +1,16 @@
 // The shell: onboarding until a mode is chosen, then three panes on wide
-// windows or a navigation stack on phones; the toast, keys and the tray.
+// windows, the system's tab bar on iOS and Android phones, or one stack in a
+// narrow browser; the toast, keys and the tray.
 import { keymap, mount, View, type InputRef } from "nsh";
 import { NavStack } from "nsh/base";
-import { Dialog, Toast } from "./ui";
+import { Dialog, systemHeader, Toast } from "./ui";
+import { PhoneTabs } from "./components/PhoneTabs";
 import { Workspace } from "./components/Workspace";
 import { wide } from "./layout";
-import { closeModal, isModalOpen, modalFit, modalNavigator, modalStack, NavContext, phoneNavigator, phoneStack, show, type Route } from "./nav";
+import { closeModal, isModalOpen, modalFit, modalNavigator, modalStack, NavContext, phoneNavigator, phoneStack, selectTab, show, type Route } from "./nav";
 import { AddAccountPage } from "./pages/AddAccountPage";
 import { ComposePage } from "./pages/ComposePage";
+import { FoldersPage } from "./pages/FoldersPage";
 import { ImapPage } from "./pages/ImapPage";
 import { InboxPage } from "./pages/InboxPage";
 import { MessagePage } from "./pages/MessagePage";
@@ -29,6 +32,8 @@ function page(route: Route) {
       return <ComposePage init={route.init} />;
     case "search":
       return <SearchPage />;
+    case "folders":
+      return <FoldersPage />;
     case "settings":
       return <SettingsPage />;
     case "addAccount":
@@ -47,7 +52,9 @@ function Main() {
   };
   const openFromNotification = (id: string) => {
     openMessage(id);
-    if (!wide()) phoneStack.setRoutes([{ name: "inbox" }, { name: "message", id }]);
+    if (wide()) return;
+    selectTab(0);
+    phoneStack.setRoutes([{ name: "inbox" }, { name: "message", id }]);
   };
   stayResident(openFromNotification);
 
@@ -59,7 +66,7 @@ function Main() {
     {
       c: key(() => compose("new")),
       r: key(() => wide() && selectedId() && compose("reply")),
-      "/": key(() => (wide() ? search?.focus() : phoneStack.push({ name: "search" }))),
+      "/": key(() => (wide() ? search?.focus() : systemHeader ? selectTab(1) : phoneStack.push({ name: "search" }))),
       j: key(() => wide() && stepMessage(1)),
       k: key(() => wide() && stepMessage(-1)),
     },
@@ -70,11 +77,18 @@ function Main() {
     <If
       when={wide()}
       else={
-        <NavContext.Provider value={phoneNavigator}>
-          <NavStack state={phoneStack} class="flex-1">
-            {page}
-          </NavStack>
-        </NavContext.Provider>
+        <If
+          when={systemHeader}
+          else={
+            <NavContext.Provider value={phoneNavigator}>
+              <NavStack state={phoneStack} class="flex-1">
+                {page}
+              </NavStack>
+            </NavContext.Provider>
+          }
+        >
+          <PhoneTabs page={page} onCompose={() => compose("new")} />
+        </If>
       }
     >
       <Workspace

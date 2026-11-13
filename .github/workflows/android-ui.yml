@@ -1,0 +1,93 @@
+name: Android UI
+
+# The app on an Android emulator, light and dark: a release build with the
+# demo mailbox (`--cfg nshmail_demo`), driven by .github/android-ui.py, its
+# screenshots uploaded as the `android-ui` artifact.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - app/**
+      - .github/android-ui.py
+      - .github/workflows/android-ui.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-ui-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  NSH_VERSION: v0.5.0
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
+    working-directory: app
+
+jobs:
+  emulator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev
+        working-directory: .
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android
+      - name: Install the Android platform
+        run: (yes || :) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" > /dev/null
+      - id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.nsh
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            app/target
+          key: android-ui-${{ runner.os }}-${{ env.NSH_VERSION }}-${{ hashFiles('app/Cargo.lock') }}
+          restore-keys: android-ui-${{ runner.os }}-${{ env.NSH_VERSION }}-
+      - name: Install nsh
+        run: |
+          [ -x ~/.nsh/bin/nsh ] || curl -fsSL https://nsh.dev/install.sh | sh
+          echo "$HOME/.nsh/bin" >> "$GITHUB_PATH"
+      - name: Package for the emulator (x86_64, demo mailbox)
+        run: RUSTFLAGS="--cfg nshmail_demo" nsh package App.tsx --target android --abi x86_64 --out .nsh/ui
+      - uses: actions/cache/save@v6
+        if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.nsh
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            app/target
+          key: android-ui-${{ runner.os }}-${{ env.NSH_VERSION }}-${{ hashFiles('app/Cargo.lock') }}
+      - name: Enable KVM
+        working-directory: .
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Drive the app in light and dark
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          working-directory: .
+          script: python3 .github/android-ui.py app/.nsh/ui screens
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: android-ui
+          path: screens/
+          if-no-files-found: warn
