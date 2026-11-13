@@ -2,7 +2,7 @@
 // colors that header and the page from the activity's theme, which is the
 // light one whatever the system's mode: the page and its header take the
 // theme's tokens here, so every page follows the appearance.
-import type { JSX } from "nsh";
+import { View, type JSX } from "nsh";
 import { NavPage } from "nsh/base";
 
 export interface PageProps {
@@ -25,8 +25,8 @@ export function Page(props: PageProps) {
     <NavPage
       title={props.title}
       header={props.header}
-      headerLeft={props.headerLeft}
-      headerRight={props.headerRight}
+      headerLeft={props.headerLeft && <View class="flex-row items-center">{props.headerLeft}</View>}
+      headerRight={props.headerRight && <View class="flex-row items-center">{props.headerRight}</View>}
       headerClass="bg-background text-foreground tint-foreground"
       hidesBottomBarWhenPushed={!props.root}
       popOnBack={props.popOnBack ?? true}
