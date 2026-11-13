@@ -8,6 +8,9 @@ import { errorText, sessionChanged } from "../store";
 
 const web = platform.os === "web";
 
+/** Our hosted server, prefilled for cloud mode on native platforms; the user may change it. */
+const DEFAULT_SERVER = "https://mail-api.bangwu.me";
+
 /** The web client is served by its server: the page's origin. */
 function pageOrigin() {
   try {
@@ -37,7 +40,7 @@ function Choice(props: { icon: IconName; title: string; detail: string; selected
 export function Onboarding() {
   const mode = signal<"local" | "cloud">(web ? "cloud" : "local");
   const signUp = signal(false);
-  const server = signal(web ? pageOrigin() : "");
+  const server = signal(web ? pageOrigin() : DEFAULT_SERVER);
   const email = signal("");
   const password = signal("");
   const busy = signal(false);

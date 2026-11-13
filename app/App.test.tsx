@@ -5,6 +5,12 @@ import { expect, open, test } from "nsh/test";
 const desktop = { platform: "linux", width: 1280, height: 820, locale: "en-US" } as const;
 const demo = { storage: { "nshmail.mode": "demo" } };
 
+test("prefills our server for cloud mode", async () => {
+  const app = await open("./App.tsx", desktop);
+  await app.press("id:mode-cloud");
+  expect(app.value("id:server")).toBe("https://mail-api.bangwu.me");
+});
+
 test("adds an IMAP account with the detected servers", async () => {
   const app = await open("./App.tsx", { ...desktop, ...demo });
   await app.waitFor("id:open-settings");
