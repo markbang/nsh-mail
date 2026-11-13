@@ -386,9 +386,15 @@ jobs:
         working-directory: .
     steps:
       - uses: actions/checkout@v7
+      # By name: a pattern matching only one artifact would unpack it into path itself, not path/<name>.
       - uses: actions/download-artifact@v8
         with:
-          pattern: '{android,linux,windows}'
+          name: android
+          path: ${{ runner.temp }}/a/android
+      - if: ${{ !inputs.upload_to }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: '{linux,windows}'
           path: ${{ runner.temp }}/a
       - name: Publish the release
         env:
