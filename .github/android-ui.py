@@ -16,7 +16,7 @@ failures = []
 
 
 def adb(*args, check=True):
-    return subprocess.run(["adb", *args], check=check, capture_output=True, text=True).stdout
+    return subprocess.run(["adb", *args], check=check, capture_output=True, encoding="utf-8", errors="replace").stdout
 
 
 def shot(name):
