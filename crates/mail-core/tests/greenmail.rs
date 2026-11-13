@@ -848,16 +848,35 @@ async fn archive_and_delete_move_messages_on_the_server() {
     let (alice_email, bob_email) = (unique("alice"), unique("bob"));
     let (engine, bob) = engine_with_account(&dir, &bob_email).await;
     for subject in ["keep me", "archive me", "delete me"] {
-        engine.send(draft(&bob, &alice_email, subject, "body")).await.unwrap();
+        engine
+            .send(draft(&bob, &alice_email, subject, "body"))
+            .await
+            .unwrap();
     }
     let alice = engine.add_imap_account(input(&alice_email)).await.unwrap();
     engine.sync(&alice.id).await.unwrap();
-    let inbox = engine.list(query(FolderKind::Inbox, &alice, None, 10)).await.unwrap();
-    let id = |subject: &str| inbox.iter().find(|m| m.subject == subject).unwrap().id.clone();
+    let inbox = engine
+        .list(query(FolderKind::Inbox, &alice, None, 10))
+        .await
+        .unwrap();
+    let id = |subject: &str| {
+        inbox
+            .iter()
+            .find(|m| m.subject == subject)
+            .unwrap()
+            .id
+            .clone()
+    };
 
     // GreenMail has neither Archive nor Trash: the engine creates them.
-    engine.move_to(&id("archive me"), FolderKind::Archive).await.unwrap();
-    engine.move_to(&id("delete me"), FolderKind::Trash).await.unwrap();
+    engine
+        .move_to(&id("archive me"), FolderKind::Archive)
+        .await
+        .unwrap();
+    engine
+        .move_to(&id("delete me"), FolderKind::Trash)
+        .await
+        .unwrap();
 
     let subjects = |folder| {
         let engine = &engine;

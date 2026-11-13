@@ -204,7 +204,8 @@ impl Mail {
         #[cfg(target_arch = "wasm32")]
         crate::cloud::finish_oauth();
         let server = Storage::get_item(SERVER_KEY);
-        let mode = Storage::get_item(MODE_KEY).or_else(|| cfg!(nshmail_demo).then(|| "demo".to_owned()));
+        let mode =
+            Storage::get_item(MODE_KEY).or_else(|| cfg!(nshmail_demo).then(|| "demo".to_owned()));
         match (mode.as_deref(), server) {
             (Some("local"), _) if cfg!(not(target_arch = "wasm32")) => {
                 open(Mode::Local, None, None, local_backend(false)?).await?

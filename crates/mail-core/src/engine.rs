@@ -695,7 +695,10 @@ impl Engine {
                 let target = target.ok_or_else(|| {
                     err(
                         ErrorCode::Unsupported,
-                        format!("{} has no {to:?} folder to move the message to", account.email),
+                        format!(
+                            "{} has no {to:?} folder to move the message to",
+                            account.email
+                        ),
                     )
                 })?;
                 imap::move_message(conn, &folder, uid, &target.name).await?;
@@ -710,7 +713,9 @@ impl Engine {
         });
         let store = self.store().clone();
         let synced = self
-            .with_imap(&account, async |conn| imap::sync_folder(conn, &store, target).await)
+            .with_imap(&account, async |conn| {
+                imap::sync_folder(conn, &store, target).await
+            })
             .await;
         if synced.is_ok_and(|r| r.changed) {
             self.emit(MailEvent::Changed {

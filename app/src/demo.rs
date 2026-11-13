@@ -328,11 +328,17 @@ impl Backend for DemoBackend {
     fn move_to(&self, id: String, folder: FolderKind) -> MailFuture<'_, ()> {
         let mut data = self.data.borrow_mut();
         let result = match data.messages.iter_mut().find(|m| m.summary.id == id) {
-            Some(Message { summary: m, .. }) => Ok((m.account_id.clone(), std::mem::replace(&mut m.folder, folder))),
+            Some(Message { summary: m, .. }) => Ok((
+                m.account_id.clone(),
+                std::mem::replace(&mut m.folder, folder),
+            )),
             None => Err(not_found("message")),
         };
         ok(result.map(|(account_id, from)| {
-            data.emit(MailEvent::Changed { account_id: account_id.clone(), folder: from });
+            data.emit(MailEvent::Changed {
+                account_id: account_id.clone(),
+                folder: from,
+            });
             data.emit(MailEvent::Changed { account_id, folder });
         }))
     }
