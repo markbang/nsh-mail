@@ -8,7 +8,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
 use mail_core::types::*;
 use nsh_core::{prelude::*, time::unix_ms};
 
-use crate::backend::{Backend, Events, File, MailFuture, Progress, Staged, invalid};
+use crate::backend::{Backend, Events, File, MailFuture, Progress, Staged, invalid, rename_upload};
 
 const MINUTE: f64 = 60_000.0;
 const HOUR: f64 = 60.0 * MINUTE;
@@ -23,6 +23,7 @@ struct Data {
     next_id: u64,
     arrivals: usize,
     events: Option<Events>,
+    outbox: Vec<(Outgoing, Vec<(String, Rc<File>)>)>,
 }
 
 impl Data {
@@ -481,115 +482,152 @@ impl Backend for DemoBackend {
 
     fn send(&self, draft: Draft) -> MailFuture<'_, ()> {
         Box::pin(async move {
-            let recipients: Vec<&Address> =
-                draft.to.iter().chain(&draft.cc).chain(&draft.bcc).collect();
-            if draft.to.is_empty() {
-                return Err(invalid("add a recipient"));
-            }
-            if let Some(bad) = recipients
-                .iter()
-                .find(|r| parse_address(&r.email).is_none())
-            {
-                return Err(invalid(format!("{} is not an email address", bad.email)));
-            }
+            check_recipients(&draft)?;
             let staged = self.staged.of(&draft)?;
             latency(600).await;
-            let mut data = self.data.borrow_mut();
-            let mut attachments = Vec::new();
-            for a in &draft.attachments {
-                let (filename, mime_type, size) = match a {
-                    DraftAttachment::Upload { id } => {
-                        let (_, f) = staged.iter().find(|(s, _)| s == id).expect("staged above");
-                        (f.name.clone(), f.mime_type.clone(), f.data.len() as u64)
-                    }
-                    DraftAttachment::Forward { message_id, index } => {
-                        let source = data
-                            .messages
-                            .iter()
-                            .find(|m| &m.summary.id == message_id)
-                            .ok_or_else(|| not_found("message"))?;
-                        let a = source
-                            .attachments
-                            .iter()
-                            .find(|a| a.index == *index)
-                            .ok_or_else(|| not_found("attachment"))?;
-                        (
-                            a.filename.clone().unwrap_or_default(),
-                            a.mime_type.clone(),
-                            a.size,
-                        )
-                    }
-                };
-                attachments.push(Attachment {
-                    index: attachments.len() as u32,
-                    filename: Some(filename),
-                    mime_type,
-                    size,
-                    inline: false,
-                    content_id: None,
-                });
-            }
-            if attachments.iter().map(|a| a.size).sum::<u64>() > MAX_ATTACHMENTS {
-                return Err(Error::new(
-                    ErrorCode::TooLarge,
-                    "the attachments are too large",
-                ));
-            }
-            let from = data.account(&draft.account_id)?.clone();
-            let id = data.id();
-            let sender = (
-                from.name.as_deref().unwrap_or(&from.email),
-                from.email.as_str(),
-            );
-            let mut sent = message(
-                id,
-                &from,
-                FolderKind::Sent,
-                unix_ms(),
-                sender,
-                &draft.subject,
-                &draft.text,
-            );
-            sent.summary.to = draft.to.clone();
-            sent.cc = draft.cc.clone();
-            sent.summary.seen = true;
-            sent.in_reply_to = draft.in_reply_to.clone();
-            sent.references = draft.references.clone();
-            if let Some(parent) = data.messages.iter().find(|m| {
-                m.message_id.is_some()
-                    && (m.message_id == draft.in_reply_to
-                        || draft.references.contains(m.message_id.as_ref().unwrap()))
-            }) {
-                sent.summary.thread_id = parent.summary.thread_id.clone();
-            }
-            sent.summary.has_attachments = !attachments.is_empty();
-            sent.attachments = attachments;
-            data.messages.push(sent.clone());
-            // Mail to one's own accounts arrives in their inboxes too.
-            let own: Vec<Account> = data
-                .accounts
-                .iter()
-                .filter(|a| {
-                    recipients
-                        .iter()
-                        .any(|r| r.email.eq_ignore_ascii_case(&a.email))
-                })
-                .cloned()
-                .collect();
-            for account in own {
-                let mut copy = sent.clone();
-                copy.summary.id = data.id();
-                copy.summary.account_id = account.id.clone();
-                copy.summary.folder = FolderKind::Inbox;
-                copy.summary.seen = false;
-                let summary = copy.summary.clone();
-                data.messages.push(copy);
-                data.emit(MailEvent::NewMail { summary });
-            }
-            drop(data);
+            post(&mut self.data.borrow_mut(), &draft, &staged)?;
             self.staged.sent(&draft);
             Ok(())
         })
+    }
+
+    fn queue(&self, mut draft: Draft, when: SendAt) -> MailFuture<'_, Outgoing> {
+        Box::pin(async move {
+            check_recipients(&draft)?;
+            let staged = self.staged.of(&draft)?;
+            latency(150).await;
+            let now = unix_ms() as i64;
+            let (send_at, scheduled) = match (when.delay, when.send_at) {
+                (Some(delay), None) => (now + i64::from(delay) * 1000, false),
+                (None, Some(at)) if at >= now - 60_000 => (at.max(now), true),
+                (None, Some(_)) => return Err(invalid("pick a time in the future")),
+                _ => return Err(invalid("give either a delay or a time to send at")),
+            };
+            let mut data = self.data.borrow_mut();
+            // As the engine does: forwarded files are copied, every file becomes an upload.
+            let mut files = Vec::new();
+            for a in &draft.attachments {
+                match a {
+                    DraftAttachment::Upload { id } => {
+                        let (_, f) = staged
+                            .iter()
+                            .find(|(s, _)| s == id)
+                            .ok_or_else(|| not_found("file"))?;
+                        files.push((id.clone(), f.clone()));
+                    }
+                    DraftAttachment::Forward { message_id, index } => {
+                        let a = data
+                            .messages
+                            .iter()
+                            .find(|m| &m.summary.id == message_id)
+                            .and_then(|m| m.attachments.iter().find(|a| a.index == *index))
+                            .ok_or_else(|| not_found("attachment"))?;
+                        let file = File {
+                            name: a.filename.clone().unwrap_or_default(),
+                            mime_type: a.mime_type.clone(),
+                            data: vec![0; a.size as usize],
+                        };
+                        let id = format!("o{}", data.id());
+                        files.push((id, Rc::new(file)));
+                    }
+                }
+            }
+            draft.attachments = files
+                .iter()
+                .map(|(id, _)| DraftAttachment::Upload { id: id.clone() })
+                .collect();
+            let outgoing = Outgoing {
+                id: format!("out-{}", data.id()),
+                files: files
+                    .iter()
+                    .map(|(id, f)| Upload {
+                        id: id.clone(),
+                        filename: f.name.clone(),
+                        mime_type: f.mime_type.clone(),
+                        size: f.data.len() as u64,
+                    })
+                    .collect(),
+                draft,
+                send_at,
+                scheduled,
+                error: None,
+            };
+            for (id, _) in &files {
+                self.staged.remove(id);
+            }
+            data.outbox.push((outgoing.clone(), files));
+            data.emit(outbox_event(&outgoing, OutboxState::Queued));
+            drop(data);
+            let (weak, id) = (Rc::downgrade(&self.data), outgoing.id.clone());
+            let wait = Duration::from_millis((send_at - now).max(0) as u64);
+            Owner::detached().run(|| {
+                spawn(async move {
+                    timer(wait).await;
+                    let Some(data) = weak.upgrade() else { return };
+                    let mut data = data.borrow_mut();
+                    let Some(at) = data.outbox.iter().position(|(o, _)| o.id == id) else {
+                        return;
+                    };
+                    let (outgoing, files) = data.outbox.remove(at);
+                    match post(&mut data, &outgoing.draft, &files) {
+                        Ok(()) => {
+                            data.emit(outbox_event(&outgoing, OutboxState::Sent));
+                            data.emit(MailEvent::Changed {
+                                account_id: outgoing.draft.account_id.clone(),
+                                folder: FolderKind::Sent,
+                            });
+                        }
+                        Err(error) => {
+                            let mut failed = outgoing.clone();
+                            failed.error = Some(error.clone());
+                            data.outbox.push((failed, files));
+                            let mut event = outbox_event(&outgoing, OutboxState::Failed);
+                            if let MailEvent::Outbox { error: e, .. } = &mut event {
+                                *e = Some(error);
+                            }
+                            data.emit(event);
+                        }
+                    }
+                })
+            });
+            Ok(outgoing)
+        })
+    }
+
+    fn outbox(&self) -> MailFuture<'_, Vec<Outgoing>> {
+        let mut list: Vec<Outgoing> = self
+            .data
+            .borrow()
+            .outbox
+            .iter()
+            .map(|(o, _)| o.clone())
+            .collect();
+        list.sort_by_key(|o| o.send_at);
+        ok(Ok(list))
+    }
+
+    fn cancel(&self, id: String) -> MailFuture<'_, Outgoing> {
+        let mut data = self.data.borrow_mut();
+        let Some(at) = data.outbox.iter().position(|(o, _)| o.id == id) else {
+            return ok(Err(Error::new(
+                ErrorCode::NotFound,
+                "this message is no longer waiting: it was sent or cancelled",
+            )));
+        };
+        let (mut outgoing, files) = data.outbox.remove(at);
+        for (id, f) in files {
+            let file = File {
+                name: f.name.clone(),
+                mime_type: f.mime_type.clone(),
+                data: f.data.clone(),
+            };
+            let staged = self.staged.restore(id.clone(), file);
+            if staged != id {
+                rename_upload(&mut outgoing, &id, &staged);
+            }
+        }
+        data.emit(outbox_event(&outgoing, OutboxState::Cancelled));
+        ok(Ok(outgoing))
     }
 
     fn stage(&self, file: File, progress: Progress) -> MailFuture<'_, Upload> {
@@ -689,6 +727,132 @@ impl Backend for DemoBackend {
             Ok(())
         })
     }
+}
+
+fn check_recipients(draft: &Draft) -> Result<()> {
+    if draft.to.is_empty() {
+        return Err(invalid("add a recipient"));
+    }
+    let recipients = draft.to.iter().chain(&draft.cc).chain(&draft.bcc);
+    if let Some(bad) = recipients
+        .into_iter()
+        .find(|r| parse_address(&r.email).is_none())
+    {
+        return Err(invalid(format!("{} is not an email address", bad.email)));
+    }
+    Ok(())
+}
+
+fn outbox_event(o: &Outgoing, state: OutboxState) -> MailEvent {
+    MailEvent::Outbox {
+        account_id: o.draft.account_id.clone(),
+        id: o.id.clone(),
+        subject: o.draft.subject.clone(),
+        state,
+        late: false,
+        error: None,
+    }
+}
+
+/// Sends `draft` from the demo's mailboxes: a copy in Sent, and in the inbox
+/// of any own account it is addressed to.
+fn post(data: &mut Data, draft: &Draft, staged: &[(String, Rc<File>)]) -> Result<()> {
+    let recipients: Vec<&Address> = draft.to.iter().chain(&draft.cc).chain(&draft.bcc).collect();
+    let mut attachments = Vec::new();
+    for a in &draft.attachments {
+        let (filename, mime_type, size) = match a {
+            DraftAttachment::Upload { id } => {
+                let (_, f) = staged
+                    .iter()
+                    .find(|(s, _)| s == id)
+                    .ok_or_else(|| not_found("file"))?;
+                (f.name.clone(), f.mime_type.clone(), f.data.len() as u64)
+            }
+            DraftAttachment::Forward { message_id, index } => {
+                let source = data
+                    .messages
+                    .iter()
+                    .find(|m| &m.summary.id == message_id)
+                    .ok_or_else(|| not_found("message"))?;
+                let a = source
+                    .attachments
+                    .iter()
+                    .find(|a| a.index == *index)
+                    .ok_or_else(|| not_found("attachment"))?;
+                (
+                    a.filename.clone().unwrap_or_default(),
+                    a.mime_type.clone(),
+                    a.size,
+                )
+            }
+        };
+        attachments.push(Attachment {
+            index: attachments.len() as u32,
+            filename: Some(filename),
+            mime_type,
+            size,
+            inline: false,
+            content_id: None,
+        });
+    }
+    if attachments.iter().map(|a| a.size).sum::<u64>() > MAX_ATTACHMENTS {
+        return Err(Error::new(
+            ErrorCode::TooLarge,
+            "the attachments are too large",
+        ));
+    }
+    let from = data.account(&draft.account_id)?.clone();
+    let id = data.id();
+    let sender = (
+        from.name.as_deref().unwrap_or(&from.email),
+        from.email.as_str(),
+    );
+    let mut sent = message(
+        id,
+        &from,
+        FolderKind::Sent,
+        unix_ms(),
+        sender,
+        &draft.subject,
+        &draft.text,
+    );
+    sent.summary.to = draft.to.clone();
+    sent.cc = draft.cc.clone();
+    sent.summary.seen = true;
+    sent.in_reply_to = draft.in_reply_to.clone();
+    sent.references = draft.references.clone();
+    if let Some(parent) = data.messages.iter().find(|m| {
+        m.message_id.is_some()
+            && (m.message_id == draft.in_reply_to
+                || draft.references.contains(m.message_id.as_ref().unwrap()))
+    }) {
+        sent.summary.thread_id = parent.summary.thread_id.clone();
+    }
+    sent.summary.has_attachments = !attachments.is_empty();
+    sent.attachments = attachments;
+    data.messages.push(sent.clone());
+    // Mail to one's own accounts arrives in their inboxes too.
+    let own: Vec<Account> = data
+        .accounts
+        .iter()
+        .filter(|a| {
+            recipients
+                .iter()
+                .any(|r| r.email.eq_ignore_ascii_case(&a.email))
+        })
+        .cloned()
+        .collect();
+    for account in own {
+        let mut copy = sent.clone();
+        copy.summary.id = data.id();
+        copy.summary.account_id = account.id.clone();
+        copy.summary.folder = FolderKind::Inbox;
+        copy.summary.seen = false;
+        let summary = copy.summary.clone();
+        data.messages.push(copy);
+        data.emit(MailEvent::NewMail { summary });
+    }
+    Ok(())
 }
 
 fn parse_address(raw: &str) -> Option<Address> {

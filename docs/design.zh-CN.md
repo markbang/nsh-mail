@@ -76,6 +76,9 @@ Mail.attachmentPreview(id, attachment): Promise<string>      // PNG/JPEG/GIF/Web
 Mail.setFlags(id, { seen?, flagged? }): Promise<void>
 Mail.moveTo(id, "archive" | "trash" | …): Promise<void>   // IMAP MOVE（无 MOVE 时 COPY + \Deleted + EXPUNGE）；没有 Archive/Trash 时创建，Gmail 的归档是 All Mail
 Mail.send(draft: Draft): Promise<void>             // 回复时带 inReplyTo / references；attachments 见 §4 附件
+Mail.queue(draft, when: {delay} | {sendAt}): Promise<Outgoing>   // 放进发件箱：撤销窗口（秒）或定时（毫秒），见 §4 发件箱
+Mail.outbox(): Promise<Outgoing[]>                 // 等待中（撤销窗口、定时）或发送失败的邮件
+Mail.cancel(id): Promise<Outgoing>                 // 在发出前从发件箱取回；附件按原 id 重新暂存
 Mail.stage(name, type, bytes: Uint8Array, onProgress: (sent) => void): Promise<Upload>   // 暂存附件，得到 id
 Mail.stageFile(path, type, onProgress): Promise<Upload>   // 本地文件（桌面拖放、文件管理器复制后粘贴），Rust 读；Web 上 reject
 Mail.unstage(id): Promise<void>
@@ -83,7 +86,7 @@ Mail.attachmentLimit(): number                     // 一封信附件总大小�
 Mail.search(text, limit): Promise<Summary[]>
 Mail.unread(): Promise<Record<accountId, number>>  // 各账号收件箱的未读数
 Mail.refresh(): Promise<void>
-Mail.on(listener: (e: MailEvent) => void): () => void   // newMail / changed / syncState / error
+Mail.on(listener: (e: MailEvent) => void): () => void   // newMail / changed / syncState / error / outbox
 Push.setToken(token): Promise<void>                // Android 宿主的 FCM token（§5），云端模式登记到服务端
 ```
 
@@ -149,6 +152,16 @@ mail-core 在每封邮件入库时为它归入会话（`store.rs`），本地模
 - **迁移**：打开没有会话的旧数据库时加列，并在一个事务里按从旧到新为所有邮件归入会话；导入服务端旧的按用户数据库也一样。
 - **客户端**："按会话分组"（设置 → 阅读，默认开，`Storage` 键 `nshmail.threads`）让列表在 `threads` 与 `list` 之间切换。阅读区把会话显示为叠放的邮件：展开的一封（打开时是最新一封）显示正文，更早的折叠在上方（超过三封时显示第一封、"还有 N 封"和最后一封），更新的在下方；点一下展开另一封。HTML 正文没有自身高度（Web 视图不运行脚本，量不了高度），所以一次只展开一封。回复和转发作用于展开的那封；它的菜单可以单独标为未读或删除。
 
+### 发件箱：撤销发送和定时发送
+
+带撤销的发送和定时发送都把邮件放进 mail-core 在存储里维护的发件箱（`outbox` 和 `outbox_files`，每行和邮件表一样带 `user_id`），连同附件：`upload` 复制进来，`forward` 在此时读出，因此邮件不再依赖来源，草稿里的每个附件都写成 upload（`Outgoing.files`）。每个引擎一个任务（由 `run` 启动）在到时后按正常流程发送（SMTP，再存"已发送"副本），并发出 `outbox` 事件（`queued`、`cancelled`、`sent`、`failed`；比预定时间晚一分钟以上发出时带 `late`）。
+
+- **撤销发送**："设置 → 发送 → 撤销发送"（关闭、5、10、20、30 秒；默认 10 秒，`Storage` 键 `nshmail.undoSend`）。发送时用 `{delay}` 入队，并在这段时间里显示"正在发送… 撤销"；点"撤销"调用 `Mail.cancel`，用同一份草稿重新打开写信页（期间由 `app/drafts.ts` 暂时保管，不写入设备存储）。关闭时仍像以前一样用 `Mail.send` 立即发送。
+- **定时发送**："发送"分体按钮的菜单（手机上是时钟按钮）：明天 8:00、下周一 8:00，或用日历和时间框自选，按设备时区计算；`{sendAt}` 是绝对时间（毫秒时间戳），服务端不需要知道时区。"定时发送"邮箱列出定时和发送失败的邮件；打开一封会把它从发件箱取出放进写信页，关闭写信页时按原定时间放回；"取消发送"把它取出，可撤销。
+- **本地模式**：延迟和定时在应用里进行；发件箱在 `mail.sqlite` 里，撤销窗口内关掉应用既不会丢失邮件，也不会提前发出：下次启动时发出。应用关闭期间到了定时时间的邮件，在下次启动时发出，并提示（"已发送……：它的发送时间在 nsh-mail 关闭期间已到"）。桌面端在托盘中常驻。
+- **云端模式**：邮件由服务端保管；`POST /v1/send` 带 `delay` 或 `sendAt` 时返回 202 和 `Outgoing`，`DELETE /v1/outbox/{id}` 在发出前取消（附件按原 id 重新成为 upload）。关掉网页不影响发送；服务端的发件箱在重启后仍在（有账号的用户的引擎在启动时就运行）。
+- **失败**：网络错误重试 5 次，间隔 1、2、4、8、16 分钟；其他错误使邮件进入 `failed` 并记下错误，列在"定时发送"里，由用户编辑或取消。进程停止时停在 `sending` 的邮件改为 `failed`（"请先查看已发送"），因为它可能已经发出。早于当前时间一分钟以上的定时会被拒绝；延迟最长 5 分钟。
+
 ### 服务端 API
 
 ```
@@ -164,7 +177,9 @@ PATCH /v1/messages/{id}  {seen?, flagged?}
 POST /v1/messages/{id}/move  {folder}     移到同一账号的另一个文件夹（归档、删除到废纸篓）
 GET  /v1/threads?folder=&account=&before=&limit=          GET /v1/threads/{id}（会话里的邮件，从旧到新）
 PATCH /v1/threads/{id}  {seen?, flagged?}   POST /v1/threads/{id}/move  {folder: "archive"|"trash"}
-POST /v1/send            GET /v1/search?q=&limit=      GET /v1/unread → {accountId: 未读数}
+POST /v1/send            Draft → 204；带 {delay}（秒）或 {sendAt}（毫秒）→ 202 Outgoing，放进发件箱
+GET  /v1/outbox          DELETE /v1/outbox/{id} → Outgoing（在发出前取消；附件重新成为 upload）
+GET  /v1/search?q=&limit=      GET /v1/unread → {accountId: 未读数}
 POST /v1/uploads         {filename, mimeType, size} → Upload {id, filename, mimeType, size}
 PATCH /v1/uploads/{id}?offset=   分块原始字节（≤ 4 MiB）→ {received}      DELETE /v1/uploads/{id}
 POST /v1/devices         {kind: "fcm"|"webpush", token | subscription, vapidKey?}  DELETE /v1/devices/{id}

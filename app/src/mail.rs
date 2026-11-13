@@ -415,6 +415,26 @@ impl Mail {
         Ok(())
     }
 
+    /// Puts a message in the outbox: it goes after `when.delay` seconds (the
+    /// undo window) or at `when.sendAt` (ms since the epoch), kept in the
+    /// app's database in local mode (a restart sends what came due) and on
+    /// the server in cloud mode. Resolves with it; `outbox` events follow.
+    pub async fn queue(draft: Js<Draft>, when: Js<SendAt>) -> Result<Js<Outgoing>, JsError> {
+        backend()?.queue(draft.0, when.0).await.map(Js).map_err(js)
+    }
+
+    /// The messages waiting to go (undo window, scheduled) or that failed to.
+    pub async fn outbox() -> Result<Js<Vec<Outgoing>>, JsError> {
+        backend()?.outbox().await.map(Js).map_err(js)
+    }
+
+    /// Takes a message out of the outbox before it goes. Its files are staged
+    /// again under the ids its draft names, so it can be sent as it is.
+    /// Rejects once it is on its way.
+    pub async fn cancel(id: String) -> Result<Js<Outgoing>, JsError> {
+        backend()?.cancel(id).await.map(Js).map_err(js)
+    }
+
     /// Keeps a file for the draft being written: in the app in local mode, on
     /// the server in cloud mode, where it goes in chunks. `onProgress` hears
     /// how many bytes are there so far. Resolves with the id the draft's

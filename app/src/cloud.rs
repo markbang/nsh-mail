@@ -613,6 +613,28 @@ impl Backend for CloudBackend {
         Box::pin(self.api().call("POST", "/send", to_json(&draft)))
     }
 
+    fn queue(&self, draft: Draft, when: SendAt) -> MailFuture<'_, Outgoing> {
+        Box::pin(async move {
+            let mut body = to_json(&draft).unwrap_or_default();
+            if let (Some(body), Some(Value::Object(when))) = (body.as_object_mut(), to_json(&when))
+            {
+                body.extend(when);
+            }
+            self.api().call("POST", "/send", Some(body)).await
+        })
+    }
+
+    fn outbox(&self) -> MailFuture<'_, Vec<Outgoing>> {
+        Box::pin(self.api().call("GET", "/outbox", None))
+    }
+
+    fn cancel(&self, id: String) -> MailFuture<'_, Outgoing> {
+        Box::pin(async move {
+            let path = format!("/outbox/{}", enc(&id));
+            self.api().call("DELETE", &path, None).await
+        })
+    }
+
     fn stage(&self, file: File, progress: Progress) -> MailFuture<'_, Upload> {
         Box::pin(async move {
             let File {

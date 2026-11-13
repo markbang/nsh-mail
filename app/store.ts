@@ -59,7 +59,8 @@ const messageRow = (m: Summary): Row => ({
 export interface Mailbox {
   /** One account's id; null is every account (the unified view). */
   account: string | null;
-  folder: Folder;
+  /** A folder, or the messages waiting in the outbox (../outbox.ts). */
+  folder: Folder | "scheduled";
 }
 
 const status = signal<Status>(Mail.status());
@@ -169,11 +170,11 @@ export const conversation = resource(
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let toastId = 0;
-/** A message at the bottom; with an action (Undo) it stays a little longer. */
-export function showToast(text: string, tone: "neutral" | "error" = "neutral", action?: ToastAction) {
+/** A message at the bottom; with an action (Undo) it stays a little longer, or `ms`. */
+export function showToast(text: string, tone: "neutral" | "error" = "neutral", action?: ToastAction, ms?: number) {
   clearTimeout(toastTimer);
   toastMessage.set({ id: ++toastId, text, tone, action });
-  toastTimer = setTimeout(() => toastMessage.set(null), action ? UNDO_MS : 3200);
+  toastTimer = setTimeout(() => toastMessage.set(null), ms ?? (action ? UNDO_MS : 3200));
 }
 
 export function dismissToast() {
@@ -182,7 +183,7 @@ export function dismissToast() {
 }
 
 // Material: a snackbar with an action stays long enough to reach it.
-const UNDO_MS = 8000;
+export const UNDO_MS = 8000;
 
 /** Archives or deletes rows (`thread`: conversations by id, else messages): they leave the
  * lists at once, and move on the server once the Undo has passed; a failure brings them back
@@ -259,6 +260,12 @@ export function errorText(e: unknown): string {
   }
 }
 
+let sessionListener: (() => void) | undefined;
+/** Who reloads with each session (the outbox). */
+export function onSession(listener: () => void) {
+  sessionListener = listener;
+}
+
 let newMailListener: ((s: Summary) => void) | undefined;
 /** Who hears new mail (the shell, for system notifications). */
 export function onNewMail(listener: (s: Summary) => void) {
@@ -305,6 +312,7 @@ export async function start() {
     await reload();
     void loadUnread();
   }
+  sessionListener?.();
   started.set(true);
 }
 
@@ -330,6 +338,14 @@ let loadToken = 0;
 export async function reload(state: "loading" | "refreshing" = "loading") {
   const token = ++loadToken;
   const { account, folder } = box();
+  if (folder === "scheduled") {
+    batch(() => {
+      items.set([]);
+      more.set(false);
+      listState.set("idle");
+    });
+    return;
+  }
   listState.set(state);
   try {
     const page = await listPage({ folder, account, limit: Math.max(PAGE, items().length) });
@@ -353,9 +369,9 @@ async function listPage(q: { folder: Folder; account: string | null; before?: st
 
 export async function loadMore() {
   const last = items()[items().length - 1];
-  if (!last || !more() || listState() !== "idle") return;
-  const token = ++loadToken;
   const { account, folder } = box();
+  if (!last || !more() || listState() !== "idle" || folder === "scheduled") return;
+  const token = ++loadToken;
   listState.set("more");
   try {
     const page = await listPage({ folder, account, before: last.key, limit: PAGE });
@@ -555,4 +571,5 @@ export async function sessionChanged() {
     await reload();
     void loadUnread();
   }
+  sessionListener?.();
 }

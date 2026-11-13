@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 
+use crate::engine::StagedFile;
 use crate::error::err;
 use crate::types::*;
 
@@ -72,6 +73,17 @@ pub(crate) struct NewMessage {
     /// Gmail's `X-GM-THRID`.
     pub gmail_thread: Option<u64>,
 }
+
+/// An outbox row with its files, as the dispatcher sends it or a cancel hands it back.
+pub(crate) struct Queued {
+    pub outgoing: Outgoing,
+    pub files: HashMap<String, StagedFile>,
+    pub attempts: u32,
+}
+
+/// Outbox rows move `queued` → `sending` → gone (sent), or → `failed`; only `queued` and
+/// `failed` rows can be taken back.
+const OUTBOX_COLUMNS: &str = "id, send_at, scheduled, draft, error, attempts";
 
 pub(crate) struct StoredMessage {
     pub summary: Summary,
@@ -160,6 +172,26 @@ CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5 (
 CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
     DELETE FROM messages_fts WHERE rowid = old.pk;
 END;
+CREATE TABLE IF NOT EXISTS outbox (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    send_at INTEGER NOT NULL,
+    scheduled INTEGER NOT NULL,
+    state TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    draft TEXT NOT NULL,
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS outbox_by_user ON outbox (user_id, state, send_at);
+CREATE TABLE IF NOT EXISTS outbox_files (
+    outbox_id TEXT NOT NULL REFERENCES outbox(id) ON DELETE CASCADE,
+    upload_id TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    data BLOB NOT NULL,
+    PRIMARY KEY (outbox_id, upload_id)
+);
 "#;
 
 const MESSAGE_COLUMNS: &str = "uid, date, from_addr, to_addrs, cc_addrs, subject, snippet, message_id, \
@@ -1357,6 +1389,238 @@ impl Store {
         let rows = stmt.query_map(params![self.user, query, limit.clamp(1, 500)], summary_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
+
+    pub fn queue_outgoing(&self, o: &Outgoing, files: &HashMap<String, StagedFile>) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO outbox (id, user_id, account_id, send_at, scheduled, state, draft)
+             VALUES (?2, ?1, ?3, ?4, ?5, 'queued', ?6)",
+            params![
+                self.user,
+                o.id,
+                o.draft.account_id,
+                o.send_at,
+                o.scheduled,
+                serde_json::to_string(&o.draft)?
+            ],
+        )?;
+        for (id, f) in files {
+            tx.execute(
+                "INSERT INTO outbox_files (outbox_id, upload_id, filename, mime_type, data)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![o.id, id, f.filename, f.mime_type, f.data],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Every message in the outbox, the next to go first.
+    pub fn outbox(&self) -> Result<Vec<Outgoing>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {OUTBOX_COLUMNS} FROM outbox WHERE user_id = ?1 ORDER BY send_at, id"
+        ))?;
+        let rows = stmt
+            .query_map([self.user], outbox_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(|(o, _)| {
+                let mut o = o?;
+                o.files = outbox_files(&conn, &o, false)?.0;
+                Ok(o)
+            })
+            .collect()
+    }
+
+    /// When the next queued message is due.
+    pub fn next_due(&self) -> Result<Option<i64>> {
+        Ok(self.conn().query_row(
+            "SELECT MIN(send_at) FROM outbox WHERE user_id = ?1 AND state = 'queued'",
+            [self.user],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Marks the messages due by `now` as being sent and returns them.
+    pub fn claim_due(&self, now: i64) -> Result<Vec<Queued>> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let rows = {
+            let mut stmt = tx.prepare(&format!(
+                "UPDATE outbox SET state = 'sending'
+                 WHERE user_id = ?1 AND state = 'queued' AND send_at <= ?2
+                 RETURNING {OUTBOX_COLUMNS}"
+            ))?;
+            stmt.query_map(params![self.user, now], outbox_row)?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let mut due = Vec::with_capacity(rows.len());
+        for (o, attempts) in rows {
+            let mut outgoing = o?;
+            let (meta, files) = outbox_files(&tx, &outgoing, true)?;
+            outgoing.files = meta;
+            due.push(Queued {
+                outgoing,
+                files,
+                attempts,
+            });
+        }
+        tx.commit()?;
+        due.sort_by_key(|q| q.outgoing.send_at);
+        Ok(due)
+    }
+
+    /// Removes a message that waits (queued or failed) and returns it with its files.
+    pub fn take_outgoing(&self, id: &str) -> Result<Queued> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let row: Option<(String, (Result<Outgoing>, u32))> = tx
+            .query_row(
+                &format!(
+                    "SELECT state, {OUTBOX_COLUMNS} FROM outbox WHERE user_id = ?1 AND id = ?2"
+                ),
+                params![self.user, id],
+                |r| Ok((r.get(0)?, outbox_row_at(r, 1)?)),
+            )
+            .optional()?;
+        let Some((state, (o, attempts))) = row else {
+            return Err(err(
+                ErrorCode::NotFound,
+                "this message is no longer waiting: it was sent or cancelled",
+            ));
+        };
+        if state == "sending" {
+            return Err(err(
+                ErrorCode::InvalidInput,
+                "this message is being sent right now",
+            ));
+        }
+        let mut outgoing = o?;
+        let (meta, files) = outbox_files(&tx, &outgoing, true)?;
+        outgoing.files = meta;
+        tx.execute(
+            "DELETE FROM outbox WHERE user_id = ?1 AND id = ?2",
+            params![self.user, id],
+        )?;
+        tx.commit()?;
+        Ok(Queued {
+            outgoing,
+            files,
+            attempts,
+        })
+    }
+
+    pub fn outgoing_sent(&self, id: &str) -> Result<()> {
+        self.conn().execute(
+            "DELETE FROM outbox WHERE user_id = ?1 AND id = ?2",
+            params![self.user, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn outgoing_failed(&self, id: &str, error: &Error) -> Result<()> {
+        self.conn().execute(
+            "UPDATE outbox SET state = 'failed', error = ?3 WHERE user_id = ?1 AND id = ?2",
+            params![self.user, id, serde_json::to_string(error)?],
+        )?;
+        Ok(())
+    }
+
+    /// Queues a message again after a failure that may pass (the network), at `at`.
+    pub fn outgoing_retry(&self, id: &str, at: i64, error: &Error) -> Result<()> {
+        self.conn().execute(
+            "UPDATE outbox SET state = 'queued', send_at = ?3, attempts = attempts + 1, error = ?4
+             WHERE user_id = ?1 AND id = ?2",
+            params![self.user, id, at, serde_json::to_string(error)?],
+        )?;
+        Ok(())
+    }
+
+    /// Messages left `sending` by a process that stopped: they may or may not have gone, so
+    /// they wait for the user rather than go twice.
+    pub fn outgoing_interrupted(&self, error: &Error) -> Result<Vec<Outgoing>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&format!(
+            "UPDATE outbox SET state = 'failed', error = ?2
+             WHERE user_id = ?1 AND state = 'sending' RETURNING {OUTBOX_COLUMNS}"
+        ))?;
+        let rows = stmt
+            .query_map(
+                params![self.user, serde_json::to_string(error)?],
+                outbox_row,
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter().map(|(o, _)| o).collect()
+    }
+}
+
+fn outbox_row(r: &Row) -> rusqlite::Result<(Result<Outgoing>, u32)> {
+    outbox_row_at(r, 0)
+}
+
+/// An outbox row's columns ([`OUTBOX_COLUMNS`]) from column `at`; its `files` are left empty.
+fn outbox_row_at(r: &Row, at: usize) -> rusqlite::Result<(Result<Outgoing>, u32)> {
+    let (id, send_at, scheduled): (String, i64, bool) =
+        (r.get(at)?, r.get(at + 1)?, r.get(at + 2)?);
+    let draft: String = r.get(at + 3)?;
+    let error: Option<String> = r.get(at + 4)?;
+    let outgoing = serde_json::from_str::<Draft>(&draft)
+        .map_err(Error::from)
+        .map(|draft| Outgoing {
+            id,
+            draft,
+            send_at,
+            scheduled,
+            files: Vec::new(),
+            error: error.and_then(|e| serde_json::from_str(&e).ok()),
+        });
+    Ok((outgoing, r.get(at + 5)?))
+}
+
+/// A message's files in the order its draft names them, with their bytes when `data`.
+fn outbox_files(
+    conn: &Connection,
+    o: &Outgoing,
+    data: bool,
+) -> Result<(Vec<Upload>, HashMap<String, StagedFile>)> {
+    let mut stmt = conn.prepare(if data {
+        "SELECT upload_id, filename, mime_type, length(data), data FROM outbox_files WHERE outbox_id = ?1"
+    } else {
+        "SELECT upload_id, filename, mime_type, length(data), NULL FROM outbox_files WHERE outbox_id = ?1"
+    })?;
+    let mut found: HashMap<String, (Upload, Option<Vec<u8>>)> = stmt
+        .query_map([&o.id], |r| {
+            let id: String = r.get(0)?;
+            let upload = Upload {
+                id: id.clone(),
+                filename: r.get(1)?,
+                mime_type: r.get(2)?,
+                size: r.get::<_, i64>(3)? as u64,
+            };
+            Ok((id, (upload, r.get(4)?)))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut meta = Vec::new();
+    let mut files = HashMap::new();
+    for a in &o.draft.attachments {
+        let DraftAttachment::Upload { id } = a else {
+            continue;
+        };
+        if let Some((upload, bytes)) = found.remove(id) {
+            if let Some(data) = bytes {
+                let file = StagedFile {
+                    filename: upload.filename.clone(),
+                    mime_type: upload.mime_type.clone(),
+                    data,
+                };
+                files.insert(id.clone(), file);
+            }
+            meta.push(upload);
+        }
+    }
+    Ok((meta, files))
 }
 
 fn not_found(id: &str) -> Error {

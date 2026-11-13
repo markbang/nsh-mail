@@ -231,38 +231,54 @@ export function Choice<T extends string>(props: {
 /**
  * The split button: a leading action and a trailing menu button, 2pt apart,
  * inner corners extra-small that grow to medium when pressed; the menu button
- * goes round while its menu is open.
+ * goes round while its menu is open. `testID` names the leading button,
+ * `menuTestID` the menu's.
  */
 export function SplitButton(props: {
   label: string;
   icon?: IconName;
   variant?: "filled" | "tonal" | "outlined" | "elevated";
   onPress: () => void;
+  /** Work under way: the loading indicator takes the icon's place; neither half takes presses. */
+  loading?: boolean;
   menuLabel: string;
   actions: MenuAction[];
+  /** Where the menu lines up with the menu button. */
+  menuAlign?: "start" | "end";
+  class?: string;
   testID?: string;
+  menuTestID?: string;
 }) {
   const ink = () => inks[props.variant ?? "filled"];
+  const on = () => ink().on;
   return (
-    <View class="flex-row items-center gap-0.5" testID={props.testID}>
+    <View class={`flex-row items-center gap-0.5 ${props.class ?? ""}`}>
       <BaseButton
         onPress={props.onPress}
+        disabled={props.loading}
+        testID={props.testID}
         class={`${base} h-10 gap-2 rounded-s-full rounded-e-extra-small ps-4 pe-3 active:rounded-e-medium hover:rounded-e-medium ${ink().frame}`}
       >
-        <StateLayer on={ink().on} />
-        <If when={props.icon}>{(name) => <Icon name={name()} size="sm" class={`tint-${ink().on}`} />}</If>
-        <Text class={`text-label-large font-medium text-${ink().on}`}>{props.label}</Text>
+        <StateLayer on={on()} />
+        <If when={!props.loading} else={<LoadingIndicator label={props.label} size={20} tone={on()} />}>
+          <If when={props.icon}>{(name) => <Icon name={name()} size="sm" class={`tint-${on()} group-disabled:tint-on-surface/38`} />}</If>
+        </If>
+        <Text class={`text-label-large font-medium text-${on()} group-disabled:text-on-surface/38`}>{props.label}</Text>
       </BaseButton>
       <Menu
         label={props.menuLabel}
         actions={props.actions}
+        align={props.menuAlign}
         trigger={
           <BaseButton
             accessibilityLabel={props.menuLabel}
+            tooltip={tip(props.menuLabel)}
+            disabled={props.loading}
+            testID={props.menuTestID}
             class={`${base} h-10 w-12 rounded-s-extra-small rounded-e-full aria-expanded:rounded-full active:rounded-s-medium hover:rounded-s-medium ${ink().frame}`}
           >
-            <StateLayer on={ink().on} />
-            <Icon name="chevronDown" size="sm" class={`tint-${ink().on} transition-transform duration-350 ease-spatial-fast group-aria-expanded:rotate-180`} />
+            <StateLayer on={on()} />
+            <Icon name="chevronDown" size="sm" class={`tint-${on()} group-disabled:tint-on-surface/38 transition-transform duration-350 ease-spatial-fast group-aria-expanded:rotate-180`} />
           </BaseButton>
         }
       />

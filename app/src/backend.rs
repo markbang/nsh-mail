@@ -50,6 +50,14 @@ pub trait Backend {
     fn move_to(&self, id: String, folder: FolderKind) -> MailFuture<'_, ()>;
     /// Sends a draft; its `upload` attachments are files `stage` kept.
     fn send(&self, draft: Draft) -> MailFuture<'_, ()>;
+    /// Puts a draft in the outbox, to go after `when.delay` seconds (the undo
+    /// window) or at `when.send_at`; its files go with it.
+    fn queue(&self, draft: Draft, when: SendAt) -> MailFuture<'_, Outgoing>;
+    /// The messages waiting to go, or that failed to.
+    fn outbox(&self) -> MailFuture<'_, Vec<Outgoing>>;
+    /// Takes a message out of the outbox before it goes; its files are staged
+    /// again, under the ids its draft names.
+    fn cancel(&self, id: String) -> MailFuture<'_, Outgoing>;
     /// Keeps a file for a draft until it is sent or `unstage`d.
     fn stage(&self, file: File, progress: Progress) -> MailFuture<'_, Upload>;
     fn unstage(&self, id: String) -> MailFuture<'_, ()>;
@@ -76,6 +84,22 @@ pub fn js(e: Error) -> JsError {
     JsError::Error(e.message).with_code(&code)
 }
 
+/// Renames an outgoing message's upload `from` to `to` (`Staged::restore` gave it another id).
+pub fn rename_upload(o: &mut Outgoing, from: &str, to: &str) {
+    for a in &mut o.draft.attachments {
+        if let DraftAttachment::Upload { id } = a
+            && id == from
+        {
+            *id = to.to_owned();
+        }
+    }
+    for f in &mut o.files {
+        if f.id == from {
+            f.id = to.to_owned();
+        }
+    }
+}
+
 /// Files staged in this app (local mode and the demo), by id.
 #[derive(Default)]
 pub struct Staged {
@@ -98,6 +122,18 @@ impl Staged {
         };
         self.files.borrow_mut().insert(id, Rc::new(file));
         upload
+    }
+
+    /// Stages a file again under `id`, or a new id when `id` is taken (it
+    /// was staged in an earlier run). Returns the id it has.
+    pub fn restore(&self, id: String, file: File) -> String {
+        let id = if self.files.borrow().contains_key(&id) {
+            self.add(file).id
+        } else {
+            self.files.borrow_mut().insert(id.clone(), Rc::new(file));
+            id
+        };
+        id
     }
 
     pub fn remove(&self, id: &str) {

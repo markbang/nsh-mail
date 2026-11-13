@@ -1,9 +1,11 @@
 // Drafts being written, one per context: a new message, or a reply, reply-all
 // or forward of one message. A draft outlives its composer (Escape, the
 // backdrop, back) and, kept in the device's Storage, a restart; sending or
-// discarding it ends it. Drafts are not synced to the mail server's Drafts
-// folder. Staged uploads live in memory only, so a restart keeps a forward's
-// attachments but not the files the user added.
+// discarding it ends it; sending with Undo holds it until the Undo has passed.
+// Drafts are not synced to the mail server's Drafts folder. Staged uploads live
+// in memory only, so a restart keeps a forward's attachments but not the files
+// the user added. A message taken out of the outbox to edit ("edit:") is kept
+// in memory only: its composer puts it back in the outbox when it closes.
 import { cleanup, effect, signal, Storage, untracked, type Signal } from "nsh";
 import type { Account, DraftAttachment } from "nsh-mail/native";
 import { createAttachments, type Attachments } from "./lib/attachments";
@@ -46,7 +48,9 @@ const live = new Map<string, Draft>();
 const keys = new WeakMap<Draft, string>();
 const ended = new WeakSet<Draft>();
 
-const keyOf = (init: ComposeInit) => (init.mode === "new" || !init.source ? "new" : `${init.mode}:${init.source.id}`);
+const keyOf = (init: ComposeInit) =>
+  init.mode === "edit" && init.outgoing ? `edit:${init.outgoing.id}` : init.mode === "new" || !init.source ? "new" : `${init.mode}:${init.source.id}`;
+const kept = (key: string) => !key.startsWith("edit:");
 
 /** Reads the kept drafts; called once at start. */
 export async function loadDrafts() {
@@ -87,7 +91,12 @@ function open(init: ComposeInit, accounts: Account[], defaultFrom: string | null
   const start = draftFor(init, accounts.map((a) => a.email));
   const from = start.accountId ?? defaultFrom;
   const s: Saved | undefined = saved[key];
-  const files = s?.files ? createAttachments(s.files.map((f) => ({ ...f, sent: f.size })), true) : createAttachments();
+  const outgoing = init.mode === "edit" ? init.outgoing : undefined;
+  const files = outgoing
+    ? createAttachments(outgoing.files.map((f) => ({ name: f.filename, size: f.size, sent: f.size, ref: { kind: "upload" as const, id: f.id } })))
+    : s?.files
+      ? createAttachments(s.files.map((f) => ({ ...f, sent: f.size })), true)
+      : createAttachments();
   if (!s?.files && init.mode === "forward" && init.source) files.forward(init.source);
   const d: Draft = {
     start,
@@ -119,7 +128,7 @@ export function useDraft(init: ComposeInit, accounts: Account[], defaultFrom: st
   effect(() => {
     const snap = snapshot(d);
     untracked(() => {
-      if (ended.has(d) || (!snap && !(key in saved))) return;
+      if (ended.has(d) || !kept(key) || (!snap && !(key in saved))) return;
       if (snap) {
         saved[key] = snap;
         live.set(key, d);
@@ -143,6 +152,33 @@ export function endDraft(d: Draft, how: "sent" | "discarded") {
   if (live.get(key) === d) live.delete(key);
   delete saved[key];
   saveNow();
+}
+
+/** Sent or discarded. */
+export const isEnded = (d: Draft) => ended.has(d);
+
+/** The draft is in the outbox with an Undo still open: gone from the device, kept here until
+ * `release` (the Undo passed) or `restore` (the Undo was pressed: it is the context's draft again). */
+export function holdDraft(d: Draft) {
+  const key = keys.get(d)!;
+  ended.add(d);
+  if (live.get(key) === d) live.delete(key);
+  delete saved[key];
+  saveNow();
+  return {
+    restore() {
+      ended.delete(d);
+      live.set(key, d);
+      const snap = snapshot(d);
+      if (snap && kept(key)) {
+        saved[key] = snap;
+        saveNow();
+      }
+    },
+    release() {
+      d.files.sent();
+    },
+  };
 }
 
 /** Another session (signed out, a new mode): its drafts are not this one's. */

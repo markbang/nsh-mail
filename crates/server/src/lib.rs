@@ -140,6 +140,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/threads/{id}/move", post(api::move_thread))
         .route("/send", post(api::send))
+        .route("/outbox", get(api::outbox))
+        .route("/outbox/{id}", delete(api::cancel_outgoing))
         .route("/uploads", post(uploads::create))
         .route(
             "/uploads/{id}",

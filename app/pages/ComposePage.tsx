@@ -1,16 +1,22 @@
-// Writing a message: a new one, a reply (quoted) or a forward. What is typed is
-// a draft (../drafts.ts): closing the composer keeps it, Discard asks first.
-import { keymap, Picker, platform, signal, Text, View } from "nsh";
+// Writing a message: a new one, a reply (quoted), a forward, or one taken out of
+// the outbox to edit. What is typed is a draft (../drafts.ts): closing the
+// composer keeps it (an edited outbox message goes back to the outbox), Discard
+// asks first. Send waits out the undo delay with Undo; the split button's menu
+// schedules it (../outbox.ts).
+import { cleanup, keymap, Picker, platform, signal, Text, View } from "nsh";
 import { AlertDialog } from "nsh/base";
 import { t } from "nsh/i18n";
-import { Mail } from "nsh-mail/native";
-import { Button, Dialog, DialogBody, DialogFooter, IconButton, Page, SelectField, TextField, touch, systemHeader } from "../ui";
+import { Mail, type Draft as MailDraft, type Outgoing } from "nsh-mail/native";
+import { Button, Dialog, DialogBody, DialogFooter, IconButton, Menu, Page, SelectField, SplitButton, TextField, touch, systemHeader, type MenuAction } from "../ui";
 import { PageHeader } from "../components/PageHeader";
 import { AttachmentChips } from "../components/Attachments";
 import { onPageDrop, type Incoming } from "../lib/attachments";
-import { NavContext } from "../nav";
-import { endDraft, useDraft } from "../drafts";
-import { isAddress, parseRecipient, splitRecipients, type ComposeInit } from "../lib/format";
+import { ScheduleDialog } from "../components/ScheduleDialog";
+import { NavContext, show } from "../nav";
+import { endDraft, holdDraft, isEnded, useDraft } from "../drafts";
+import { isAddress, parseRecipient, sendDate, splitRecipients, type ComposeInit } from "../lib/format";
+import { wide } from "../layout";
+import { queueDraft, schedulePresets, undoDelay } from "../outbox";
 import { accounts, errorText, mailbox, showToast } from "../store";
 
 export function ComposePage(props: { init: ComposeInit }) {
@@ -22,7 +28,9 @@ export function ComposePage(props: { init: ComposeInit }) {
   const sending = signal(false);
   const error = signal<string | null>(null);
   const confirming = signal(false);
+  const picking = signal(false);
   const dragging = signal(false);
+  const editing = props.init.mode === "edit" ? props.init.outgoing : undefined;
   const attach = (list: Incoming[]) => files.add(list);
   onPageDrop((on) => dragging.set(on), attach);
   const pick = async () => {
@@ -40,11 +48,11 @@ export function ComposePage(props: { init: ComposeInit }) {
   };
   // Only an explicit Discard throws typed text away, and only after asking.
   const askDiscard = async () => {
-    if (!draft.edited()) return nav.close();
+    if (!draft.edited() && !editing) return nav.close();
     if (!systemHeader) return confirming.set(true);
     const { action } = await AlertDialog.show({
-      title: t("compose.discardTitle"),
-      description: t("compose.discardBody"),
+      title: editing ? t("compose.deleteScheduledTitle") : t("compose.discardTitle"),
+      description: editing ? t("compose.deleteScheduledBody") : t("compose.discardBody"),
       actions: [
         { id: "keep", label: t("compose.keepEditing"), role: "cancel" },
         { id: "discard", label: t("compose.discard"), role: "destructive" },
@@ -54,36 +62,59 @@ export function ComposePage(props: { init: ComposeInit }) {
   };
 
   const title = () =>
-    ({ new: t("compose.new"), reply: t("compose.reply"), replyAll: t("compose.reply"), forward: t("compose.forward") })[props.init.mode];
+    ({ new: t("compose.new"), reply: t("compose.reply"), replyAll: t("compose.reply"), forward: t("compose.forward"), edit: t("compose.editTitle") })[props.init.mode];
 
-  const send = async () => {
-    if (sending()) return;
+  const message = (): MailDraft => ({
+    accountId: from() ?? "",
+    to: splitRecipients(to()).map(parseRecipient),
+    cc: splitRecipients(cc()).map(parseRecipient),
+    bcc: splitRecipients(bcc()).map(parseRecipient),
+    subject: subject(),
+    text: body(),
+    inReplyTo: start.inReplyTo,
+    references: start.references,
+    attachments: files.draft(),
+  });
+  /** The message to send, or null with the reason shown. */
+  const ready = (): MailDraft | null => {
     const recipients = [...splitRecipients(to()), ...splitRecipients(cc()), ...splitRecipients(bcc())];
     const bad = recipients.find((r) => !isAddress(r));
-    const account = from();
-    if (!account) return error.set(t("compose.noAccount"));
-    if (!splitRecipients(to()).length) return error.set(t("compose.needRecipient"));
-    if (bad) return error.set(t("compose.badAddress", { address: bad }));
+    if (!from()) return error.set(t("compose.noAccount")), null;
+    if (!splitRecipients(to()).length) return error.set(t("compose.needRecipient")), null;
+    if (bad) return error.set(t("compose.badAddress", { address: bad })), null;
     error.set(null);
-    if (files.pending()) return files.setError(t("compose.stillUploading"));
-    if (files.items().some((a) => a.failed)) return files.setError(t("compose.removeFailed"));
-    if (files.overLimit()) return files.setError(files.limitText());
+    if (files.pending()) return files.setError(t("compose.stillUploading")), null;
+    if (files.items().some((a) => a.failed)) return files.setError(t("compose.removeFailed")), null;
+    if (files.overLimit()) return files.setError(files.limitText()), null;
     files.setError(null);
+    return message();
+  };
+
+  // Undo brings this draft back as it was, in a composer of its own context.
+  const reopen = (hold: ReturnType<typeof holdDraft>, back: Outgoing) => {
+    hold.restore();
+    // A forward's files came back as uploads; the draft still names the originals.
+    const mine = new Set(files.draft().flatMap((a) => (a.kind === "upload" ? [a.id] : [])));
+    for (const f of back.files) if (!mine.has(f.id)) void Mail.unstage(f.id).catch(() => {});
+    show({ name: "compose", init: props.init }, wide());
+  };
+
+  /** Sends now (no undo delay), after the undo delay (`at` null), or at `at`. */
+  const go = async (at: number | null) => {
+    if (sending()) return;
+    const d = ready();
+    if (!d) return;
     sending.set(true);
     try {
-      await Mail.send({
-        accountId: account,
-        to: splitRecipients(to()).map(parseRecipient),
-        cc: splitRecipients(cc()).map(parseRecipient),
-        bcc: splitRecipients(bcc()).map(parseRecipient),
-        subject: subject(),
-        text: body(),
-        inReplyTo: start.inReplyTo,
-        references: start.references,
-        attachments: files.draft(),
-      });
-      endDraft(draft, "sent");
-      showToast(t("compose.sent"));
+      if (at === null && undoDelay() === 0) {
+        await Mail.send(d);
+        endDraft(draft, "sent");
+        showToast(t("compose.sent"));
+      } else {
+        let hold: ReturnType<typeof holdDraft> | undefined;
+        await queueDraft(d, at, { onUndo: (back) => hold && reopen(hold, back), onKept: () => hold?.release() });
+        hold = holdDraft(draft);
+      }
       nav.done();
     } catch (e) {
       error.set(errorText(e));
@@ -91,18 +122,46 @@ export function ComposePage(props: { init: ComposeInit }) {
       sending.set(false);
     }
   };
+  const send = () => go(null);
   keymap.bind("mod+enter", () => void send(), { when: "always" });
 
+  // An outbox message being edited goes back when the composer closes without Send or Discard.
+  if (editing) {
+    cleanup(() => {
+      if (isEnded(draft)) return;
+      endDraft(draft, "sent");
+      Mail.queue(message(), { sendAt: Math.max(editing.sendAt, Date.now()) }).catch((e) => showToast(t("compose.notKept", { detail: errorText(e) }), "error"));
+    });
+  }
+
+  const scheduleActions = (): MenuAction[] => [
+    ...schedulePresets().map((p) => ({ id: p.id, label: t(`schedule.${p.id}`), description: sendDate(p.at), icon: "clock" as const, onSelect: () => void go(p.at) })),
+    { id: "pick", label: t("schedule.pick"), icon: "calendar", separatorBefore: true, onSelect: () => picking.set(true) },
+  ];
+
+  // Pointer devices send from the composer's foot, as mail apps do there; touch screens from its top bar.
+  const sendButton = (align: "start" | "end", cls?: string) => (
+    <SplitButton
+      icon="send"
+      label={sending() ? t("compose.sending") : t("compose.send")}
+      loading={sending()}
+      onPress={() => void send()}
+      menuLabel={t("compose.schedule")}
+      actions={scheduleActions()}
+      menuAlign={align}
+      class={cls}
+      testID="send"
+      menuTestID="send-later"
+    />
+  );
   const actions = () => (
     <>
       <If when={touch}>
         <IconButton icon="trash" label={t("compose.discard")} onPress={() => void askDiscard()} testID="compose-discard" />
       </If>
       <IconButton icon="paperclip" label={t("compose.attach")} onPress={() => void pick()} testID="compose-attach" />
-      <If
-        when={systemHeader}
-        else={<Button icon="send" label={sending() ? t("compose.sending") : t("compose.send")} loading={sending()} onPress={() => void send()} class="me-2" testID="send" />}
-      >
+      <If when={systemHeader} else={<If when={touch}>{sendButton("end", "me-2")}</If>}>
+        <Menu label={t("compose.schedule")} actions={scheduleActions()} trigger={<IconButton icon="clock" label={t("compose.schedule")} disabled={sending()} testID="send-later" />} />
         <IconButton icon="send" variant="filled" label={sending() ? t("compose.sending") : t("compose.send")} disabled={sending()} onPress={() => void send()} testID="send" />
       </If>
     </>
@@ -167,6 +226,13 @@ export function ComposePage(props: { init: ComposeInit }) {
             <Text class={label}>{t("compose.subject")}</Text>
             <TextField variant="plain" value={subject()} onChange={(v) => subject.set(v)} label={t("compose.subject")} class="flex-1" testID="compose-subject" />
           </View>
+          <If when={editing}>
+            {(o) => (
+              <Text class={`px-4 pt-2 text-body-medium tracking-body-medium ${o().error ? "text-error" : "text-on-surface-variant"}`} testID="compose-scheduled">
+                {o().error ? t("compose.editFailed", { detail: o().error!.message }) : t("compose.editScheduled", { when: sendDate(o().sendAt) })}
+              </Text>
+            )}
+          </If>
           <If when={error()}>
             <Text class="px-4 pt-2 text-body-medium tracking-body-medium text-error" testID="compose-error">
               {error()}
@@ -195,7 +261,8 @@ export function ComposePage(props: { init: ComposeInit }) {
           <View class="pb-[env(safe-area-inset-bottom)]" />
         </If>
         <If when={!touch}>
-          <View class="flex-row items-center justify-end gap-2 px-4 py-3">
+          <View class="flex-row items-center gap-3 px-4 py-3">
+            {sendButton("start")}
             <Text class="flex-1 text-body-small tracking-body-small text-on-surface-variant">{t("compose.sendHint", { keys: keymap.label("mod+enter") })}</Text>
             <Button variant="text" label={t("compose.discard")} onPress={() => void askDiscard()} testID="compose-discard" />
           </View>
@@ -206,9 +273,17 @@ export function ComposePage(props: { init: ComposeInit }) {
           </View>
         </If>
       </View>
-      <Dialog open={confirming()} onClose={() => confirming.set(false)} label={t("compose.discardTitle")} title={t("compose.discardTitle")} size="sm" testID="discard-confirm">
+      <ScheduleDialog open={picking()} onClose={() => picking.set(false)} onPick={(at) => (picking.set(false), void go(at))} />
+      <Dialog
+        open={confirming()}
+        onClose={() => confirming.set(false)}
+        label={editing ? t("compose.deleteScheduledTitle") : t("compose.discardTitle")}
+        title={editing ? t("compose.deleteScheduledTitle") : t("compose.discardTitle")}
+        size="sm"
+        testID="discard-confirm"
+      >
         <DialogBody>
-          <Text class="text-body-medium tracking-body-medium text-on-surface-variant">{t("compose.discardBody")}</Text>
+          <Text class="text-body-medium tracking-body-medium text-on-surface-variant">{editing ? t("compose.deleteScheduledBody") : t("compose.discardBody")}</Text>
         </DialogBody>
         <DialogFooter>
           <Button variant="text" label={t("compose.keepEditing")} onPress={() => confirming.set(false)} testID="keep-editing" />

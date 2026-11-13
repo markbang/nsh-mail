@@ -232,6 +232,28 @@ pub async fn remove(s: &AppState, u: &AuthUser, ids: impl Iterator<Item = &str>)
     }
 }
 
+/// Stages a cancelled message's files again under their ids; a day to send them from now.
+pub async fn restore(
+    s: &AppState,
+    u: &AuthUser,
+    files: HashMap<String, StagedFile>,
+) -> ApiResult<()> {
+    tokio::fs::create_dir_all(dir(s, u)).await.map_err(io)?;
+    for (id, file) in files {
+        let (data, json) = paths(s, u, &id)?;
+        let upload = Upload {
+            id,
+            filename: file.filename,
+            mime_type: file.mime_type,
+            size: file.data.len() as u64,
+        };
+        tokio::fs::write(&data, file.data).await.map_err(io)?;
+        let text = serde_json::to_vec(&upload).map_err(|e| anyhow::anyhow!(e))?;
+        tokio::fs::write(&json, text).await.map_err(io)?;
+    }
+    Ok(())
+}
+
 /// Removes uploads older than [`EXPIRES`], now and every hour.
 pub fn sweep(root: PathBuf) {
     tokio::spawn(async move {

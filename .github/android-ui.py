@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drives nsh-mail on a running emulator with adb and screenshots each screen,
 in light and dark mode: inbox, swipe to archive and Undo, selection, pull to
-refresh, reader, a conversation, compose, search, mailboxes, settings, a tab switch that must
+refresh, reader, a conversation, compose, Schedule send, search, mailboxes, Scheduled, settings, a tab switch that must
 keep the inbox's scroll position; then larger text and a tablet-sized screen.
 
 Usage: android-ui.py <dir with the APK> <screenshot dir>
@@ -197,8 +197,19 @@ for mode in ("light", "dark"):
     if tap("id:compose"):
         wait("id:compose-to")
         shot(f"{mode}-compose")
-        back()
-        back()
+        # Schedule send from the top bar's clock: the presets' sheet, then the snackbar with Undo.
+        scheduled = False
+        if tap("id:compose-to"):
+            adb("shell", "input", "text", "mei@lumen.dev")
+            if tap("id:send-later") and find("Tomorrow morning", 5):
+                shot(f"{mode}-schedule-menu")
+                scheduled = tap("Tomorrow morning")
+                if scheduled:
+                    wait("id:toast-action", 5)
+                    shot(f"{mode}-scheduled-snackbar")
+        if not scheduled:
+            back()
+            back()
     wait("id:messages")
 
     # Scroll the inbox, switch tabs and back: the inbox keeps its place.
@@ -230,6 +241,11 @@ for mode in ("light", "dark"):
     if tap("Mailboxes"):
         wait("id:mailbox-all")
         shot(f"{mode}-mailboxes")
+        if tap("id:mailbox-scheduled"):
+            wait("id:scheduled")
+            shot(f"{mode}-scheduled")
+            if tap("Mailboxes"):
+                tap("id:mailbox-all")
 
     if tap("Settings"):
         wait("id:settings")

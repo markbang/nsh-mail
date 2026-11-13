@@ -1,12 +1,13 @@
-// Settings: the accounts, where mail comes from, reading, notifications, signing out.
+// Settings: the accounts, where mail comes from, reading, sending, notifications, signing out.
 import { Notifications, platform, Text, View } from "nsh";
 import { AlertDialog } from "nsh/base";
 import { t } from "nsh/i18n";
 import { Mail, type Account } from "nsh-mail/native";
-import { AccountMark, AppBar, Button, Card, Divider, Icon, IconButton, Menu, Page, SectionLabel, Switch, systemHeader, touch } from "../ui";
+import { AccountMark, AppBar, Button, Card, Choice, Divider, Icon, IconButton, Menu, Page, SectionLabel, Switch, systemHeader, touch } from "../ui";
 import { PageHeader, PageScroll } from "../components/PageHeader";
 import { NavContext } from "../nav";
 import { providerName as named } from "../lib/format";
+import { setUndoDelay, UNDO_DELAYS, undoDelay } from "../outbox";
 import {
   accounts,
   conversationsEnabled,
@@ -143,6 +144,23 @@ export function SettingsPage() {
               label={t("settings.conversations")}
               description={t("settings.conversationsDetail")}
               testID="conversations"
+            />
+          </Card>
+        </View>
+
+        <View class="gap-1">
+          <SectionLabel label={t("settings.sending")} class="px-1" />
+          <Card class="gap-3 p-4">
+            <View class="gap-0.5">
+              <Text class="text-body-large tracking-body-large text-on-surface">{t("settings.undoSend")}</Text>
+              <Text class="text-body-medium tracking-body-medium text-on-surface-variant">{t("settings.undoSendDetail")}</Text>
+            </View>
+            <Choice
+              label={t("settings.undoSend")}
+              value={String(undoDelay())}
+              options={UNDO_DELAYS.map((s) => ({ value: String(s), label: s ? t("settings.seconds", { n: s }) : t("settings.undoOff"), testID: `undo-${s}` }))}
+              onChange={(v) => void setUndoDelay(Number(v))}
+              fullWidth={touch}
             />
           </Card>
         </View>

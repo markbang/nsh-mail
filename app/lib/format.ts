@@ -1,7 +1,7 @@
 // Formatting for people: dates, names and addresses, reply quoting.
 import { locale } from "nsh";
 import { t } from "nsh/i18n";
-import type { Address, Message } from "nsh-mail/native";
+import type { Address, Message, Outgoing } from "nsh-mail/native";
 
 const DAY = 86_400_000;
 
@@ -15,6 +15,11 @@ export function listDate(ms: number, now = Date.now()): string {
   if (ms >= today.getTime() - 6 * DAY) return new Intl.DateTimeFormat(locale(), { weekday: "short" }).format(d);
   const sameYear = d.getFullYear() === today.getFullYear();
   return new Intl.DateTimeFormat(locale(), sameYear ? { month: "short", day: "numeric" } : { year: "numeric", month: "short", day: "numeric" }).format(d);
+}
+
+/** When a message will go: the weekday, date and time ("Mon, Nov 16, 8:00 AM"). */
+export function sendDate(ms: number): string {
+  return new Intl.DateTimeFormat(locale(), { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(ms));
 }
 
 /** A reader's date: day and time in full. */
@@ -77,12 +82,14 @@ export function isAddress(raw: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((m ? m[1] : raw).trim());
 }
 
-export type ComposeMode = "new" | "reply" | "replyAll" | "forward";
+export type ComposeMode = "new" | "reply" | "replyAll" | "forward" | "edit";
 
 export interface ComposeInit {
   mode: ComposeMode;
   /** The message replied to or forwarded. */
   source?: Message;
+  /** "edit": a message taken out of the outbox to change it. */
+  outgoing?: Outgoing;
 }
 
 export interface DraftFields {
@@ -100,6 +107,18 @@ const prefixed = (prefix: string, subject: string) =>
 
 /** The composer's fields for a new message, a reply or a forward. */
 export function draftFor(init: ComposeInit, ownEmails: string[]): DraftFields {
+  const o = init.outgoing?.draft;
+  if (init.mode === "edit" && o) {
+    return {
+      accountId: o.accountId,
+      to: o.to.map(recipient).join(", "),
+      cc: (o.cc ?? []).map(recipient).join(", "),
+      subject: o.subject,
+      text: o.text,
+      inReplyTo: o.inReplyTo ?? null,
+      references: o.references ?? [],
+    };
+  }
   const m = init.source;
   if (!m || init.mode === "new") {
     return { accountId: null, to: "", cc: "", subject: "", text: "", inReplyTo: null, references: [] };

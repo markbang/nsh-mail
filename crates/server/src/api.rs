@@ -12,7 +12,9 @@ use serde_json::{Value, json};
 
 use mail_core::{
     Engine,
-    types::{Draft, DraftAttachment, Error, ErrorCode, Flags, FolderKind, ImapInput, ListQuery},
+    types::{
+        Draft, DraftAttachment, Error, ErrorCode, Flags, FolderKind, ImapInput, ListQuery, SendAt,
+    },
 };
 
 use crate::{AppState, crypto, push::parse_subscription_keys};
@@ -463,23 +465,60 @@ pub async fn move_message(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// A draft, sent now; with `delay` (seconds, the undo window) or `sendAt` (Unix ms) it goes to
+/// the outbox instead and the answer is its `Outgoing`.
+#[derive(Deserialize)]
+pub struct SendBody {
+    #[serde(flatten)]
+    draft: Draft,
+    #[serde(flatten)]
+    when: SendAt,
+}
+
 pub async fn send(
     State(s): State<Arc<AppState>>,
     u: AuthUser,
-    Json(d): Json<Draft>,
-) -> ApiResult<StatusCode> {
+    Json(SendBody { draft: d, when }): Json<SendBody>,
+) -> ApiResult<Response> {
     if d.to.is_empty() && d.cc.is_empty() && d.bcc.is_empty() {
         return Err(ApiError::bad_request("add at least one recipient"));
     }
     let staged = crate::uploads::staged(&s, &u, &d.attachments).await?;
-    let attachments = d.attachments.clone();
-    mail(&s, &u).await?.send_with(d, staged).await?;
-    let sent = attachments.iter().filter_map(|a| match a {
-        DraftAttachment::Upload { id } => Some(id.as_str()),
-        DraftAttachment::Forward { .. } => None,
-    });
-    crate::uploads::remove(&s, &u, sent).await;
-    Ok(StatusCode::NO_CONTENT)
+    let uploads: Vec<String> = d
+        .attachments
+        .iter()
+        .filter_map(|a| match a {
+            DraftAttachment::Upload { id } => Some(id.clone()),
+            DraftAttachment::Forward { .. } => None,
+        })
+        .collect();
+    let mail = mail(&s, &u).await?;
+    let response = if when == SendAt::default() {
+        mail.send_with(d, staged).await?;
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        let queued = mail.queue(d, staged, when).await?;
+        (StatusCode::ACCEPTED, Json(queued)).into_response()
+    };
+    crate::uploads::remove(&s, &u, uploads.iter().map(String::as_str)).await;
+    Ok(response)
+}
+
+/// The messages waiting to be sent: in their undo window, scheduled, or failed.
+pub async fn outbox(State(s): State<Arc<AppState>>, u: AuthUser) -> ApiResult<impl IntoResponse> {
+    Ok(Json(mail(&s, &u).await?.outbox().await?))
+}
+
+/// Takes a message out of the outbox before it goes. Its files become uploads again, under the
+/// ids its draft names, so the client can send it again as it is.
+pub async fn cancel_outgoing(
+    State(s): State<Arc<AppState>>,
+    u: AuthUser,
+    Path(id): Path<String>,
+) -> ApiResult<impl IntoResponse> {
+    let (outgoing, files) = mail(&s, &u).await?.cancel(&id).await?;
+    crate::uploads::restore(&s, &u, files).await?;
+    Ok(Json(outgoing))
 }
 
 #[derive(Deserialize)]

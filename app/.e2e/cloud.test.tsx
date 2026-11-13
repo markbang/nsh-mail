@@ -102,6 +102,12 @@ test("cloud mode: sign up, add a mailbox, read, get new mail live, reply, sign o
   await alices.press("id:messages >> text:Lunch at noon?");
   await alices.press("id:reply");
   await alices.type("id:compose-body", "Sounds good.");
+  // The server holds it for the undo delay: Undo takes it back from there.
+  await alices.press("id:send");
+  await alices.waitFor("text:Sending…", slow);
+  await alices.press("id:toast-action");
+  await alices.waitFor("id:compose-body", slow);
+  expect(alices.value("id:compose-body")).toMatch(/Sounds good\./);
   await alices.press("id:send");
   await alices.waitFor("text:Message sent", slow);
   // Bob's inbox lists the reply in the conversation his question started.

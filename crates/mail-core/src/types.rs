@@ -348,6 +348,43 @@ pub struct Upload {
     pub size: u64,
 }
 
+/// When a queued message goes: after `delay` seconds (the undo window) or at `send_at` (Unix
+/// ms, a scheduled send). Exactly one is set.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SendAt {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delay: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_at: Option<i64>,
+}
+
+/// A message in the outbox: waiting out the undo window, scheduled, or failed.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Outgoing {
+    pub id: String,
+    /// Its attachments are all `upload`s, kept with it: `files` describes them.
+    pub draft: Draft,
+    /// Unix time in milliseconds.
+    pub send_at: i64,
+    /// The user picked the time; otherwise it waits out the undo delay.
+    pub scheduled: bool,
+    pub files: Vec<Upload>,
+    /// Why it was not sent; it then waits for the user.
+    #[serde(default)]
+    pub error: Option<Error>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OutboxState {
+    Queued,
+    Cancelled,
+    Sent,
+    Failed,
+}
+
 /// The default cap on a message's attachments, in bytes before encoding: what Gmail and Outlook accept.
 pub const MAX_ATTACHMENTS: u64 = 25 * 1024 * 1024;
 
@@ -396,6 +433,18 @@ pub enum MailEvent {
     Error {
         account_id: Option<AccountId>,
         error: Error,
+    },
+    /// A message entered or left the outbox.
+    Outbox {
+        account_id: AccountId,
+        id: String,
+        subject: String,
+        state: OutboxState,
+        /// Sent well after its time, which passed while nothing ran to send it.
+        #[serde(default)]
+        late: bool,
+        #[serde(default)]
+        error: Option<Error>,
     },
 }
 

@@ -140,6 +140,42 @@ for (const theme of ["light", "dark"]) {
   await id("add-imap").waitFor();
   await shot("add-account", theme);
 }
+// Undo send and Schedule send, on the wall clock (the server refuses times past): the composer's
+// Send menu, Sending… with Undo, the Scheduled list. Nothing goes: both are taken back.
+await page.clock.setFixedTime(new Date());
+for (const theme of ["light", "dark"]) {
+  await page.emulateMedia({ colorScheme: theme });
+  await home();
+  await press("compose");
+  await fill("compose-to", "sarah@lumenlabs.dev");
+  await fill("compose-subject", "Kickoff notes");
+  await fill("compose-body", "Hi Sarah,\n\nNotes from today's kickoff are below.\n\nMark");
+  await press("send-later");
+  await page.getByText("Tomorrow morning").waitFor();
+  await shot("send-menu", theme);
+  await page.getByText("Tomorrow morning").click();
+  await page.getByText(/^Scheduled for /).waitFor();
+
+  await press("compose");
+  await fill("compose-to", "sarah@lumenlabs.dev");
+  await fill("compose-subject", "Slides for Thursday");
+  await press("send");
+  await page.getByText("Sending…").waitFor();
+  await shot("sending", theme);
+  await press("toast-action");
+  await field("compose-subject").waitFor();
+  await press("compose-discard");
+  await press("confirm-discard");
+
+  await press("mailbox-scheduled");
+  await id("scheduled").waitFor({ timeout: 30_000 });
+  await shot("scheduled", theme);
+  await press("scheduled-cancel");
+  await page.getByText("Scheduled send cancelled").waitFor();
+  await press("mailbox-all");
+}
+await page.clock.setFixedTime(NOW);
+
 // The narrow web layout (navigation bar, one stack) at a phone's 412×915.
 await page.setViewportSize({ width: 412, height: 915 });
 for (const theme of ["light", "dark"]) {

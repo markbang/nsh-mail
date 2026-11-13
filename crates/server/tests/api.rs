@@ -971,3 +971,128 @@ async fn attachments_upload_send_forward_and_limit() {
     assert_eq!(left.len(), 2, "only d stays staged: {left:?}");
     assert!(left.iter().all(|f| f.starts_with(&d)));
 }
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
+}
+
+impl Server {
+    async fn outbox(&self, user: &User) -> Vec<Value> {
+        self.get(&user.token, "/outbox").await.json().await.unwrap()
+    }
+
+    async fn cancel(&self, user: &User, id: &str) -> reqwest::Response {
+        self.http
+            .delete(format!("{}/outbox/{id}", self.base))
+            .bearer_auth(&user.token)
+            .send()
+            .await
+            .unwrap()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn outbox_undo_cancel_and_isolation() {
+    let s = start(config(temp_dir())).await;
+    let (alice, bob) = (s.user("alice").await, s.user("bob").await);
+    let mut ws = events(&s, &alice.token, None).await;
+    let file = s
+        .upload(&alice, "plan.txt", "text/plain", b"the plan")
+        .await;
+    let draft = |subject: &str, when: Value| {
+        let mut d = json!({ "to": [{ "email": bob.email }], "subject": subject, "text": "",
+                            "attachments": [{ "kind": "upload", "id": file }] });
+        d.as_object_mut()
+            .unwrap()
+            .extend(when.as_object().unwrap().clone());
+        d
+    };
+
+    // Undo: queued with the undo delay, then taken back before it goes.
+    let res = s
+        .send_draft(&alice, draft("undone", json!({ "delay": 2 })))
+        .await;
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    let queued: Value = res.json().await.unwrap();
+    let id = queued["id"].as_str().unwrap();
+    assert_eq!(queued["files"][0]["filename"], "plan.txt");
+    assert_eq!(s.outbox(&alice).await.len(), 1);
+    assert!(s.outbox(&bob).await.is_empty(), "another user's outbox");
+    assert_eq!(s.cancel(&bob, id).await.status(), StatusCode::NOT_FOUND);
+    let res = s.cancel(&alice, id).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let back: Value = res.json().await.unwrap();
+    assert_eq!(back["draft"]["subject"], "undone");
+    assert_eq!(s.cancel(&alice, id).await.status(), StatusCode::NOT_FOUND);
+
+    // Its file is staged again under the same id: send it after the window.
+    let res = s
+        .send_draft(&alice, draft("kept", json!({ "delay": 1 })))
+        .await;
+    assert_eq!(res.status(), StatusCode::ACCEPTED, "{:?}", res.text().await);
+    let kept: Value = res.json().await.unwrap();
+    let sent = next_event(&mut ws, |e| {
+        e["type"] == "outbox" && e["id"] == kept["id"] && e["state"] != "queued"
+    })
+    .await;
+    assert_eq!(sent["state"], "sent", "{sent}");
+    let inbox = s.inbox(&bob, 1).await;
+    let subjects: Vec<_> = inbox
+        .iter()
+        .map(|m| m["subject"].as_str().unwrap())
+        .collect();
+    assert_eq!(subjects, ["kept"]);
+    assert_eq!(
+        s.attachments(&bob, inbox[0]["id"].as_str().unwrap()).await,
+        [("plan.txt".to_string(), "text/plain".to_string(), 8)]
+    );
+    assert!(s.outbox(&alice).await.is_empty());
+
+    let res = s
+        .send_draft(
+            &alice,
+            json!({ "to": [{ "email": bob.email }], "subject": "past", "text": "",
+                                    "sendAt": now_ms() - 3_600_000 }),
+        )
+        .await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+/// Scheduled, then the server stops before its time: the next start sends it.
+#[test]
+fn scheduled_send_survives_restart() {
+    let dir = temp_dir();
+    let runtime = || {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+    };
+    let (alice, bob, at) = runtime().block_on(async {
+        let s = start(config(dir.clone())).await;
+        let (alice, bob) = (s.user("alice").await, s.user("bob").await);
+        let at = now_ms() + 4_000;
+        let res = s
+            .send_draft(
+                &alice,
+                json!({ "to": [{ "email": bob.email }], "subject": "Scheduled",
+                                        "text": "at its time", "sendAt": at }),
+            )
+            .await;
+        assert_eq!(res.status(), StatusCode::ACCEPTED);
+        let listed = s.outbox(&alice).await;
+        assert_eq!(listed[0]["scheduled"], true);
+        assert_eq!(listed[0]["sendAt"], at);
+        (alice, bob, at)
+    });
+    runtime().block_on(async {
+        let s = start(config(dir)).await;
+        let inbox = s.inbox(&bob, 1).await;
+        assert_eq!(inbox[0]["subject"], "Scheduled");
+        assert!(now_ms() >= at);
+        assert!(s.outbox(&alice).await.is_empty());
+    });
+}
