@@ -8,7 +8,8 @@ screen; color is spent on unread, flags, the account a message belongs to, and t
 | Family | Layout | Sizes |
 | --- | --- | --- |
 | Linux, Windows, web (desktop idiom) | Three resizable panes from 840pt wide: mailboxes, list, reader. Compose, settings and adding an account open in a dialog with its own stack | Controls 28–32pt, rows about 76pt, text 12–14pt |
-| Android and iOS phones | The system tab bar (`nsh/mobile` `TabBar`: Mail with the unread count, Search, Mailboxes, Settings), a `NavStack` per tab kept while another shows; the compose FAB over Mail; pushed pages cover the bar | Controls 44pt+ (48dp), body 16pt |
+| Android phones | Material 3 Expressive (below): a `NavStack` per tab (Mail with the unread count, Search, Mailboxes, Settings) over M3E's short navigation bar; tab roots draw their own top app bar (search bar + emphasized headline), pushed pages the system toolbar and cover the bar; the FAB menu (New message, Add account) over Mail; the reader's floating toolbar | Controls 40dp with 48dp targets, body 16sp |
+| iOS phones | The same tabs on the system tab bar (`nsh/mobile` `TabBar`), a reply bar under the message | Controls 44pt+, body 16pt |
 | Web on phones, narrow windows | One `NavStack`: inbox → message → compose; the mailbox list in a left `Sheet` | Controls 44pt+, body 16pt |
 
 ## Tokens
@@ -76,3 +77,35 @@ Reduced motion: transitions off (`motion-reduce:`), motions not started (`reduce
 Checked on still screenshots of the web build (`nsh test --target web`) in light and dark, English and Chinese:
 layout, colors and states at rest. The motions themselves have not been watched frame by frame, and nothing has
 been seen on Android or the Linux and Windows desktops yet (no device or GTK in the sandbox).
+
+## Android: Material 3 Expressive
+
+Sources: m3.material.io ("Start building with M3 Expressive", motion physics "How it works" and "Specs", shape
+"Corner radius scale", type scale tokens, component specs: FAB menu, toolbars, loading indicator, navigation bar) and
+Compose Material3's tokens (`ExpressiveMotionTokens`, `TypeScaleTokens`, `FabMenuBaselineTokens`,
+`FloatingToolbarTokens`, `LoadingIndicatorTokens`, `NavigationBarTokens`, `ButtonSmallTokens`).
+
+- Color: the 2025 color spec's content scheme from seed #0062d6 (material-color-utilities 0.4), `md-*` in
+  theme.json. On Android `ui/material.ts` maps the HeroUI roles the screens name onto them (`material.json`), so every
+  screen takes Material's surfaces, containers and on-colors; components new to Android name `md-*` directly. NSH 0.5
+  gives apps no access to the system's dynamic (wallpaper) palette, so the seed stands in for it.
+  `scripts/contrast.py` checks both themes.
+- Shape: the M3 corner scale as `rounded-shape-xs` … `rounded-shape-2xl`. Buttons and icon buttons are round and
+  square up to `shape-sm` while pressed; the FAB (`shape-lg`) becomes a circle when its menu opens; message rows are
+  `shape-lg` cards, `shape-xl` while swiped; a picked row's avatar morphs from a circle to a `shape-md` square.
+- Type: the M3 scale (`text-headline-m`, `text-title-l`, `text-label-m` …); emphasized styles for the tab roots'
+  headlines (headline medium, 500), the reader's subject (headline small, 500) and unread rows (bold).
+- Motion: Material's springs (`springs` in `ui/material.ts`: stiffness and damping ratio from
+  ExpressiveMotionTokens, as NSH spring coefficients) for gestures and the FAB menu; their published cubic
+  equivalents (`ease-spatial-fast` …, 350/500 ms spatial, 150/200 ms effects) for class transitions.
+
+| Screen | Change | Tool, token |
+| --- | --- | --- |
+| Inbox | Pull to refresh: the contained loading indicator grows and turns with the pull, morphs through the shape library while refreshing | `pullValue` → shader uniform; `nsh.time` |
+| Inbox | FAB menu opens: FAB → circle, items rise one by one | radius + color transition, fast spatial; item springs, fast spatial, 40 ms stagger |
+| Inbox | Row swiped: the row rounds to `shape-xl`, the action's icon grows, snaps back or flies out | fast spatial transition; pan; spatial spring back |
+| Inbox | Row picked: avatar circle → checked square, row fills with the secondary container | fast spatial transition |
+| Nav bar | Tab chosen: the indicator grows from the icon, icon recolors | fast spatial (scale), fast effects (color) |
+| Buttons | Pressed: round → `shape-sm` | fast spatial transition |
+| Snackbar | Undo appears; the FAB rises over it | slide-in; spatial transition |
+
