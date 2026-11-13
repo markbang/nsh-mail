@@ -31,4 +31,6 @@ web-push-native = "0.5"
 # Delivers a message with an attachment to GreenMail (the API sends none).
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls", "ring", "webpki-roots"] }
 mail-core = { path = "../mail-core", features = ["insecure-test-tls"] }
+# mail-core before the shared database: writes the old per-user databases the migration test imports.
+mail-core-v0 = { package = "mail-core", git = "https://github.com/markbang/nsh-mail", rev = "ec172435302f79013110f70235acaaaea5c9a89a", features = ["insecure-test-tls"] }
 tokio-tungstenite = "0.29"

@@ -1,8 +1,9 @@
-//! The facade the app (local mode) and the server use. One `Engine` per mail database; the server
-//! opens one per user. Cheap to clone; all methods are `Send` futures on tokio.
+//! The facade the app (local mode) and the server use. One `Engine` per user of a mail database:
+//! the app's single user, or each user of the server's shared database. Cheap to clone; all
+//! methods are `Send` futures on tokio.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -19,7 +20,7 @@ use crate::oauth::{self, LoopbackAuthorization, OAuthApps, OAuthGrant, OAuthToke
 use crate::provider;
 use crate::secrets::SecretStore;
 use crate::smtp::{self, SmtpAuth};
-use crate::store::{Store, StoredMessage, new_id};
+use crate::store::{LOCAL_USER, MailDb, Store, StoredMessage, new_id};
 use crate::types::*;
 
 const IDLE_RENEW: Duration = Duration::from_secs(29 * 60);
@@ -35,8 +36,9 @@ const MIN_BACKOFF: Duration = Duration::from_secs(5);
 const MAX_BACKOFF: Duration = Duration::from_secs(5 * 60);
 
 pub struct EngineOptions {
-    /// SQLite file, e.g. `data_dir/mail.sqlite` or `data/users/<id>.sqlite`.
-    pub db_path: PathBuf,
+    pub db: MailDb,
+    /// Whose mail in `db` this engine reads and syncs.
+    pub user_id: i64,
     pub secrets: Arc<dyn SecretStore>,
     pub oauth: OAuthApps,
     /// The most a message's attachments may add up to, in bytes ([`MAX_ATTACHMENTS`] by default).
@@ -108,10 +110,11 @@ enum Credential {
 }
 
 impl Engine {
-    /// Opens (or creates) the database at `db_path` with the build's OAuth client ids.
+    /// Opens (or creates) the single-user database at `db_path` with the build's OAuth client ids.
     pub fn open(db_path: impl AsRef<Path>, secrets: Arc<dyn SecretStore>) -> Result<Self> {
         Self::open_with(EngineOptions {
-            db_path: db_path.as_ref().to_path_buf(),
+            db: MailDb::open(db_path.as_ref())?,
+            user_id: LOCAL_USER,
             secrets,
             oauth: OAuthApps::builtin(),
             max_attachments: MAX_ATTACHMENTS,
@@ -121,7 +124,7 @@ impl Engine {
     pub fn open_with(options: EngineOptions) -> Result<Self> {
         Ok(Self {
             inner: Arc::new(Inner {
-                store: Arc::new(Store::open(&options.db_path)?),
+                store: Arc::new(options.db.user(options.user_id)),
                 secrets: options.secrets,
                 oauth: options.oauth,
                 max_attachments: options.max_attachments,

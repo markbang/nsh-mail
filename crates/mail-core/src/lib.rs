@@ -36,5 +36,7 @@ pub use engine::{Engine, EngineOptions, StagedFile};
 pub use oauth::{OAuthApp, OAuthApps, OAuthGrant, OAuthTokens};
 #[cfg(feature = "engine")]
 pub use secrets::SecretStore;
+#[cfg(feature = "engine")]
+pub use store::{ImportCounts, LOCAL_USER, MailDb};
 #[cfg(feature = "insecure-test-tls")]
 pub use tls::accept_invalid_certs_for_tests;

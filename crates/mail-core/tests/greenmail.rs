@@ -678,7 +678,8 @@ async fn attachments_round_trip_forward_and_limit() {
 
     // Over the limit: refused before anything is sent.
     let small = Engine::open_with(EngineOptions {
-        db_path: dir.path().join("small.sqlite"),
+        db: mail_core::MailDb::open(&dir.path().join("small.sqlite")).unwrap(),
+        user_id: mail_core::LOCAL_USER,
         secrets: Arc::new(MemoryStore::new()),
         oauth: Default::default(),
         max_attachments: 50_000,

@@ -115,7 +115,7 @@ TSX ──Mail.*──▶ Rust LocalBackend ──tokio/rustls──▶ IMAP (99
 
 1. 用户在服务端注册/登录（邮箱 + 密码），拿到会话 token；客户端存 token（原生平台进钥匙串，Web 进 localStorage）。
 2. 添加账号：普通 IMAP 把应用专用密码交给服务端；OAuth 走服务端的 Web 流程（打开 `/v1/oauth/{provider}/start`，回调存 token，再跳回 `nshmail://oauth-done` 或 Web 页面）。
-3. 服务端为每个邮箱账号常驻一个 tokio 任务，复用 mail-core 的同步逻辑，数据写进该用户自己的 SQLite（`data/users/<id>.sqlite`）。
+3. 服务端为每个邮箱账号常驻一个 tokio 任务，复用 mail-core 的同步逻辑，数据写进共享的 `data/server.sqlite`，每行带 `user_id`。
 4. 新信：写库 → 通过 WebSocket 发给在线客户端 → 给不在线的设备发推送：Android 用 FCM，Web 用 Web Push；桌面端是常驻进程，挂着 WebSocket，收到事件后自己弹系统通知。
 5. 读、搜、发都走 REST。原生客户端在本地 SQLite 缓存列表和正文（离线可读）尚未实现，待 mail-core 提供写入接口。
 
@@ -173,7 +173,7 @@ Android 宿主（`android/`，用法见其 README）：
 ## 6. 云端服务技术选型
 
 - **Rust + axum + tokio**：与 mail-core 同语言，同步逻辑一份代码。
-- **存储**：每个用户一份 SQLite（与客户端同一套表和 FTS5），外加一个 `server.sqlite` 存用户、会话、设备。好处是复用和隔离；代价是单机。v1 单实例足够，以后横向扩展按用户分片。
+- **存储**：一个 `server.sqlite` 存用户、会话、设备，以及所有用户的邮件（与客户端同一套表和 FTS5）。邮件表每行带 `user_id`，索引以它开头；mail-core 只在绑定了用户的 `Store` 上提供查询，漏写用户的查询写不出来。客户端本地库是同一套表，只有一个用户（`LOCAL_USER` = 0）。一个文件好备份、好迁移；代价是单机。v1 单实例足够。旧版每用户一份的 `data/users/<id>.sqlite` 在启动时导入（逐表核对行数和内容，事务内完成），原文件改名为 `*.migrated` 保留；导入或核对失败则拒绝启动、原文件不动。
 - **密码**：Argon2id；会话 token 随机 32 字节，库里只存 SHA-256。
 - **邮箱凭据**：AES-256-GCM 加密存储在每个用户的 `data/users/<id>.secrets.json`（mail-core 的 `EncryptedFileStore`），主密钥来自环境变量 `NSHMAIL_MASTER_KEY`，不落盘。
 - **部署**：CI 构建 Docker 镜像推到 ghcr.io；`docker compose` 一键自托管。正式上线的主机和域名需要另行确认（付费、对外）。
