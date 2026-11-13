@@ -4,6 +4,7 @@
 #                                `nsh package` builds with nsh-mail's crate (the `nsh-mail/native` module)
 #   app/src/main/assets/nsh/     the app's bundle
 # Needs nsh, the Android SDK and NDK, and the Rust Android targets, as `nsh package --target android` does.
+# Arguments go to that `nsh package`, such as `--keystore release.jks --key-alias upload` for a release-signed APK.
 set -euo pipefail
 
 android=$(cd "$(dirname "$0")" && pwd)
@@ -25,7 +26,7 @@ if [ ! -f "$embed/nsh.aar" ]; then
   unzip -j -o -q "$embed/embed.zip" '*/nsh.aar' -d "$embed"
 fi
 
-(cd "$app" && nsh package App.tsx --target android --abi "$abis")
+(cd "$app" && nsh package App.tsx --target android --abi "$abis" "$@")
 
 work="$android/build/nsh-mail-aar"
 rm -rf "$work" && mkdir -p "$work"

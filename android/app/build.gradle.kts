@@ -28,6 +28,18 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+
+    // The upload key CI decodes from its secrets (app.yml), with the one password `nsh package --keystore` takes too.
+    val keystore = System.getenv("ANDROID_KEYSTORE_FILE")
+    if (keystore != null) {
+        signingConfigs.create("release") {
+            storeFile = file(keystore)
+            storePassword = System.getenv("NSH_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+            keyPassword = System.getenv("NSH_KEYSTORE_PASSWORD")
+        }
+        buildTypes.getByName("release").signingConfig = signingConfigs.getByName("release")
+    }
 }
 
 dependencies {
