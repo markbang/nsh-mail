@@ -6,6 +6,8 @@ import { t } from "nsh/i18n";
 import { Mail, type Account, type Flags, type Folder, type MailEvent, type Status, type Summary } from "nsh-mail/native";
 
 const PAGE = 30;
+/** The most results a search shows. */
+export const SEARCH_LIMIT = 50;
 const NOTIFY_KEY = "nshmail.notify";
 
 export interface Mailbox {
@@ -26,6 +28,7 @@ const query = signal("");
 const results = signal<Summary[] | null>(null);
 const toastMessage = signal<{ id: number; text: string; tone: "neutral" | "error" } | null>(null);
 const notifyOn = signal(true);
+const unreadCounts = signal<Record<string, number>>({});
 
 /** The engine's status (mode, sync). */
 export const mailStatus = () => status();
@@ -35,6 +38,13 @@ export const accounts = () => accountList();
 /** The position of an account, which picks its color. */
 export const accountIndex = (id: string) => accountList().findIndex((a) => a.id === id);
 export const accountById = (id: string | null | undefined) => accountList().find((a) => a.id === id);
+/** An account as people call it: its name, or its address when the name is missing or shared. */
+export const accountName = (id: string | null | undefined) => {
+  const a = accountById(id);
+  if (!a) return undefined;
+  const name = a.name?.trim();
+  return name && accountList().filter((o) => o.name?.trim() === name).length === 1 ? name : a.email;
+};
 export const mailbox = () => box();
 export const messages = () => items();
 export const listStatus = () => listState();
@@ -44,6 +54,11 @@ export const searchQuery = () => query();
 export const searchResults = () => results();
 export const toast = () => toastMessage();
 export const notificationsEnabled = () => notifyOn();
+/** Unread messages in an account's inbox; every inbox together when `id` is null. */
+export const unreadCount = (id: string | null) => {
+  const counts = unreadCounts();
+  return id ? (counts[id] ?? 0) : accountList().reduce((sum, a) => sum + (counts[a.id] ?? 0), 0);
+};
 
 /** The open message, loaded whole. */
 export const current = resource(selected, (id) => Mail.get(id));
@@ -97,6 +112,7 @@ function heard(e: MailEvent) {
     if (status().mode === "none") return;
     void loadAccounts();
     void reload();
+    void loadUnread();
     if (query().trim()) void runSearch(query());
   }
 }
@@ -116,6 +132,7 @@ export async function start() {
   if (status().mode !== "none") {
     await loadAccounts();
     await reload();
+    void loadUnread();
   }
   started.set(true);
 }
@@ -126,6 +143,13 @@ async function loadAccounts() {
   } catch (e) {
     showToast(errorText(e), "error");
   }
+}
+
+// The counts are a hint next to the mailboxes: a failure keeps the last ones.
+async function loadUnread() {
+  try {
+    unreadCounts.set(await Mail.unread());
+  } catch {}
 }
 
 // Only the latest load of the list counts.
@@ -214,6 +238,7 @@ export async function setFlags(id: string, flags: Flags) {
     if (before) patch(id, { seen: before.seen, flagged: before.flagged });
     showToast(errorText(e), "error");
   }
+  if (flags.seen !== undefined) void loadUnread();
 }
 
 /** Shows a message, marking it read. */
@@ -241,7 +266,7 @@ export async function runSearch(text: string) {
     return;
   }
   try {
-    const found = await Mail.search(text, 50);
+    const found = await Mail.search(text, SEARCH_LIMIT);
     if (token === searchToken) results.set(found);
   } catch (e) {
     if (token === searchToken) showToast(errorText(e), "error");
@@ -280,9 +305,11 @@ export async function sessionChanged() {
     results.set(null);
     query.set("");
     box.set({ account: null, folder: "inbox" });
+    unreadCounts.set({});
   });
   if (status().mode !== "none") {
     await loadAccounts();
     await reload();
+    void loadUnread();
   }
 }

@@ -270,6 +270,9 @@ pub struct Status {
     pub mode: Mode,
     #[serde(default)]
     pub server: Option<String>,
+    /// The server account signed in, in cloud mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
     pub syncing: bool,
     #[serde(default)]
     pub error: Option<Error>,

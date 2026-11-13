@@ -29,6 +29,7 @@ async function signUp(email: string) {
 
 async function openAddAccount(app: App) {
   await app.press("id:open-settings");
+  await app.waitFor("id:signed-in-as");
   await app.press("id:add-account");
 }
 

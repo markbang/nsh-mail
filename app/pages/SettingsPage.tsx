@@ -1,18 +1,16 @@
 // Settings: the accounts, where mail comes from, notifications, signing out.
-import { Notifications, platform, Scroll, Text, View } from "nsh";
+import { Notifications, platform, Text, View } from "nsh";
 import { AlertDialog, NavPage } from "nsh/base";
 import { t } from "nsh/i18n";
 import { Mail, type Account } from "nsh-mail/native";
 import { AccountMark, Button, Icon, IconButton, Menu, SectionLabel, Separator, Switch, touch } from "../ui";
-import { PageHeader } from "../components/PageHeader";
+import { PageHeader, PageScroll } from "../components/PageHeader";
 import { NavContext } from "../nav";
+import { providerName as named } from "../lib/format";
 import { accounts, errorText, mailStatus, notificationsEnabled, sessionChanged, setNotificationsEnabled, showToast } from "../store";
 
-/** "Gmail · OAuth", "QQ Mail", "IMAP": who runs the account, as people know it. */
-const providerName = (a: Account) => {
-  const known = ["gmail", "outlook", "icloud", "yahoo", "fastmail", "qq", "163", "126"];
-  return a.provider && known.includes(a.provider) ? t(`provider.${a.provider}`) : t("provider.imap");
-};
+/** "QQ Mail", "IMAP": who runs the account, as people know it. */
+const providerName = (a: Account) => named(a.provider, t("provider.imap"));
 
 export function SettingsPage() {
   const nav = NavContext();
@@ -66,7 +64,7 @@ export function SettingsPage() {
   const note = touch ? "text-sm" : "text-xs";
   return (
     <NavPage title={t("settings.title")} header={<PageHeader title={t("settings.title")} />}>
-      <Scroll class="flex-1 bg-background" contentClass={touch ? "gap-6 p-4" : "gap-6 p-5"} testID="settings">
+      <PageScroll contentClass={touch ? "gap-6 p-4" : "gap-6 p-5"} testID="settings">
         <View class="gap-1">
           <SectionLabel label={t("settings.accounts")} class="px-0" />
           <View class="overflow-hidden rounded-(--radius-lg) border border-border">
@@ -111,6 +109,13 @@ export function SettingsPage() {
               <Icon name={mailStatus().mode === "cloud" ? "cloud" : "device"} tone="muted-foreground" />
               <View class="flex-1 gap-0.5">
                 <Text class={`text-foreground ${text}`}>{t(`mode.${mailStatus().mode}`)}</Text>
+                <If when={mailStatus().mode === "cloud" && mailStatus().user}>
+                  {(user) => (
+                    <Text class={`text-foreground ${note}`} testID="signed-in-as">
+                      {t("settings.signedInAs", { email: user() })}
+                    </Text>
+                  )}
+                </If>
                 <Text class={`text-muted-foreground ${note}`}>
                   {mailStatus().mode === "cloud" ? (mailStatus().server ?? "") : t("settings.localDetail")}
                 </Text>
@@ -137,7 +142,7 @@ export function SettingsPage() {
         </View>
 
         <Text class={`text-center text-muted-foreground ${note}`}>{t("settings.about")}</Text>
-      </Scroll>
+      </PageScroll>
     </NavPage>
   );
 }

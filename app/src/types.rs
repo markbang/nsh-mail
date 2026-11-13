@@ -50,6 +50,12 @@ impl<T: Ts> Ts for Vec<T> {
     }
 }
 
+impl Ts for std::collections::HashMap<String, u32> {
+    fn ts() -> String {
+        "Record<string, number>".into()
+    }
+}
+
 impl<T: Ts> Ts for Option<T> {
     fn ts() -> String {
         format!("{} | null", T::ts())
@@ -95,6 +101,7 @@ const DECLARATIONS: &[(&str, &str)] = &[
         "Status",
         "/** The state of the mail engine. */\n\
          export interface Status {\n  mode: Mode;\n  /** The server's URL in cloud mode. */\n  server?: string | null;\n  \
+         /** The server account signed in, in cloud mode. */\n  user?: string | null;\n  \
          /** A sync is running. */\n  syncing: boolean;\n  /** The last sync error, until a sync succeeds. */\n  error?: ErrorInfo | null;\n}",
     ),
     (

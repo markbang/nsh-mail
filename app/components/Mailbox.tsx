@@ -2,16 +2,22 @@
 import { t } from "nsh/i18n";
 import { Button, Empty } from "../ui";
 import { MessageList } from "./MessageList";
-import { accounts, hasMore, listStatus, loadMore, mailbox, messages, refresh, searchQuery, searchResults, selectedId } from "../store";
+import { accountName, accounts, hasMore, listStatus, loadMore, mailbox, messages, refresh, SEARCH_LIMIT, searchQuery, searchResults, selectedId } from "../store";
 
 /** The chosen mailbox's name. */
 export function mailboxTitle() {
   const box = mailbox();
   return box.folder === "inbox"
     ? box.account
-      ? (accounts().find((a) => a.id === box.account)?.email ?? t("folder.inbox"))
+      ? (accountName(box.account) ?? t("folder.inbox"))
       : t("mailbox.allInboxes")
     : t(`folder.${box.folder}`);
+}
+
+/** How many messages a search found, as the list's header says it. */
+export function resultCount(count: number) {
+  if (count >= SEARCH_LIMIT) return t("search.countMore", { count: SEARCH_LIMIT });
+  return count === 1 ? t("search.countOne") : t("search.count", { count });
 }
 
 export function MailboxList(props: { onOpen: (id: string) => void; onAddAccount: () => void; highlight?: boolean }) {
@@ -56,6 +62,7 @@ export function MailboxList(props: { onOpen: (id: string) => void; onAddAccount:
         selectedId={props.highlight ? selectedId() : null}
         onOpen={props.onOpen}
         showAccount
+        highlight={searchQuery()}
         testID="results"
         empty={<Empty icon="search" title={t("search.none", { query: searchQuery() })} />}
       />

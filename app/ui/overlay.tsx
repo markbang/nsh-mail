@@ -21,6 +21,8 @@ export interface DialogProps {
   bare?: boolean;
   /** Wide forms and the composer; default a short decision. */
   size?: "md" | "lg";
+  /** The height the content needs; a large dialog without one is 640pt. Either way no taller than the window. */
+  height?: number;
   children?: JSX.Element;
   testID?: string;
 }
@@ -38,7 +40,8 @@ export function Dialog(props: DialogProps) {
       class="flex-1 items-center justify-center p-6"
     >
       <View
-        class={`max-h-full w-full overflow-hidden rounded-(--radius-lg) border border-border bg-background shadow-2xl ${props.size === "lg" ? "max-w-[760px] h-[640px]" : "max-w-[520px]"}`}
+        class={`max-h-full w-full overflow-hidden rounded-(--radius-lg) border border-border bg-background shadow-2xl ${props.size === "lg" ? "max-w-[760px]" : "max-w-[520px]"}`}
+        style={{ height: props.height ?? (props.size === "lg" ? 640 : undefined) }}
       >
         <If when={!props.bare}>
           <View class="h-12 flex-row items-center gap-2 border-b border-border pe-2 ps-4">

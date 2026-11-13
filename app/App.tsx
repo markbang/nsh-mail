@@ -5,7 +5,7 @@ import { NavStack } from "nsh/base";
 import { Dialog, Toast } from "./ui";
 import { Workspace } from "./components/Workspace";
 import { wide } from "./layout";
-import { closeModal, isModalOpen, modalNavigator, modalStack, NavContext, phoneNavigator, phoneStack, show, type Route } from "./nav";
+import { closeModal, isModalOpen, modalFit, modalNavigator, modalStack, NavContext, phoneNavigator, phoneStack, show, type Route } from "./nav";
 import { AddAccountPage } from "./pages/AddAccountPage";
 import { ComposePage } from "./pages/ComposePage";
 import { ImapPage } from "./pages/ImapPage";
@@ -83,7 +83,7 @@ function Main() {
         onAddAccount={() => show({ name: "addAccount" }, true)}
         searchRef={(ref) => (search = ref)}
       />
-      <Dialog open={isModalOpen()} onClose={closeModal} label="nsh-mail" size="lg" bare testID="modal">
+      <Dialog open={isModalOpen()} onClose={closeModal} label="nsh-mail" size="lg" height={modalFit()} bare testID="modal">
         <NavContext.Provider value={modalNavigator}>
           <NavStack state={modalStack} class="flex-1">
             {page}

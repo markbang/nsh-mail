@@ -3,7 +3,7 @@
 //! accounts behave as the real backends do; refreshing delivers a new
 //! message, and so does a timer while the app runs.
 
-use std::{cell::RefCell, rc::Rc, time::Duration};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
 
 use mail_core::types::*;
 use nsh_core::{prelude::*, time::unix_ms};
@@ -403,6 +403,18 @@ impl Backend for DemoBackend {
                 .take(limit.max(1) as usize)
                 .map(|m| m.summary.clone())
                 .collect())
+        })
+    }
+
+    fn unread(&self) -> MailFuture<'_, HashMap<AccountId, u32>> {
+        Box::pin(async move {
+            let mut counts = HashMap::new();
+            for m in &self.data.borrow().messages {
+                if m.summary.folder == FolderKind::Inbox && !m.summary.seen {
+                    *counts.entry(m.summary.account_id.clone()).or_default() += 1;
+                }
+            }
+            Ok(counts)
         })
     }
 

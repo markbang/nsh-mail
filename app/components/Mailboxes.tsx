@@ -4,7 +4,7 @@ import { Scroll, Text, View } from "nsh";
 import { t } from "nsh/i18n";
 import type { Folder } from "nsh-mail/native";
 import { AccountMark, Button, IconButton, NavItem, SectionLabel, Spinner, touch, type IconName } from "../ui";
-import { accounts, mailbox, mailStatus, openMailbox, refresh } from "../store";
+import { accountName, accounts, mailbox, mailStatus, openMailbox, refresh, unreadCount } from "../store";
 
 const folders: { folder: Folder; icon: IconName }[] = [
   { folder: "sent", icon: "send" },
@@ -19,6 +19,7 @@ export function Mailboxes(props: { onCompose?: () => void; onSettings: () => voi
     props.onChosen?.();
   };
   const is = (account: string | null, folder: Folder) => mailbox().account === account && mailbox().folder === folder;
+  const count = (account: string | null) => unreadCount(account) || undefined;
   return (
     <View class="flex-1 bg-sidebar">
       <If when={props.onCompose}>
@@ -27,12 +28,21 @@ export function Mailboxes(props: { onCompose?: () => void; onSettings: () => voi
         </View>
       </If>
       <Scroll class="flex-1" contentClass="gap-0.5 p-2">
-        <NavItem icon="inboxes" label={t("mailbox.allInboxes")} selected={is(null, "inbox")} onPress={() => choose(null, "inbox")} testID="mailbox-all" />
+        <NavItem
+          icon="inboxes"
+          label={t("mailbox.allInboxes")}
+          detail={count(null)?.toString()}
+          selected={is(null, "inbox")}
+          onPress={() => choose(null, "inbox")}
+          testID="mailbox-all"
+        />
         <Each of={accounts()} key={(a) => a.id}>
           {(account, index) => (
             <NavItem
               lead={<AccountMark index={index()} size="md" />}
-              label={account().email}
+              label={accountName(account().id) ?? account().email}
+              tooltip={account().email}
+              detail={count(account().id)?.toString()}
               selected={is(account().id, "inbox")}
               onPress={() => choose(account().id, "inbox")}
             />

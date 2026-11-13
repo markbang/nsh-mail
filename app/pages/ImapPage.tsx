@@ -1,13 +1,13 @@
 // An IMAP account: the address first, then its servers (found from the
 // address, editable) and an app password.
-import { openUrl, Scroll, signal, Text, View } from "nsh";
+import { openUrl, signal, Text, View } from "nsh";
 import { NavPage } from "nsh/base";
 import { t } from "nsh/i18n";
 import { Mail, type Endpoint, type Security, type ServerSettings } from "nsh-mail/native";
 import { Button, Field, Icon, SectionLabel, SelectField, TextField, touch } from "../ui";
-import { PageHeader } from "../components/PageHeader";
+import { PageHeader, PageScroll } from "../components/PageHeader";
 import { NavContext } from "../nav";
-import { isAddress } from "../lib/format";
+import { isAddress, providerName } from "../lib/format";
 import { errorText, showToast } from "../store";
 
 const guess = (email: string): ServerSettings => {
@@ -82,9 +82,10 @@ export function ImapPage() {
   };
 
   const note = touch ? "text-sm" : "text-xs";
+  const provider = () => providerName(settings().provider, settings().displayName ?? "");
   return (
     <NavPage title={t("accounts.other")} header={<PageHeader title={t("accounts.other")} />}>
-      <Scroll class="flex-1 bg-background" contentClass={touch ? "gap-5 p-4" : "gap-5 p-6"} testID="imap">
+      <PageScroll contentClass={touch ? "gap-5 p-4" : "gap-5 p-6"} testID="imap">
         <Field label={t("imap.email")}>
           <TextField
             value={email()}
@@ -108,11 +109,11 @@ export function ImapPage() {
         <If when={step() === "servers"}>
           <View class="gap-4">
             <Text class={`text-muted-foreground ${note}`} testID="imap-detected">
-              {known() ? t("imap.found", { provider: settings().displayName ?? "" }) : t("imap.notFound")}
+              {known() ? t("imap.found", { provider: provider() }) : t("imap.notFound")}
             </Text>
             <If when={settings().auth.kind === "oauth"}>
               <Text class={`text-foreground ${note}`} testID="imap-oauth">
-                {t("imap.useOAuth", { provider: settings().displayName ?? "" })}
+                {t("imap.useOAuth", { provider: provider() })}
               </Text>
             </If>
             <SectionLabel label={t("imap.incoming")} class="px-0" />
@@ -155,7 +156,7 @@ export function ImapPage() {
                       size="sm"
                       variant="default"
                       icon="external"
-                      label={t("imap.appPasswordLink", { provider: settings().displayName ?? "" })}
+                      label={t("imap.appPasswordLink", { provider: provider() })}
                       onPress={() => void openUrl(url())}
                       class="self-start"
                     />
@@ -178,7 +179,7 @@ export function ImapPage() {
         >
           <Button variant="primary" label={busy() ? t("imap.connecting") : t("imap.add")} loading={busy()} onPress={() => void add()} class="self-start" testID="imap-add" />
         </If>
-      </Scroll>
+      </PageScroll>
     </NavPage>
   );
 }

@@ -51,7 +51,7 @@ export function TextField(props: TextFieldProps) {
       returnKeyType={props.returnKey}
       accessibilityLabel={props.label}
       testID={props.testID}
-      class={`${props.multiline ? "rounded-(--radius) border border-input bg-background p-3 text-foreground " + (touch ? "text-base" : "text-sm") : well} ${focus} placeholder:text-muted-foreground ${wash} ${props.invalid ? "border-destructive" : ""} ${props.class ?? ""}`}
+      class={`${props.multiline ? "rounded-(--radius) border border-input bg-background text-foreground " + (touch ? "p-3 text-base" : "px-2.5 py-2 text-sm") : well} ${focus} placeholder:text-muted-foreground ${wash} ${props.invalid ? "border-destructive" : ""} ${props.class ?? ""}`}
     />
   );
 }

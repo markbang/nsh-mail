@@ -2,11 +2,11 @@
 import { Text, View, type InputRef } from "nsh";
 import { t } from "nsh/i18n";
 import { Empty, IconButton, Pane, Panes, Spinner } from "../ui";
-import { MailboxList, mailboxTitle } from "./Mailbox";
+import { MailboxList, mailboxTitle, resultCount } from "./Mailbox";
 import { Mailboxes } from "./Mailboxes";
 import { Reader, ReaderActions } from "./Reader";
 import { SearchField } from "./SearchField";
-import { current, listStatus, openMessage, refresh, selectedId } from "../store";
+import { current, listStatus, openMessage, refresh, searchQuery, searchResults, selectedId } from "../store";
 import type { ComposeMode } from "../lib/format";
 
 export interface WorkspaceProps {
@@ -26,9 +26,23 @@ export function Workspace(props: WorkspaceProps) {
       <Pane size={400} minSize={300} maxSize={600} fixed>
         <View class="flex-1 bg-background">
           <View class="h-12 flex-row items-center gap-2 border-b border-border pe-2 ps-4">
-            <Text role="header" class="line-clamp-1 flex-1 text-sm font-semibold text-foreground">
-              {mailboxTitle()}
-            </Text>
+            <If
+              when={searchResults()}
+              else={
+                <Text role="header" class="line-clamp-1 flex-1 text-sm font-semibold text-foreground">
+                  {mailboxTitle()}
+                </Text>
+              }
+            >
+              {(found) => (
+                <>
+                  <Text role="header" class="line-clamp-1 flex-1 text-sm font-semibold text-foreground" testID="results-title">
+                    {t("search.title", { query: searchQuery().trim() })}
+                  </Text>
+                  <Text class="text-xs tabular-nums text-muted-foreground">{resultCount(found().length)}</Text>
+                </>
+              )}
+            </If>
             <If when={listStatus() === "refreshing"}>
               <Spinner label={t("sync.running")} />
             </If>

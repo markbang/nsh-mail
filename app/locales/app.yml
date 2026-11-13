@@ -310,6 +310,18 @@ search.hint:
 search.none:
   en: Nothing found for “%{query}”
   zh-CN: 没有找到“%{query}”
+search.title:
+  en: Results for “%{query}”
+  zh-CN: “%{query}”的搜索结果
+search.countOne:
+  en: 1 result
+  zh-CN: 1 封
+search.count:
+  en: "%{count} results"
+  zh-CN: "%{count} 封"
+search.countMore:
+  en: "%{count}+ results"
+  zh-CN: "%{count}+ 封"
 
 settings.title:
   en: Settings
@@ -320,6 +332,9 @@ settings.accounts:
 settings.sync:
   en: Sync
   zh-CN: 同步
+settings.signedInAs:
+  en: Signed in as %{email}
+  zh-CN: 已登录：%{email}
 settings.localDetail:
   en: Passwords and mail stay on this device.
   zh-CN: 密码和邮件只保存在本机。

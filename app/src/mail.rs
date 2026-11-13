@@ -1,7 +1,11 @@
 //! `Mail`, the one interface TSX uses (docs/design.md §3). It owns the
 //! session: which backend runs, its status, and the listeners of its events.
 
-use std::{cell::RefCell, collections::HashSet, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
 
 use mail_core::types::*;
 use nsh_core::{prelude::*, storage::Storage};
@@ -14,6 +18,7 @@ use crate::{
 
 const MODE_KEY: &str = "nshmail.mode";
 const SERVER_KEY: &str = "nshmail.server";
+const USER_KEY: &str = "nshmail.user";
 
 struct Session {
     backend: Option<Rc<dyn Backend>>,
@@ -42,6 +47,7 @@ fn no_session() -> Status {
     Status {
         mode: Mode::None,
         server: None,
+        user: None,
         syncing: false,
         error: None,
     }
@@ -114,13 +120,19 @@ fn local_backend(demo: bool) -> Result<Rc<dyn Backend>, JsError> {
 }
 
 /// Opens a session for `mode` on `backend`, ending the last one.
-async fn open(mode: Mode, server: Option<String>, backend: Rc<dyn Backend>) -> Result<(), JsError> {
+async fn open(
+    mode: Mode,
+    server: Option<String>,
+    user: Option<String>,
+    backend: Rc<dyn Backend>,
+) -> Result<(), JsError> {
     with(|s| {
         s.backend = Some(backend.clone());
         s.syncing.clear();
         s.status = Status {
             mode,
             server,
+            user,
             syncing: false,
             error: None,
         };
@@ -135,17 +147,20 @@ async fn open(mode: Mode, server: Option<String>, backend: Rc<dyn Backend>) -> R
     Ok(())
 }
 
-fn remember(mode: Option<&str>, server: Option<&str>) {
+fn remember(mode: Option<&str>, server: Option<&str>, user: Option<&str>) {
     let Some(mode) = mode else {
-        Storage::remove_item(MODE_KEY);
-        Storage::remove_item(SERVER_KEY);
+        for key in [MODE_KEY, SERVER_KEY, USER_KEY] {
+            Storage::remove_item(key);
+        }
         return;
     };
     // A full storage only costs the remembered mode: onboarding shows again.
     let _ = Storage::set_item(MODE_KEY, mode);
-    match server {
-        Some(server) => drop(Storage::set_item(SERVER_KEY, server)),
-        None => Storage::remove_item(SERVER_KEY),
+    for (key, value) in [(SERVER_KEY, server), (USER_KEY, user)] {
+        match value {
+            Some(value) => drop(Storage::set_item(key, value)),
+            None => Storage::remove_item(key),
+        }
     }
 }
 
@@ -182,19 +197,22 @@ impl Mail {
         let server = Storage::get_item(SERVER_KEY);
         match (Storage::get_item(MODE_KEY).as_deref(), server) {
             (Some("local"), _) if cfg!(not(target_arch = "wasm32")) => {
-                open(Mode::Local, None, local_backend(false)?).await?
+                open(Mode::Local, None, None, local_backend(false)?).await?
             }
             (Some("demo"), _) if cfg!(debug_assertions) => {
-                open(Mode::Local, None, local_backend(true)?).await?
+                open(Mode::Local, None, None, local_backend(true)?).await?
             }
             (Some("cloud"), Some(server)) => {
                 match CloudBackend::restore(server.clone(), sys)
                     .await
                     .map_err(js)?
                 {
-                    Some(backend) => open(Mode::Cloud, Some(server), Rc::new(backend)).await?,
+                    Some(backend) => {
+                        let user = Storage::get_item(USER_KEY);
+                        open(Mode::Cloud, Some(server), user, Rc::new(backend)).await?
+                    }
                     // Signed out elsewhere, or the keyring lost the session: sign in again.
-                    None => remember(None, None),
+                    None => remember(None, None, None),
                 }
             }
             _ => {}
@@ -216,8 +234,8 @@ impl Mail {
                 "a browser cannot connect to mail servers: use an nsh-mail server",
             )));
         }
-        open(Mode::Local, None, local_backend(false)?).await?;
-        remember(Some("local"), None);
+        open(Mode::Local, None, None, local_backend(false)?).await?;
+        remember(Some("local"), None, None);
         Ok(())
     }
 
@@ -238,11 +256,18 @@ impl Mail {
         if password.is_empty() || (sign_up && password.chars().count() < 8) {
             return Err(js(invalid("a password has at least 8 characters")));
         }
+        let user = email.trim().to_owned();
         let backend = CloudBackend::sign_in(server.clone(), email, password, sign_up, sys)
             .await
             .map_err(js)?;
-        open(Mode::Cloud, Some(server.clone()), Rc::new(backend)).await?;
-        remember(Some("cloud"), Some(&server));
+        open(
+            Mode::Cloud,
+            Some(server.clone()),
+            Some(user.clone()),
+            Rc::new(backend),
+        )
+        .await?;
+        remember(Some("cloud"), Some(&server), Some(&user));
         Ok(())
     }
 
@@ -255,7 +280,7 @@ impl Mail {
             s.status = no_session();
             s.syncing.clear();
         });
-        remember(None, None);
+        remember(None, None, None);
         Ok(())
     }
 
@@ -316,6 +341,11 @@ impl Mail {
     /// Messages matching `text` in any folder, newest first.
     pub async fn search(text: String, limit: u32) -> Result<Js<Vec<Summary>>, JsError> {
         backend()?.search(text, limit).await.map(Js).map_err(js)
+    }
+
+    /// Unread messages in each account's inbox, by account id.
+    pub async fn unread() -> Result<Js<HashMap<String, u32>>, JsError> {
+        backend()?.unread().await.map(Js).map_err(js)
     }
 
     /// Syncs now.

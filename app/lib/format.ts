@@ -22,6 +22,13 @@ export function fullDate(ms: number): string {
   return new Intl.DateTimeFormat(locale(), { dateStyle: "medium", timeStyle: "short" }).format(new Date(ms));
 }
 
+const knownProviders = new Set(["gmail", "outlook", "icloud", "yahoo", "fastmail", "qq", "163", "126"]);
+
+/** A mail provider's name in the UI's language ("QQ Mail", "QQ 邮箱"); `fallback` for presets without a translation. */
+export function providerName(id: string | null | undefined, fallback: string): string {
+  return id && knownProviders.has(id) ? t(`provider.${id}`) : fallback;
+}
+
 export function displayName(a: Address | null | undefined): string {
   return a ? a.name?.trim() || a.email : t("reader.unknownSender");
 }
@@ -121,7 +128,8 @@ export function draftFor(init: ComposeInit, ownEmails: string[]): DraftFields {
     to: recipient(replyTo),
     cc: others.map(recipient).join(", "),
     subject: prefixed("Re", m.subject),
-    text: `\n\n${header}\n${quoted}`,
+    // The reply goes above a blank line; the quote ends its last line.
+    text: `\n\n${header}\n${quoted}\n`,
     inReplyTo: m.messageId ?? null,
     references: m.messageId ? [...m.references, m.messageId] : m.references,
   };

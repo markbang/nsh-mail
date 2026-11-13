@@ -1,5 +1,6 @@
 // Pressable rows: list rows and navigation items. Rows deepen their fill
-// when pressed instead of scaling; the selection is a fill, never an edge.
+// when pressed instead of scaling; the selection is a fill, never an edge,
+// and hovering a selected row keeps its fill.
 import { Text, View, type JSX } from "nsh";
 import { Button as BaseButton } from "nsh/base";
 import { touch } from "./density";
@@ -11,6 +12,7 @@ export function Row(props: {
   onPress?: () => void;
   onLongPress?: () => void;
   accessibilityLabel?: string;
+  tooltip?: string;
   testID?: string;
   class?: string;
   children?: JSX.Element;
@@ -20,8 +22,9 @@ export function Row(props: {
       onPress={props.onPress}
       selected={props.selected}
       accessibilityLabel={props.accessibilityLabel}
+      tooltip={touch ? undefined : props.tooltip}
       testID={props.testID}
-      class={`hover:bg-hover active:bg-pressed selected:bg-selected focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2 ${wash} ${props.class ?? ""}`}
+      class={`${props.selected ? "bg-selected" : "hover:bg-hover"} active:bg-pressed focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2 ${wash} ${props.class ?? ""}`}
     >
       {props.children}
     </BaseButton>
@@ -34,6 +37,7 @@ export function NavItem(props: {
   icon?: IconName;
   lead?: JSX.Element;
   detail?: string;
+  tooltip?: string;
   selected?: boolean;
   onPress: () => void;
   testID?: string;
@@ -42,6 +46,7 @@ export function NavItem(props: {
     <Row
       selected={props.selected}
       onPress={props.onPress}
+      tooltip={props.tooltip}
       testID={props.testID}
       class={`flex-row items-center gap-2.5 rounded-(--radius) ${touch ? "min-h-11 px-3" : "h-8 px-2"}`}
     >

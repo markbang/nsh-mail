@@ -55,9 +55,23 @@ const source = (name: IconName) => {
 
 export type IconTone = "foreground" | "muted-foreground" | "primary" | "primary-foreground" | "destructive" | "flag" | "unread";
 
+export type IconSize = "sm" | "md" | "lg";
+const iconPx = (size: IconSize = "md") => ({ sm: touch ? 16 : 14, md: touch ? 20 : 16, lg: touch ? 28 : 24 })[size];
+
+/** A brand's mark (an SVG asset) in its own colors, at an icon's size. */
+export function BrandMark(props: { src: string; size?: IconSize }) {
+  return (
+    <Image
+      src={props.src}
+      accessibilityElementsHidden
+      style={{ width: iconPx(props.size), height: iconPx(props.size), pointerEvents: "none" }}
+    />
+  );
+}
+
 /** A line icon in a theme color; decorative unless the control around it names it. */
-export function Icon(props: { name: IconName; tone?: IconTone; size?: "sm" | "md" | "lg" }) {
-  const px = () => ({ sm: touch ? 16 : 14, md: touch ? 20 : 16, lg: touch ? 28 : 24 })[props.size ?? "md"];
+export function Icon(props: { name: IconName; tone?: IconTone; size?: IconSize }) {
+  const px = () => iconPx(props.size);
   return (
     <Image
       src={source(props.name)}

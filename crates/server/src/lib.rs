@@ -103,6 +103,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/send", post(api::send))
         .route("/search", get(api::search))
+        .route("/unread", get(api::unread))
         .route("/devices", post(api::add_device))
         .route("/devices/{id}", delete(api::delete_device))
         .route("/push/vapid-key", get(api::vapid_key))

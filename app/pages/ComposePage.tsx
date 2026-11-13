@@ -60,6 +60,7 @@ export function ComposePage(props: { init: ComposeInit }) {
     <Button variant="primary" icon="send" label={sending() ? t("compose.sending") : t("compose.send")} loading={sending()} onPress={() => void send()} testID="send" />
   );
   const label = touch ? "w-16 text-sm" : "w-14 text-xs";
+  const replying = props.init.mode === "reply" || props.init.mode === "replyAll";
   return (
     <NavPage title={title()} header={<PageHeader title={title()} actions={actions()} />} headerRight={systemHeader ? actions() : undefined}>
       <View class="min-h-0 flex-1 bg-background">
@@ -119,8 +120,9 @@ export function ComposePage(props: { init: ComposeInit }) {
             onChange={(v) => body.set(v)}
             multiline
             label={t("compose.body")}
-            autoFocus={props.init.mode === "reply" || props.init.mode === "replyAll"}
-            class="flex-1 border-0 p-1"
+            autoFocus={replying}
+            ref={(input) => replying && setTimeout(() => input.setSelection(0), 0)}
+            class="flex-1 border-0"
             testID="compose-body"
           />
         </View>
