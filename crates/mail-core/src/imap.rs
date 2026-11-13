@@ -131,6 +131,8 @@ pub(crate) struct Conn {
     pub moves: bool,
     /// RFC 4315 UID EXPUNGE, which expunges only the moved message.
     pub uidplus: bool,
+    /// Gmail's extensions: `X-GM-THRID`.
+    pub gmail: bool,
 }
 
 pub(crate) async fn connect(ep: &Endpoint, login: Login<'_>) -> Result<Conn> {
@@ -192,6 +194,7 @@ pub(crate) async fn connect(ep: &Endpoint, login: Login<'_>) -> Result<Conn> {
         condstore: caps.has_str("CONDSTORE"),
         moves: caps.has_str("MOVE"),
         uidplus: caps.has_str("UIDPLUS"),
+        gmail: caps.has_str("X-GM-EXT-1"),
         session,
     })
 }
@@ -407,6 +410,7 @@ pub(crate) async fn sync_folder(
     folder: FolderRow,
 ) -> Result<FolderSync> {
     let use_condstore = conn.condstore;
+    let gmail = conn.gmail;
     let session = &mut conn.session;
     let mbox = if use_condstore {
         session.select_condstore(&folder.name).await?
@@ -494,7 +498,7 @@ pub(crate) async fn sync_folder(
             max_uid = max_uid.max(uid);
             metas.push(Meta::from_fetch(uid, &fetch));
         }
-        new_messages = fetch_new(session, metas).await?;
+        new_messages = fetch_new(session, metas, gmail).await?;
     }
     f.uidnext = Some(max_uid + 1);
     f.highestmodseq = mbox.highest_modseq;
@@ -564,6 +568,7 @@ impl Meta {
 async fn fetch_new(
     session: &mut Session,
     metas: Vec<Meta>,
+    gmail: bool,
 ) -> Result<Vec<crate::store::NewMessage>> {
     let mut groups: Vec<(String, Vec<&Meta>)> = Vec::new();
     for m in &metas {
@@ -620,7 +625,68 @@ async fn fetch_new(
         }
     }
     out.sort_by_key(|m| m.uid);
+    if gmail {
+        for batch in out.chunks_mut(FETCH_BATCH) {
+            let set = uid_set(batch.iter().map(|m| m.uid));
+            let threads = gmail_threads(session, &set).await?;
+            for m in batch {
+                m.gmail_thread = threads.get(&m.uid).copied();
+            }
+        }
+    }
     Ok(out)
+}
+
+pub(crate) fn uid_set(uids: impl Iterator<Item = u32>) -> String {
+    uids.map(|u| u.to_string()).collect::<Vec<_>>().join(",")
+}
+
+/// Gmail's thread ids (`X-GM-THRID`) of the selected folder's `uids`. async-imap parses the
+/// attribute but `Fetch` has no getter for it, so the responses are read here.
+async fn gmail_threads(
+    session: &mut Session,
+    uids: &str,
+) -> Result<std::collections::HashMap<u32, u64>> {
+    use async_imap::imap_proto::{AttributeValue, Response, Status};
+    let tag = session
+        .run_command(format!("UID FETCH {uids} (UID X-GM-THRID)"))
+        .await?;
+    let mut out = std::collections::HashMap::new();
+    loop {
+        let Some(r) = session.read_response().await? else {
+            return Err(err(
+                ErrorCode::Network,
+                "the server closed the connection during FETCH",
+            ));
+        };
+        match r.parsed() {
+            Response::Fetch(_, attrs) => {
+                let uid = attrs.iter().find_map(|a| match a {
+                    AttributeValue::Uid(u) => Some(*u),
+                    _ => None,
+                });
+                let thread = attrs.iter().find_map(|a| match a {
+                    AttributeValue::GmailThrId(t) => Some(*t),
+                    _ => None,
+                });
+                if let (Some(uid), Some(thread)) = (uid, thread) {
+                    out.insert(uid, thread);
+                }
+            }
+            Response::Done {
+                tag: done, status, ..
+            } if *done == tag => {
+                return match status {
+                    Status::Ok => Ok(out),
+                    _ => Err(err(
+                        ErrorCode::Protocol,
+                        format!("the server refused X-GM-THRID: {status:?}"),
+                    )),
+                };
+            }
+            _ => {}
+        }
+    }
 }
 
 struct TextPart {
@@ -756,45 +822,41 @@ pub(crate) async fn fetch_body(session: &mut Session, folder: &str, uid: u32) ->
         })
 }
 
+/// Sets flags on `uids` (a UID set) of `folder`.
 pub(crate) async fn store_flags(
     session: &mut Session,
     folder: &str,
-    uid: u32,
+    uids: &str,
     flags: Flags,
 ) -> Result<()> {
     session.select(folder).await?;
     for (value, name) in [(flags.seen, "\\Seen"), (flags.flagged, "\\Flagged")] {
         if let Some(on) = value {
             let op = if on { "+FLAGS.SILENT" } else { "-FLAGS.SILENT" };
-            let _: Vec<Fetch> = collect(
-                session
-                    .uid_store(uid.to_string(), format!("{op} ({name})"))
-                    .await?,
-            )
-            .await?;
+            let _: Vec<Fetch> =
+                collect(session.uid_store(uids, format!("{op} ({name})")).await?).await?;
         }
     }
     Ok(())
 }
 
-/// Moves one message to `to`. Without MOVE, a server without UIDPLUS expunges every
-/// message marked \Deleted in the folder, as its own clients would.
-pub(crate) async fn move_message(conn: &mut Conn, from: &str, uid: u32, to: &str) -> Result<()> {
+/// Moves `uids` (a UID set) of `from` to `to`. Without MOVE, a server without UIDPLUS
+/// expunges every message marked \Deleted in the folder, as its own clients would.
+pub(crate) async fn move_messages(conn: &mut Conn, from: &str, uids: &str, to: &str) -> Result<()> {
     conn.session.select(from).await?;
-    let uid = uid.to_string();
     if conn.moves {
-        conn.session.uid_mv(&uid, to).await?;
+        conn.session.uid_mv(uids, to).await?;
         return Ok(());
     }
-    conn.session.uid_copy(&uid, to).await?;
+    conn.session.uid_copy(uids, to).await?;
     let _: Vec<Fetch> = collect(
         conn.session
-            .uid_store(&uid, "+FLAGS.SILENT (\\Deleted)")
+            .uid_store(uids, "+FLAGS.SILENT (\\Deleted)")
             .await?,
     )
     .await?;
     if conn.uidplus {
-        let _: Vec<u32> = conn.session.uid_expunge(&uid).await?.try_collect().await?;
+        let _: Vec<u32> = conn.session.uid_expunge(uids).await?.try_collect().await?;
     } else {
         let _: Vec<u32> = conn.session.expunge().await?.try_collect().await?;
     }

@@ -69,6 +69,8 @@ pub(crate) struct NewMessage {
     /// Raw message when it was small enough to download during sync.
     pub body: Option<Vec<u8>>,
     pub index_text: Option<String>,
+    /// Gmail's `X-GM-THRID`.
+    pub gmail_thread: Option<u64>,
 }
 
 pub(crate) struct StoredMessage {
@@ -80,6 +82,19 @@ pub(crate) struct StoredMessage {
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
     pub body: Option<Vec<u8>>,
+}
+
+/// Where a message is on the server, for actions on it.
+#[derive(Clone, Debug)]
+pub(crate) struct Located {
+    pub id: MessageId,
+    pub account_id: AccountId,
+    pub folder: FolderKind,
+    pub folder_name: String,
+    pub uid: u32,
+    pub seen: bool,
+    pub flagged: bool,
+    pub date: i64,
 }
 
 /// Account, folder and message ids are random or rowids, unique across users, so the
@@ -124,9 +139,20 @@ CREATE TABLE IF NOT EXISTS messages (
     has_attachments INTEGER NOT NULL,
     size INTEGER NOT NULL,
     body BLOB,
+    thread_id TEXT,
     UNIQUE (folder_id, uid)
 );
 CREATE INDEX IF NOT EXISTS messages_by_user_date ON messages (user_id, folder_id, date DESC, pk DESC);
+CREATE INDEX IF NOT EXISTS messages_by_thread ON messages (user_id, thread_id);
+-- What links a message to its thread: its own Message-ID, the ones it references, Gmail's thread
+-- id. Kept after the messages go, so a late reply still finds its thread.
+CREATE TABLE IF NOT EXISTS thread_keys (
+    user_id INTEGER NOT NULL,
+    key TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    PRIMARY KEY (user_id, key)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS thread_keys_by_thread ON thread_keys (user_id, thread_id);
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5 (
     subject, from_text, to_text, body,
     content = '', contentless_delete = 1, tokenize = 'unicode61 remove_diacritics 2'
@@ -140,7 +166,18 @@ const MESSAGE_COLUMNS: &str = "uid, date, from_addr, to_addrs, cc_addrs, subject
      in_reply_to, refs, seen, flagged, has_attachments, size, body";
 
 const SUMMARY_COLUMNS: &str = "m.id, f.account_id, f.kind, m.from_addr, m.to_addrs, m.subject, m.snippet, \
-     m.date, m.seen, m.flagged, m.has_attachments";
+     m.date, m.seen, m.flagged, m.has_attachments, IFNULL(m.thread_id, m.id)";
+
+const LOCATED_COLUMNS: &str =
+    "m.id, f.account_id, f.kind, f.name, m.uid, m.seen, m.flagged, m.date";
+
+/// A message of a conversation listed in folder `?2`, of account `?3` (all when NULL); see
+/// [`in_view`].
+const IN_VIEW: &str = "(CASE WHEN ?2 IN ('trash', 'drafts') THEN f.kind = ?2 \
+     ELSE f.kind NOT IN ('trash', 'drafts') END) AND (?3 IS NULL OR f.account_id = ?3)";
+
+/// How far apart a reply without `References` and the message it answers may be.
+const SUBJECT_WINDOW_MS: i64 = 30 * 24 * 3600 * 1000;
 
 impl MailDb {
     pub fn open(path: &Path) -> Result<Self> {
@@ -166,8 +203,23 @@ impl MailDb {
                 )
             })?;
         }
+        if has_table(&conn, "main", "messages")?
+            && !has_column(&conn, "main", "messages", "thread_id")?
+        {
+            conn.execute_batch("ALTER TABLE messages ADD COLUMN thread_id TEXT")?;
+        }
         conn.pragma_update(None, "foreign_keys", true)?;
         conn.execute_batch(SCHEMA)?;
+        thread_unthreaded(&mut conn).map_err(|e| {
+            err(
+                ErrorCode::Storage,
+                format!(
+                    "cannot group {} into conversations: {}",
+                    path.display(),
+                    e.message
+                ),
+            )
+        })?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
@@ -212,6 +264,7 @@ impl MailDb {
         let detached = conn.execute_batch("DETACH DATABASE legacy");
         let counts = result?;
         detached?;
+        thread_unthreaded(&mut conn)?;
         Ok(counts)
     }
 }
@@ -496,6 +549,215 @@ fn verify_legacy(tx: &Connection, user: i64) -> Result<ImportCounts> {
     })
 }
 
+/// What threading reads of a message.
+struct Linkage<'a> {
+    pk: i64,
+    account_id: &'a str,
+    message_id: Option<&'a str>,
+    in_reply_to: Option<&'a str>,
+    references: &'a [String],
+    gmail_thread: Option<u64>,
+    subject: &'a str,
+    date: i64,
+    addresses: Vec<String>,
+}
+
+fn message_key(id: &str) -> Option<String> {
+    let id = id
+        .trim()
+        .trim_start_matches('<')
+        .trim_end_matches('>')
+        .trim();
+    (!id.is_empty()).then(|| id.to_string())
+}
+
+fn emails<'a>(addrs: impl Iterator<Item = &'a Address>) -> Vec<String> {
+    addrs.map(|a| a.email.trim().to_lowercase()).collect()
+}
+
+/// The addresses of a user's own accounts, which every message of theirs shares.
+fn own_addresses(conn: &Connection, user: i64) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare_cached("SELECT data FROM accounts WHERE user_id = ?1")?;
+    let rows = stmt.query_map([user], |r| r.get::<_, String>(0))?;
+    let mut out = Vec::new();
+    for data in rows {
+        let account: Account = serde_json::from_str(&data?)?;
+        out.push(account.email.to_lowercase());
+    }
+    Ok(out)
+}
+
+/// Puts a stored message in a thread, JWZ-style: the threads its own Message-ID, the
+/// Message-IDs it references and its Gmail thread id already belong to (merged into one when
+/// it joins several); else, for a reply that references nothing, the latest message within
+/// [`SUBJECT_WINDOW_MS`] with the same [`base_subject`] and someone besides the user in
+/// common; else a thread of its own.
+fn thread_message(conn: &Connection, user: i64, own: &[String], m: &Linkage) -> Result<()> {
+    let mut keys: Vec<String> = m
+        .message_id
+        .into_iter()
+        .chain(m.in_reply_to)
+        .chain(m.references.iter().map(String::as_str))
+        .filter_map(message_key)
+        .collect();
+    if let Some(g) = m.gmail_thread {
+        keys.push(format!("gm:{}:{g}", m.account_id));
+    }
+    keys.sort();
+    keys.dedup();
+    let mut found: Vec<String> = Vec::new();
+    {
+        let mut stmt = conn
+            .prepare_cached("SELECT thread_id FROM thread_keys WHERE user_id = ?1 AND key = ?2")?;
+        for key in &keys {
+            if let Some(t) = stmt
+                .query_row(params![user, key], |r| r.get::<_, String>(0))
+                .optional()?
+                && !found.contains(&t)
+            {
+                found.push(t);
+            }
+        }
+    }
+    let unlinked = m.in_reply_to.is_none() && m.references.is_empty() && m.gmail_thread.is_none();
+    if found.is_empty() && unlinked {
+        found.extend(by_subject(conn, user, own, m)?);
+    }
+    found.sort();
+    let thread = match found.split_first() {
+        Some((keep, others)) => {
+            for other in others {
+                conn.execute(
+                    "UPDATE messages SET thread_id = ?3 WHERE user_id = ?1 AND thread_id = ?2",
+                    params![user, other, keep],
+                )?;
+                conn.execute(
+                    "UPDATE thread_keys SET thread_id = ?3 WHERE user_id = ?1 AND thread_id = ?2",
+                    params![user, other, keep],
+                )?;
+            }
+            keep.clone()
+        }
+        None => new_id(),
+    };
+    conn.prepare_cached("UPDATE messages SET thread_id = ?3 WHERE user_id = ?1 AND pk = ?2")?
+        .execute(params![user, m.pk, thread])?;
+    let mut insert = conn.prepare_cached(
+        "INSERT INTO thread_keys (user_id, key, thread_id) VALUES (?1, ?2, ?3)
+         ON CONFLICT (user_id, key) DO UPDATE SET thread_id = excluded.thread_id",
+    )?;
+    for key in &keys {
+        insert.execute(params![user, key, thread])?;
+    }
+    Ok(())
+}
+
+fn by_subject(conn: &Connection, user: i64, own: &[String], m: &Linkage) -> Result<Option<String>> {
+    let (base, replied) = base_subject(m.subject);
+    if !replied || base.is_empty() {
+        return Ok(None);
+    }
+    let others: Vec<&String> = m.addresses.iter().filter(|a| !own.contains(a)).collect();
+    if others.is_empty() {
+        return Ok(None);
+    }
+    let mut stmt = conn.prepare_cached(
+        "SELECT thread_id, subject, from_addr, to_addrs, cc_addrs FROM messages
+         WHERE user_id = ?1 AND pk != ?2 AND thread_id IS NOT NULL AND date BETWEEN ?3 AND ?4
+         ORDER BY abs(date - ?5) LIMIT 2000",
+    )?;
+    let mut rows = stmt.query(params![
+        user,
+        m.pk,
+        m.date - SUBJECT_WINDOW_MS,
+        m.date + SUBJECT_WINDOW_MS,
+        m.date
+    ])?;
+    while let Some(r) = rows.next()? {
+        if base_subject(&r.get::<_, String>(1)?).0 != base {
+            continue;
+        }
+        let from: Option<Address> = r
+            .get::<_, Option<String>>(2)?
+            .and_then(|f| serde_json::from_str(&f).ok());
+        let to: Vec<Address> = json_col(r, 3)?;
+        let cc: Vec<Address> = json_col(r, 4)?;
+        if emails(from.iter().chain(&to).chain(&cc))
+            .iter()
+            .any(|a| others.contains(&a))
+        {
+            return Ok(Some(r.get(0)?));
+        }
+    }
+    Ok(None)
+}
+
+/// A stored message as threading reads it, before it has a thread.
+struct Unthreaded {
+    pk: i64,
+    user: i64,
+    account_id: String,
+    message_id: Option<String>,
+    in_reply_to: Option<String>,
+    references: Vec<String>,
+    subject: String,
+    date: i64,
+    addresses: Vec<String>,
+}
+
+/// Threads every message without a thread (rows from before threads, or copied in by
+/// [`MailDb::import_legacy`]), oldest first, in one transaction.
+fn thread_unthreaded(conn: &mut Connection) -> Result<()> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let rows: Vec<Unthreaded> = {
+        let mut stmt = tx.prepare(
+            "SELECT m.pk, m.user_id, f.account_id, m.message_id, m.in_reply_to, m.refs, m.subject,
+                    m.date, m.from_addr, m.to_addrs, m.cc_addrs
+             FROM messages m JOIN folders f ON f.id = m.folder_id
+             WHERE m.thread_id IS NULL ORDER BY m.user_id, m.date, m.pk",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            let from: Option<Address> = r
+                .get::<_, Option<String>>(8)?
+                .and_then(|f| serde_json::from_str(&f).ok());
+            let to: Vec<Address> = json_col(r, 9)?;
+            let cc: Vec<Address> = json_col(r, 10)?;
+            Ok(Unthreaded {
+                pk: r.get(0)?,
+                user: r.get(1)?,
+                account_id: r.get(2)?,
+                message_id: r.get(3)?,
+                in_reply_to: r.get(4)?,
+                references: json_col(r, 5)?,
+                subject: r.get(6)?,
+                date: r.get(7)?,
+                addresses: emails(from.iter().chain(&to).chain(&cc)),
+            })
+        })?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    let mut own: HashMap<i64, Vec<String>> = HashMap::new();
+    for m in &rows {
+        if let std::collections::hash_map::Entry::Vacant(e) = own.entry(m.user) {
+            e.insert(own_addresses(&tx, m.user)?);
+        }
+        let link = Linkage {
+            pk: m.pk,
+            account_id: &m.account_id,
+            message_id: m.message_id.as_deref(),
+            in_reply_to: m.in_reply_to.as_deref(),
+            references: &m.references,
+            gmail_thread: None,
+            subject: &m.subject,
+            date: m.date,
+            addresses: m.addresses.clone(),
+        };
+        thread_message(&tx, m.user, &own[&m.user], &link)?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 /// Adds a message's search entry under `pk`.
 fn index(
     conn: &Connection,
@@ -702,6 +964,14 @@ impl Store {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         let mut inserted = Vec::new();
+        let account_id: Option<String> = tx
+            .query_row(
+                "SELECT account_id FROM folders WHERE user_id = ?1 AND id = ?2",
+                params![self.user, folder_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let own = own_addresses(&tx, self.user)?;
         {
             // Selecting the folder through `user_id` makes a folder of another user insert nothing.
             let mut insert = tx.prepare(&format!(
@@ -735,9 +1005,26 @@ impl Store {
                 if n == 0 {
                     continue;
                 }
+                let pk = tx.last_insert_rowid();
+                thread_message(
+                    &tx,
+                    self.user,
+                    &own,
+                    &Linkage {
+                        pk,
+                        account_id: account_id.as_deref().unwrap_or_default(),
+                        message_id: m.message_id.as_deref(),
+                        in_reply_to: m.in_reply_to.as_deref(),
+                        references: &m.references,
+                        gmail_thread: m.gmail_thread,
+                        subject: &m.subject,
+                        date: m.date,
+                        addresses: emails(m.from.iter().chain(&m.to).chain(&m.cc)),
+                    },
+                )?;
                 index(
                     &tx,
-                    tx.last_insert_rowid(),
+                    pk,
                     &m.subject,
                     &addresses_text(m.from.iter()),
                     &addresses_text(m.to.iter().chain(&m.cc)),
@@ -867,13 +1154,13 @@ impl Store {
                 |r| {
                     Ok(StoredMessage {
                         summary: summary_row(r)?,
-                        folder_name: r.get(11)?,
-                        uid: r.get(12)?,
-                        cc: json_col(r, 13)?,
-                        message_id: r.get(14)?,
-                        in_reply_to: r.get(15)?,
-                        references: json_col(r, 16)?,
-                        body: r.get(17)?,
+                        folder_name: r.get(12)?,
+                        uid: r.get(13)?,
+                        cc: json_col(r, 14)?,
+                        message_id: r.get(15)?,
+                        in_reply_to: r.get(16)?,
+                        references: json_col(r, 17)?,
+                        body: r.get(18)?,
                     })
                 },
             )
@@ -915,6 +1202,133 @@ impl Store {
             summary_row,
         )?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Conversations with a message in the folder, by their latest message in view
+    /// ([`in_view`]), newest first; `before` (a thread id) continues after that thread.
+    pub fn threads(&self, q: &ListQuery) -> Result<Vec<Thread>> {
+        let conn = self.conn();
+        let view = q.folder.as_str();
+        let cursor: Option<(i64, &str)> = match &q.before {
+            Some(id) => {
+                let date: Option<i64> = conn.query_row(
+                    &format!(
+                        "SELECT MAX(m.date) FROM messages m JOIN folders f ON f.id = m.folder_id
+                         WHERE m.user_id = ?1 AND m.thread_id = ?4 AND {IN_VIEW}"
+                    ),
+                    params![self.user, view, q.account, id],
+                    |r| r.get(0),
+                )?;
+                let date = date.ok_or_else(|| {
+                    err(ErrorCode::NotFound, format!("no conversation with id {id}"))
+                })?;
+                Some((date, id.as_str()))
+            }
+            None => None,
+        };
+        let ids: Vec<String> = {
+            let mut stmt = conn.prepare(&format!(
+                "SELECT m.thread_id, MAX(m.date) AS latest FROM messages m JOIN folders f ON f.id = m.folder_id
+                 WHERE m.user_id = ?1 AND {IN_VIEW} AND m.thread_id IN (
+                     SELECT l.thread_id FROM messages l JOIN folders lf ON lf.id = l.folder_id
+                     WHERE l.user_id = ?1 AND lf.user_id = ?1 AND lf.kind = ?2
+                       AND (?3 IS NULL OR lf.account_id = ?3))
+                 GROUP BY m.thread_id
+                 HAVING ?4 IS NULL OR latest < ?4 OR (latest = ?4 AND m.thread_id < ?5)
+                 ORDER BY latest DESC, m.thread_id DESC LIMIT ?6"
+            ))?;
+            let rows = stmt.query_map(
+                params![
+                    self.user,
+                    view,
+                    q.account,
+                    cursor.map(|c| c.0),
+                    cursor.map(|c| c.1),
+                    q.limit.clamp(1, 500)
+                ],
+                |r| r.get(0),
+            )?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        let mut members: HashMap<String, Vec<(Summary, Option<String>)>> = HashMap::new();
+        {
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {SUMMARY_COLUMNS}, m.message_id FROM messages m JOIN folders f ON f.id = m.folder_id
+                 WHERE m.user_id = ?1 AND {IN_VIEW} AND m.thread_id IN (SELECT value FROM json_each(?4))
+                 ORDER BY m.pk"
+            ))?;
+            let rows = stmt.query_map(
+                params![self.user, view, q.account, serde_json::to_string(&ids)?],
+                |r| Ok((summary_row(r)?, r.get::<_, Option<String>>(12)?)),
+            )?;
+            for row in rows {
+                let (summary, message_id) = row?;
+                members
+                    .entry(summary.thread_id.clone())
+                    .or_default()
+                    .push((summary, message_id));
+            }
+        }
+        Ok(ids
+            .into_iter()
+            .filter_map(|id| {
+                let messages = conversation(members.remove(&id)?);
+                Thread::of(id, &messages)
+            })
+            .collect())
+    }
+
+    /// Every message of a thread, in any folder and account, oldest first, each once
+    /// ([`conversation`]).
+    pub fn thread(&self, id: &str) -> Result<Vec<Summary>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {SUMMARY_COLUMNS}, m.message_id FROM messages m JOIN folders f ON f.id = m.folder_id
+             WHERE m.user_id = ?1 AND m.thread_id = ?2 ORDER BY m.pk"
+        ))?;
+        let rows = stmt.query_map(params![self.user, id], |r| {
+            Ok((summary_row(r)?, r.get::<_, Option<String>>(12)?))
+        })?;
+        let messages = conversation(rows.collect::<rusqlite::Result<_>>()?);
+        if messages.is_empty() {
+            return Err(err(
+                ErrorCode::NotFound,
+                format!("no conversation with id {id}"),
+            ));
+        }
+        Ok(messages)
+    }
+
+    /// Every stored copy of a thread's messages, oldest first.
+    pub fn thread_copies(&self, id: &str) -> Result<Vec<Located>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {LOCATED_COLUMNS} FROM messages m JOIN folders f ON f.id = m.folder_id
+             WHERE m.user_id = ?1 AND m.thread_id = ?2 ORDER BY m.date, m.pk"
+        ))?;
+        let rows = stmt.query_map(params![self.user, id], located_row)?;
+        let copies: Vec<Located> = rows.collect::<rusqlite::Result<_>>()?;
+        if copies.is_empty() {
+            return Err(err(
+                ErrorCode::NotFound,
+                format!("no conversation with id {id}"),
+            ));
+        }
+        Ok(copies)
+    }
+
+    pub fn located(&self, id: &str) -> Result<Located> {
+        self.conn()
+            .query_row(
+                &format!(
+                    "SELECT {LOCATED_COLUMNS} FROM messages m JOIN folders f ON f.id = m.folder_id
+                     WHERE m.user_id = ?1 AND m.id = ?2"
+                ),
+                params![self.user, id],
+                located_row,
+            )
+            .optional()?
+            .ok_or_else(|| not_found(id))
     }
 
     /// Unread messages in each account's inbox.
@@ -979,6 +1393,21 @@ fn summary_row(r: &Row) -> rusqlite::Result<Summary> {
         seen: r.get(8)?,
         flagged: r.get(9)?,
         has_attachments: r.get(10)?,
+        thread_id: r.get(11)?,
+    })
+}
+
+fn located_row(r: &Row) -> rusqlite::Result<Located> {
+    let kind: String = r.get(2)?;
+    Ok(Located {
+        id: r.get(0)?,
+        account_id: r.get(1)?,
+        folder: FolderKind::parse(&kind).unwrap_or(FolderKind::Inbox),
+        folder_name: r.get(3)?,
+        uid: r.get(4)?,
+        seen: r.get(5)?,
+        flagged: r.get(6)?,
+        date: r.get(7)?,
     })
 }
 

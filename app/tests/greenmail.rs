@@ -240,20 +240,21 @@ fn local_mode_reads_replies_and_searches_real_mail() {
         ]
     );
 
-    // The reply is in Sent, and search finds it.
+    // Sent lists the conversation: Alice's message, the reply and the forward. It opens on the
+    // forward, with what it sent, the earlier two collapsed above.
     step(&mut app, |a| a.press("text:Sent"));
     step(&mut app, |a| {
-        a.wait_for_within("id:messages >> text:Re: Lunch on Friday?", WAIT)
+        a.wait_for_within("id:messages >> text:Lunch on Friday?", WAIT)
     });
-    // So is the forward, with what it sent.
     step(&mut app, |a| {
-        a.press("id:messages >> text:Fwd: Lunch on Friday?")
+        a.press("id:messages >> text:Lunch on Friday?")
     });
     for name in ["菜单.pdf", "报告 2026.pdf", "image.png"] {
         step(&mut app, |a| {
             a.wait_for_within(&format!("id:reader >> text:{name}"), WAIT)
         });
     }
+    step(&mut app, |a| a.wait_for_within("id:thread-older", WAIT));
     step(&mut app, |a| a.type_text("id:search", "Lunch"));
     step(&mut app, |a| {
         a.wait_for_within("id:results >> text:Re: Lunch on Friday?", WAIT)

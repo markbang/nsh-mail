@@ -65,6 +65,10 @@ Mail.addImap(input: ImapInput): Promise<Account>   // connects to IMAP and SMTP 
 Mail.addOAuth(provider: "google"|"microsoft"): Promise<Account>
 Mail.removeAccount(id): Promise<void>
 Mail.list(q: { folder: "inbox"|"sent"|"drafts"|"archive"|"trash", account?, before?, limit }): Promise<Summary[]>
+Mail.threads(q): Promise<Thread[]>                 // conversations, as `list` pages messages (§4 Conversations); `before` is a thread id
+Mail.thread(id): Promise<Summary[]>                // a conversation's messages, oldest first, in every folder and account
+Mail.setThreadFlags(id, { seen?, flagged? }): Promise<void>   // read/unread for all of it; flagging flags its latest message, unflagging all
+Mail.moveThread(id, "archive" | "trash"): Promise<void>       // archive: its inbox messages; trash: all of it, Sent included
 Mail.get(id): Promise<Message>                     // body already sanitized, layout tables turned into blocks (see §7); attachment metadata
 Mail.openAttachment(id, attachment): Promise<string | null>  // web: images/PDF open in a new tab, everything else downloads; desktop: system save dialog, then open with the default app;
                                                    // without a save dialog (Android) saved to the app directory, then opened. Returns the path of a saved file no app could open
@@ -83,7 +87,7 @@ Mail.on(listener: (e: MailEvent) => void): () => void   // newMail / changed / s
 Push.setToken(token): Promise<void>                // FCM token from the Android host (§5), registered with the server in cloud mode
 ```
 
-A message id is the local store's stable string id; in cloud mode it is the server's id. Unified inbox = every account's INBOX merged, newest first.
+A message id is the local store's stable string id; in cloud mode it is the server's id. Unified inbox = every account's INBOX merged, newest first. Every `Summary` carries its `threadId`; a `Thread` is `{id, subject, latest: Summary, count, unread, participants, hasAttachments, flagged}`.
 
 Every type's fields match `mail_core::types` one to one, with the same JSON shape (serde tags become `type`/`kind` fields, `Message` flattens `Summary`'s fields); `list`'s `before` is the id of the last message of the previous page; `MailEvent` is discriminated by `type`. These types are `mail_core::types`: the backends use them directly and they cross the boundary as serde JSON through `Js<T>` in `app/src/types.rs`, whose TS declarations are hand-written in the same file (the web compiles only mail-core's `types`, without the engine).
 
@@ -103,7 +107,7 @@ TSX ──Mail.*──▶ Rust LocalBackend ──tokio/rustls──▶ IMAP (99
 3. Incremental: new mail is whatever lies above the highest UID stored locally (`UID FETCH n:*`, RFC 4549 §4.3.1); `UIDNEXT` is only used to tell whether there is new mail, never as a high-water mark (a server may assign a UID before the message becomes visible); with `CONDSTORE`, flags are synced through `HIGHESTMODSEQ`; when UIDVALIDITY changes the folder is rebuilt.
 4. Real time: `IDLE` on INBOX; an `EXISTS`/`EXPUNGE`/`FETCH` (flags changed by another client) triggers an INBOX sync; IDLE is reissued every 30 seconds because some servers (such as GreenMail) hold flag changes made elsewhere until IDLE ends; a full sync runs every 29 minutes. Servers without IDLE are polled every 2 minutes. One command connection per account, reused; when the reused connection has been closed by the server (idle timeout), the command is retried once on a new connection, and other errors are not retried. Connection or sync errors are logged (with the account id), followed by a reconnect with backoff from 5 seconds to 5 minutes and a full sync. After new mail is written to the store a `newMail` event fires, plus a system notification when the app is not in the foreground.
 5. Sending: lettre sends over SMTP, then on success `APPEND`s to "Sent" (except Gmail, which saves it on its own).
-6. Search: local FTS5 (subject, from, to, body); old mail not stored locally will get IMAP `SEARCH` in a later version.
+6. Search: local FTS5 (subject, from, to, body); old mail not stored locally will get IMAP `SEARCH` in a later version. Results stay one per message; opening one opens its conversation.
 
 On desktop, closing the main window leaves the app in the tray, IDLE continues and system notifications work as usual. Android local mode syncs only while the app is open (no background service); background push needs cloud mode, as the settings page says.
 
@@ -133,6 +137,18 @@ A draft's `attachments` are `{kind: "upload", id}` (a file staged with `Mail.sta
 - Encoding: lettre builds `multipart/mixed`, with the file name in `Content-Disposition` per RFC 2231 and the `name` of `Content-Type` per RFC 2047 (the only one old clients understand). What gets `APPEND`ed to "Sent" is the whole message as sent, attachments included.
 - Server: chunks are stored in `data/uploads/<user>/<id>` (metadata in `<id>.json`), deleted once sending succeeds; the rest are deleted after 24 hours by an hourly cleanup.
 
+### Conversations
+
+mail-core threads every message as it is stored (`store.rs`), in both modes and for every user of the server's database alike:
+
+- **Keys**: a message's own `Message-ID`, the ones in `In-Reply-To` and `References`, and on Gmail (`X-GM-EXT-1`) its `X-GM-THRID` as `gm:<account>:<id>` map to a thread id in `thread_keys (user_id, key, thread_id)`. A message joins the thread its keys already map to; keys of several threads merge them (JWZ's "these belong together", without its container tree). The keys outlive their messages, so a late reply still finds its thread; `messages.thread_id` is indexed by `(user_id, thread_id)`.
+- **Without references**: a reply (`Re:`, `Fwd:`, `AW:`, `回复：`, `转发：`, list tags, …) that references nothing joins the latest message within 30 days with the same base subject and someone besides the user in common. A subject alone never merges: two "Lunch" mails from strangers stay apart.
+- **Across accounts**: threads belong to the user, not an account, so a reply between two of one's own accounts is one conversation. Copies of one message (same `Message-ID`: Gmail's All Mail beside the inbox, mail between one's own accounts) count once, the inbox's copy first.
+- **Lists**: a folder lists the conversations with a message in it, ordered by their latest message. A row counts what is in Inbox, Sent and Archive (Trash and Drafts list only their own); a one-account view counts only that account. Paging uses `(latest date, thread id)`. The list query groups the user's messages on each page, linear in the mailbox; fine for the 500-per-folder window, a `threads` summary table is the next step if it is not.
+- **Actions**: archive moves the conversation's inbox messages, delete moves all of it to Trash (Sent included, as Gmail does), one IMAP command per folder (`UID MOVE` with a UID set); read/unread one `UID STORE` per folder.
+- **Migration**: opening a database from before threads adds the column and threads every message in one transaction, oldest first; so does importing an old per-user server database.
+- **Client**: "Group by conversation" (Settings → Reading, on by default, `Storage` `nshmail.threads`) switches the lists between `threads` and `list`. The reader shows a conversation as stacked messages: the expanded one (the latest when it opens) with its body, older ones collapsed above it (past three: the first, "N more" and the last), newer ones below; a tap expands another. The HTML body has no height of its own (the web view runs no script to measure it), so one message is expanded at a time. Reply and forward act on the expanded message; its menu marks it unread or deletes it alone.
+
 ### Server API
 
 ```
@@ -146,6 +162,8 @@ GET  /v1/messages/{id}/attachments/{index}  attachment bytes: Content-Type is it
                                             CSP sandbox + nosniff; fetched from IMAP and cached when the body is not stored locally
 PATCH /v1/messages/{id}  {seen?, flagged?}
 POST /v1/messages/{id}/move  {folder}     move to another folder of the same account (archive, delete to Trash)
+GET  /v1/threads?folder=&account=&before=&limit=          GET /v1/threads/{id}   (a conversation's messages, oldest first)
+PATCH /v1/threads/{id}  {seen?, flagged?}   POST /v1/threads/{id}/move  {folder: "archive"|"trash"}
 POST /v1/send            GET /v1/search?q=&limit=      GET /v1/unread → {accountId: unread count}
 POST /v1/uploads         {filename, mimeType, size} → Upload {id, filename, mimeType, size}
 PATCH /v1/uploads/{id}?offset=   raw chunk bytes (≤ 4 MiB) → {received}      DELETE /v1/uploads/{id}

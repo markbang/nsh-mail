@@ -192,6 +192,22 @@ impl Backend for LocalBackend {
         self.call(|e| async move { e.list(query).await })
     }
 
+    fn threads(&self, query: ListQuery) -> MailFuture<'_, Vec<Thread>> {
+        self.call(|e| async move { e.threads(query).await })
+    }
+
+    fn thread(&self, id: String) -> MailFuture<'_, Vec<Summary>> {
+        self.call(|e| async move { e.thread(&id).await })
+    }
+
+    fn set_thread_flags(&self, id: String, flags: Flags) -> MailFuture<'_, ()> {
+        self.call(|e| async move { e.set_thread_flags(&id, flags).await })
+    }
+
+    fn move_thread(&self, id: String, folder: FolderKind) -> MailFuture<'_, ()> {
+        self.call(move |e| async move { e.move_thread(&id, folder).await })
+    }
+
     fn get(&self, id: String) -> MailFuture<'_, Message> {
         self.call(|e| async move { e.get(&id).await })
     }

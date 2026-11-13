@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drives nsh-mail on a running emulator with adb and screenshots each screen,
 in light and dark mode: inbox, swipe to archive and Undo, selection, pull to
-refresh, reader, compose, search, mailboxes, settings, a tab switch that must
+refresh, reader, a conversation, compose, search, mailboxes, settings, a tab switch that must
 keep the inbox's scroll position; then larger text and a tablet-sized screen.
 
 Usage: android-ui.py <dir with the APK> <screenshot dir>
@@ -16,7 +16,7 @@ failures = []
 
 
 def adb(*args, check=True):
-    return subprocess.run(["adb", *args], check=check, capture_output=True, text=True).stdout
+    return subprocess.run(["adb", *args], check=check, capture_output=True, encoding="utf-8", errors="replace").stdout
 
 
 def shot(name):
@@ -179,6 +179,16 @@ for mode in ("light", "dark"):
         back()
     back()
     wait("id:messages")
+
+    # A conversation: its latest message expanded, the earlier ones collapsed above; a tap expands one.
+    if tap("Offsite in March: Lisbon or Porto?"):
+        wait("id:thread-older")
+        shot(f"{mode}-thread")
+        if tap("id:thread-older"):
+            wait("id:thread-newer")
+            shot(f"{mode}-thread-older")
+        back()
+        wait("id:messages")
 
     # The FAB menu: New message, Add account.
     if tap("id:fab-menu"):

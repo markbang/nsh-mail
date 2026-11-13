@@ -331,6 +331,29 @@ impl Mail {
         backend()?.list(query.0).await.map(Js).map_err(js)
     }
 
+    /// A page of conversations in a folder, newest first; `before` is the
+    /// previous page's last conversation.
+    pub async fn threads(query: Js<ListQuery>) -> Result<Js<Vec<Thread>>, JsError> {
+        backend()?.threads(query.0).await.map(Js).map_err(js)
+    }
+
+    /// A conversation's messages, oldest first, in every folder and account.
+    pub async fn thread(id: String) -> Result<Js<Vec<Summary>>, JsError> {
+        backend()?.thread(id).await.map(Js).map_err(js)
+    }
+
+    /// Marks a whole conversation read or unread; flagging flags its latest
+    /// message, unflagging every one.
+    pub async fn set_thread_flags(id: String, flags: Js<Flags>) -> Result<(), JsError> {
+        backend()?.set_thread_flags(id, flags.0).await.map_err(js)
+    }
+
+    /// Archives a conversation (its messages in the inbox) or deletes it (all
+    /// of its messages go to Trash).
+    pub async fn move_thread(id: String, folder: Js<FolderKind>) -> Result<(), JsError> {
+        backend()?.move_thread(id, folder.0).await.map_err(js)
+    }
+
     /// A whole message.
     pub async fn get(id: String) -> Result<Js<Message>, JsError> {
         backend()?.get(id).await.map(Js).map_err(js)

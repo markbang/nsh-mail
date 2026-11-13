@@ -68,6 +68,7 @@ fn envelope(raw: &[u8], internal_date: Option<i64>) -> NewMessage {
             size: 0,
             body: None,
             index_text: None,
+            gmail_thread: None,
         };
     };
     let m = msg.root();
@@ -99,6 +100,7 @@ fn envelope(raw: &[u8], internal_date: Option<i64>) -> NewMessage {
         size: 0,
         body: None,
         index_text: None,
+        gmail_thread: None,
     }
 }
 

@@ -5,12 +5,56 @@ import { batch, resource, signal, Storage } from "nsh";
 import { t } from "nsh/i18n";
 import { fileSize } from "./lib/format";
 import { clearDrafts, loadDrafts } from "./drafts";
-import { Mail, type Account, type Flags, type Folder, type MailEvent, type Status, type Summary } from "nsh-mail/native";
+import { Mail, type Account, type Address, type Flags, type Folder, type MailEvent, type Status, type Summary, type Thread } from "nsh-mail/native";
 
 const PAGE = 30;
 /** The most results a search shows. */
 export const SEARCH_LIMIT = 50;
 const NOTIFY_KEY = "nshmail.notify";
+const THREADS_KEY = "nshmail.threads";
+
+/** A row of a list: a conversation, or one message (search results, conversations turned off). */
+export interface Row {
+  /** The thread's id, or the message's. */
+  key: string;
+  /** A conversation rather than one message. */
+  thread: boolean;
+  threadId: string;
+  latest: Summary;
+  subject: string;
+  count: number;
+  unread: number;
+  /** Who wrote, oldest first. */
+  participants: Address[];
+  hasAttachments: boolean;
+  flagged: boolean;
+}
+
+const threadRow = (t: Thread): Row => ({
+  key: t.id,
+  thread: true,
+  threadId: t.id,
+  latest: t.latest,
+  subject: t.subject,
+  count: t.count,
+  unread: t.unread,
+  participants: t.participants,
+  hasAttachments: t.hasAttachments,
+  flagged: t.flagged,
+});
+
+const messageRow = (m: Summary): Row => ({
+  key: m.id,
+  thread: false,
+  threadId: m.threadId,
+  latest: m,
+  subject: m.subject,
+  count: 1,
+  unread: m.seen ? 0 : 1,
+  participants: m.from ? [m.from] : [],
+  hasAttachments: m.hasAttachments,
+  flagged: m.flagged,
+});
 
 export interface Mailbox {
   /** One account's id; null is every account (the unified view). */
@@ -22,20 +66,24 @@ const status = signal<Status>(Mail.status());
 const started = signal(false);
 const accountList = signal<Account[]>([]);
 const box = signal<Mailbox>({ account: null, folder: "inbox" });
-const items = signal<Summary[]>([]);
+const items = signal<Row[]>([]);
 const listState = signal<"idle" | "loading" | "refreshing" | "more" | "error">("idle");
 const more = signal(true);
 const selected = signal<string | null>(null);
+// The open conversation, as soon as it is chosen (its messages load after).
+const selectedThread = signal<string | null>(null);
 const query = signal("");
-const results = signal<Summary[] | null>(null);
+const results = signal<Row[] | null>(null);
 export interface ToastAction {
   label: string;
   run: () => void;
 }
 const toastMessage = signal<{ id: number; text: string; tone: "neutral" | "error"; action?: ToastAction } | null>(null);
 const notifyOn = signal(true);
+const threadsOn = signal(true);
 const unreadCounts = signal<Record<string, number>>({});
-// Archived or deleted on screen, still undoable: hidden from the lists until the move is done.
+// Archived or deleted on screen, still undoable: hidden from the lists until the move is done. By
+// row key; a conversation's id also hides its messages among search results.
 const leaving = signal<Record<string, true>>({});
 // Long-press selection on phones.
 const picked = signal<Record<string, true>>({});
@@ -55,20 +103,30 @@ export const accountName = (id: string | null | undefined) => {
   const name = a.name?.trim();
   return name && accountList().filter((o) => o.name?.trim() === name).length === 1 ? name : a.email;
 };
+/** The user's own addresses, in lower case: "me" in a conversation. */
+export const ownAddresses = () => new Set(accountList().map((a) => a.email.toLowerCase()));
 export const mailbox = () => box();
-export const messages = () => {
+const shown = (row: Row, gone: Record<string, true>) => !gone[row.key] && !gone[row.threadId];
+/** The mailbox's rows: conversations, or messages when they are turned off. */
+export const rows = () => {
   const gone = leaving();
-  return items().filter((m) => !gone[m.id]);
+  return items().filter((r) => shown(r, gone));
 };
 export const listStatus = () => listState();
 export const hasMore = () => more();
+/** The message the reader shows (in a conversation, the one expanded). */
 export const selectedId = () => selected();
+/** The row the reader shows: its conversation, or its message. */
+export const selectedKey = () => (threadsOn() ? (selectedThread() ?? current()?.threadId ?? null) : selected());
 export const searchQuery = () => query();
 export const searchResults = () => {
   const gone = leaving();
   const list = results();
-  return list && list.filter((m) => !gone[m.id]);
+  return list && list.filter((r) => shown(r, gone));
 };
+export const conversationsEnabled = () => threadsOn();
+/** Archived or deleted, its Undo still open. */
+export const isLeaving = (key: string) => !!leaving()[key];
 export const pickedIds = () => Object.keys(picked());
 export const isPicked = (id: string) => !!picked()[id];
 export const picking = () => pickedIds().length > 0;
@@ -93,6 +151,21 @@ export const unreadCount = (id: string | null) => {
 
 /** The open message, loaded whole. */
 export const current = resource(selected, (id) => Mail.get(id));
+/** The message the reader shows: the selected one once loaded; while another message of the same
+ * conversation loads, the one before it, so the conversation stays on screen. */
+export const shownMessage = () => {
+  const m = current();
+  const id = selected();
+  if (!m || !id) return undefined;
+  if (m.id === id) return m;
+  const thread = conversation();
+  return threadsOn() && thread?.some((s) => s.id === id) && thread.some((s) => s.id === m.id) ? m : undefined;
+};
+/** The open message's conversation, oldest first, while conversations are on. */
+export const conversation = resource(
+  () => (threadsOn() ? current()?.threadId : undefined) || undefined,
+  (id) => Mail.thread(id),
+);
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let toastId = 0;
@@ -111,9 +184,10 @@ export function dismissToast() {
 // Material: a snackbar with an action stays long enough to reach it.
 const UNDO_MS = 8000;
 
-/** Archives or deletes messages: they leave the lists at once, and move on the server once
- * the Undo has passed; a failure brings them back with the error. */
-export function moveMessages(ids: string[], folder: "archive" | "trash") {
+/** Archives or deletes rows (`thread`: conversations by id, else messages): they leave the
+ * lists at once, and move on the server once the Undo has passed; a failure brings them back
+ * with the error. */
+export function moveMessages(ids: string[], folder: "archive" | "trash", thread = false) {
   if (!ids.length) return;
   const mark = (on: boolean) =>
     leaving.update((l) => {
@@ -125,20 +199,21 @@ export function moveMessages(ids: string[], folder: "archive" | "trash") {
       return next;
     });
   mark(true);
-  if (ids.includes(selected() ?? "")) selected.set(null);
+  if (ids.includes((thread ? selectedKey() : selected()) ?? "")) close();
   let undone = false;
   const commit = setTimeout(async () => {
     if (undone) return;
     const failed: unknown[] = [];
-    await Promise.all(ids.map((id) => Mail.moveTo(id, folder).catch((e: unknown) => failed.push(e))));
+    const move = (id: string) => (thread ? Mail.moveThread(id, folder) : Mail.moveTo(id, folder));
+    await Promise.all(ids.map((id) => move(id).catch((e: unknown) => failed.push(e))));
     await reload();
     if (results()) void runSearch(query());
     mark(false);
     void loadUnread();
     if (failed.length) showToast(errorText(failed[0]), "error");
   }, UNDO_MS);
-  const key = folder === "archive" ? "archived" : "deleted";
-  showToast(ids.length === 1 ? t(`actions.${key}One`) : t(`actions.${key}`, { count: ids.length }), "neutral", {
+  const key = `${folder === "archive" ? "archived" : "deleted"}${thread ? "Threads" : ""}`;
+  showToast(ids.length === 1 ? t(`actions.${folder === "archive" ? "archived" : "deleted"}One`) : t(`actions.${key}`, { count: ids.length }), "neutral", {
     label: t("actions.undo"),
     run: () => {
       undone = true;
@@ -146,6 +221,19 @@ export function moveMessages(ids: string[], folder: "archive" | "trash") {
       mark(false);
       dismissToast();
     },
+  });
+}
+
+/** Archives or deletes what the reader shows: its conversation, or its message. */
+export function moveOpen(folder: "archive" | "trash") {
+  const key = selectedKey();
+  if (key) moveMessages([key], folder, threadsOn());
+}
+
+function close() {
+  batch(() => {
+    selected.set(null);
+    selectedThread.set(null);
   });
 }
 
@@ -194,6 +282,7 @@ function heard(e: MailEvent) {
     void reload();
     void loadUnread();
     if (query().trim()) void runSearch(query());
+    if (conversation()) conversation.refetch();
   }
 }
 
@@ -202,8 +291,9 @@ Mail.on(heard);
 
 /** Opens the engine and loads the first page. */
 export async function start() {
-  const saved = await Storage.getItem(NOTIFY_KEY);
+  const [saved, threads] = await Promise.all([Storage.getItem(NOTIFY_KEY), Storage.getItem(THREADS_KEY)]);
   notifyOn.set(saved !== "off");
+  threadsOn.set(threads !== "off");
   await loadDrafts();
   try {
     status.set(await Mail.init());
@@ -242,7 +332,7 @@ export async function reload(state: "loading" | "refreshing" = "loading") {
   const { account, folder } = box();
   listState.set(state);
   try {
-    const page = await Mail.list({ folder, account, limit: Math.max(PAGE, items().length) });
+    const page = await listPage({ folder, account, limit: Math.max(PAGE, items().length) });
     if (token !== loadToken) return;
     batch(() => {
       items.set(page);
@@ -256,6 +346,11 @@ export async function reload(state: "loading" | "refreshing" = "loading") {
   }
 }
 
+async function listPage(q: { folder: Folder; account: string | null; before?: string; limit: number }): Promise<Row[]> {
+  if (threadsOn()) return (await Mail.threads(q)).map(threadRow);
+  return (await Mail.list(q)).map(messageRow);
+}
+
 export async function loadMore() {
   const last = items()[items().length - 1];
   if (!last || !more() || listState() !== "idle") return;
@@ -263,10 +358,10 @@ export async function loadMore() {
   const { account, folder } = box();
   listState.set("more");
   try {
-    const page = await Mail.list({ folder, account, before: last.id, limit: PAGE });
+    const page = await listPage({ folder, account, before: last.key, limit: PAGE });
     if (token !== loadToken) return;
     batch(() => {
-      items.update((list) => [...list, ...page.filter((m) => !list.some((l) => l.id === m.id))]);
+      items.update((list) => [...list, ...page.filter((r) => !list.some((l) => l.key === r.key))]);
       more.set(page.length >= PAGE);
       listState.set("idle");
     });
@@ -295,24 +390,33 @@ export function openMailbox(next: Mailbox) {
     items.set([]);
     more.set(true);
     selected.set(null);
+    selectedThread.set(null);
   });
   void reload();
 }
 
+// A message's flags changed: its rows, its conversation and the reader follow.
 function patch(id: string, flags: Flags) {
   const apply = <T extends { id: string; seen: boolean; flagged: boolean }>(m: T): T =>
     m.id === id ? { ...m, seen: flags.seen ?? m.seen, flagged: flags.flagged ?? m.flagged } : m;
+  const applyRow = (r: Row): Row => {
+    if (r.latest.id !== id || r.thread) return r;
+    const latest = apply(r.latest);
+    return { ...r, latest, unread: latest.seen ? 0 : 1, flagged: latest.flagged };
+  };
   batch(() => {
-    items.update((list) => list.map(apply));
-    results.update((list) => list && list.map(apply));
+    items.update((list) => list.map(applyRow));
+    results.update((list) => list && list.map(applyRow));
+    const messages = conversation();
+    if (messages?.some((m) => m.id === id)) conversation.mutate(messages.map(apply));
     const open = current();
     if (open?.id === id) current.mutate(apply(open));
   });
 }
 
-/** Changes flags at once on screen, and puts them back if the engine refuses. */
+/** Changes a message's flags at once on screen, and puts them back if the engine refuses. */
 export async function setFlags(id: string, flags: Flags) {
-  const before = [...items(), ...(results() ?? [])].find((m) => m.id === id) ?? current();
+  const before = [...items().map((r) => r.latest), ...(results() ?? []).map((r) => r.latest), ...(conversation() ?? [])].find((m) => m.id === id) ?? current();
   patch(id, flags);
   try {
     await Mail.setFlags(id, flags);
@@ -323,20 +427,68 @@ export async function setFlags(id: string, flags: Flags) {
   if (flags.seen !== undefined) void loadUnread();
 }
 
-/** Shows a message, marking it read. */
-export function openMessage(id: string | null) {
-  selected.set(id);
-  const m = id && [...items(), ...(results() ?? [])].find((s) => s.id === id);
-  if (m && !m.seen) void setFlags(id, { seen: true });
+/** Marks a conversation read or unread, or flags it (its latest message), at once on screen. */
+export async function setThreadFlags(threadId: string, flags: Flags) {
+  const applyRow = (r: Row): Row =>
+    r.threadId !== threadId
+      ? r
+      : {
+          ...r,
+          unread: flags.seen === undefined ? r.unread : flags.seen ? 0 : r.count,
+          flagged: flags.flagged ?? r.flagged,
+          latest: { ...r.latest, seen: flags.seen ?? r.latest.seen },
+        };
+  const applyMessage = <T extends Summary>(m: T): T => (m.threadId === threadId ? { ...m, seen: flags.seen ?? m.seen } : m);
+  batch(() => {
+    items.update((list) => list.map(applyRow));
+    results.update((list) => list && list.map((r) => ({ ...r, latest: applyMessage(r.latest), unread: applyMessage(r.latest).seen ? 0 : 1 })));
+    const messages = conversation();
+    if (messages) conversation.mutate(messages.map(applyMessage));
+    const open = current();
+    if (open) current.mutate(applyMessage(open));
+  });
+  try {
+    await Mail.setThreadFlags(threadId, flags);
+  } catch (e) {
+    // The engine's state, not the guess: the rows and the conversation load again.
+    showToast(errorText(e), "error");
+    void reload();
+    if (conversation()) conversation.refetch();
+  }
+  if (flags.seen !== undefined) void loadUnread();
 }
 
-/** The message `step` rows away from the open one (j / k). */
+/** Opens a row: a conversation shows its latest message expanded and is marked read. */
+export function openRow(row: Row) {
+  if (!row.thread) {
+    openMessage(row.key);
+    return;
+  }
+  batch(() => {
+    selected.set(row.latest.id);
+    selectedThread.set(row.threadId);
+  });
+  if (row.unread > 0) void setThreadFlags(row.threadId, { seen: true });
+}
+
+/** Shows a message (in its conversation, while they are on), marking it read. */
+export function openMessage(id: string | null) {
+  const m = id ? [...items().map((r) => r.latest), ...(results() ?? []).map((r) => r.latest), ...(conversation() ?? [])].find((s) => s.id === id) : undefined;
+  batch(() => {
+    selected.set(id);
+    selectedThread.set(threadsOn() ? (m?.threadId ?? null) : null);
+  });
+  if (id && m && !m.seen) void setFlags(id, { seen: true });
+}
+
+/** The row `step` rows away from the open one (j / k). */
 export function stepMessage(step: number) {
-  const list = results() ?? items();
+  const list = results() ?? rows();
   if (!list.length) return;
-  const at = list.findIndex((m) => m.id === selected());
+  const open = results() ? selected() : selectedKey();
+  const at = list.findIndex((r) => r.key === open);
   const next = at < 0 ? 0 : Math.min(list.length - 1, Math.max(0, at + step));
-  openMessage(list[next].id);
+  openRow(list[next]);
 }
 
 let searchToken = 0;
@@ -349,7 +501,7 @@ export async function runSearch(text: string) {
   }
   try {
     const found = await Mail.search(text, SEARCH_LIMIT);
-    if (token === searchToken) results.set(found);
+    if (token === searchToken) results.set(found.map(messageRow));
   } catch (e) {
     if (token === searchToken) showToast(errorText(e), "error");
   }
@@ -372,6 +524,13 @@ export function clearSearch() {
   });
 }
 
+/** Groups the lists by conversation, or lists every message on its own. */
+export async function setConversationsEnabled(on: boolean) {
+  threadsOn.set(on);
+  openMailbox(box());
+  await Storage.setItem(THREADS_KEY, on ? "on" : "off");
+}
+
 export async function setNotificationsEnabled(on: boolean) {
   notifyOn.set(on);
   await Storage.setItem(NOTIFY_KEY, on ? "on" : "off");
@@ -385,6 +544,7 @@ export async function sessionChanged() {
     items.set([]);
     accountList.set([]);
     selected.set(null);
+    selectedThread.set(null);
     results.set(null);
     query.set("");
     box.set({ account: null, folder: "inbox" });

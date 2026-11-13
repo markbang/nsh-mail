@@ -6,6 +6,7 @@ use std::fmt;
 
 pub type AccountId = String;
 pub type MessageId = String;
+pub type ThreadId = String;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
@@ -158,6 +159,116 @@ pub struct Summary {
     pub seen: bool,
     pub flagged: bool,
     pub has_attachments: bool,
+    /// The conversation it belongs to; spans accounts when they share messages.
+    #[serde(default)]
+    pub thread_id: ThreadId,
+}
+
+/// A conversation as a list shows it: the messages of one thread in the listed view, copies of one
+/// message (same `Message-ID`) counted once.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Thread {
+    pub id: ThreadId,
+    /// The first message's subject.
+    pub subject: String,
+    pub latest: Summary,
+    pub count: u32,
+    pub unread: u32,
+    /// Senders, oldest first, each once.
+    pub participants: Vec<Address>,
+    pub has_attachments: bool,
+    pub flagged: bool,
+}
+
+impl Thread {
+    /// The row of a conversation from its messages, oldest first (see [`conversation`]).
+    pub fn of(id: ThreadId, messages: &[Summary]) -> Option<Thread> {
+        let latest = messages.last()?.clone();
+        let mut participants: Vec<Address> = Vec::new();
+        for from in messages.iter().filter_map(|m| m.from.as_ref()) {
+            if !participants
+                .iter()
+                .any(|p| p.email.eq_ignore_ascii_case(&from.email))
+            {
+                participants.push(from.clone());
+            }
+        }
+        Some(Thread {
+            id,
+            subject: messages[0].subject.clone(),
+            count: messages.len() as u32,
+            unread: messages.iter().filter(|m| !m.seen).count() as u32,
+            participants,
+            has_attachments: messages.iter().any(|m| m.has_attachments),
+            flagged: messages.iter().any(|m| m.flagged),
+            latest,
+        })
+    }
+}
+
+/// Whether a message in `folder` belongs to a conversation listed in `view`: Trash and Drafts
+/// list only their own messages; every other folder lists the whole conversation (the replies in
+/// Sent beside the inbox's), without what is in Trash or Drafts.
+pub fn in_view(folder: FolderKind, view: FolderKind) -> bool {
+    match view {
+        FolderKind::Trash | FolderKind::Drafts => folder == view,
+        _ => !matches!(folder, FolderKind::Trash | FolderKind::Drafts),
+    }
+}
+
+/// A thread's messages (in the order they were stored) oldest first, each message once: copies sharing a `Message-ID` (Gmail's
+/// All Mail beside the inbox, mail between one's own accounts) keep the inbox's, else the first
+/// folder of [`FolderKind::ALL`].
+pub fn conversation(mut messages: Vec<(Summary, Option<String>)>) -> Vec<Summary> {
+    let rank = |f: FolderKind| FolderKind::ALL.iter().position(|k| *k == f).unwrap_or(0);
+    // Stable: messages sent within the same second keep the order they came in.
+    messages.sort_by_key(|(m, _)| m.date);
+    let mut out: Vec<(Summary, Option<String>)> = Vec::with_capacity(messages.len());
+    for (m, mid) in messages {
+        match mid
+            .as_ref()
+            .and_then(|mid| out.iter_mut().find(|(_, o)| o.as_ref() == Some(mid)))
+        {
+            Some((kept, _)) if rank(m.folder) < rank(kept.folder) => *kept = m,
+            Some(_) => {}
+            None => out.push((m, mid)),
+        }
+    }
+    out.into_iter().map(|(m, _)| m).collect()
+}
+
+/// A subject without its reply and forward prefixes (`Re:`, `Fwd:`, `AW:`, `回复：`, `[list]`…),
+/// trimmed and lowercased, and whether it had a reply or forward prefix.
+pub fn base_subject(subject: &str) -> (String, bool) {
+    const PREFIXES: [&str; 12] = [
+        "re", "fw", "fwd", "aw", "wg", "sv", "vs", "antw", "回复", "回覆", "答复", "转发",
+    ];
+    let mut s = subject.trim();
+    let mut replied = false;
+    loop {
+        if let Some(rest) = s.strip_prefix('[').and_then(|r| r.split_once(']')) {
+            s = rest.1.trim_start();
+            continue;
+        }
+        let word: String = s.chars().take_while(|c| c.is_alphabetic()).collect();
+        let after = &s[word.len()..];
+        // `Re[2]:`, `Re(2):`
+        let after = after
+            .strip_prefix(|c| c == '[' || c == '(')
+            .and_then(|r| r.split_once([']', ')']))
+            .filter(|(n, _)| n.chars().all(|c| c.is_ascii_digit()))
+            .map_or(after, |(_, r)| r);
+        let lower = word.to_lowercase();
+        match after.trim_start().strip_prefix([':', '：']) {
+            Some(rest) if PREFIXES.contains(&lower.as_str()) => {
+                s = rest.trim_start();
+                replied = true;
+            }
+            _ => break,
+        }
+    }
+    (s.to_lowercase(), replied)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -256,7 +367,7 @@ pub struct ListQuery {
     /// `None` = all accounts (unified view).
     #[serde(default)]
     pub account: Option<AccountId>,
-    /// Cursor: id of the last message of the previous page.
+    /// Cursor: id of the last message (or thread, for threads) of the previous page.
     #[serde(default)]
     pub before: Option<MessageId>,
     pub limit: u32,

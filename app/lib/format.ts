@@ -33,6 +33,19 @@ export function displayName(a: Address | null | undefined): string {
   return a ? a.name?.trim() || a.email : t("reader.unknownSender");
 }
 
+/** How a list names who wrote in a conversation: "Maya, me, Jonas"; the first and the last two when more
+ * than three ("Priya … Jonas, Maya"); a lone sender in full. `own` holds the user's addresses, in lower case. */
+export function participantNames(people: Address[], own: Set<string>): string {
+  const name = (a: Address) => {
+    if (own.has(a.email.toLowerCase())) return t("list.me");
+    const full = displayName(a);
+    if (people.length === 1) return full;
+    return full.includes("@") ? full.split("@")[0] : full.split(/\s+/)[0];
+  };
+  if (people.length <= 3) return people.map(name).join(", ");
+  return `${name(people[0])} … ${people.slice(-2).map(name).join(", ")}`;
+}
+
 /** "Name <email>", as a recipient field takes it. */
 export function recipient(a: Address): string {
   return a.name ? `${a.name} <${a.email}>` : a.email;

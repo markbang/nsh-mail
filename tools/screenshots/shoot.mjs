@@ -110,6 +110,13 @@ for (const theme of ["light", "dark"]) {
   await page.getByText("E-ticket-K7Q2XM.pdf").first().waitFor();
   await shot("reader", theme);
 
+  // A conversation: the latest reply expanded, the message it answers collapsed above.
+  await page.getByText("周末回家吃饭吗？").first().click();
+  await id("thread-older").waitFor();
+  await shot("conversation", theme);
+  // Reaching that row scrolled the list: back to its top.
+  await home();
+
   await page.getByText("Lunch tomorrow?").first().click();
   await press("reply");
   await field("compose-body").waitFor();
