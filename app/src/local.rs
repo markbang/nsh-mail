@@ -6,6 +6,7 @@
 
 use std::{
     cell::RefCell,
+    collections::HashMap,
     future::Future,
     rc::{Rc, Weak},
 };
@@ -204,6 +205,10 @@ impl Backend for LocalBackend {
 
     fn search(&self, text: String, limit: u32) -> MailFuture<'_, Vec<Summary>> {
         self.call(|e| async move { e.search(&text, limit).await })
+    }
+
+    fn unread(&self) -> MailFuture<'_, HashMap<AccountId, u32>> {
+        self.call(|e| async move { e.unread().await })
     }
 
     fn refresh(&self) -> MailFuture<'_, ()> {

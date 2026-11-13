@@ -9,6 +9,7 @@ mod web;
 
 use std::{
     cell::RefCell,
+    collections::HashMap,
     future::{Future, poll_fn},
     pin::pin,
     rc::{Rc, Weak},
@@ -521,6 +522,10 @@ impl Backend for CloudBackend {
             let path = format!("/search?q={}&limit={}", enc(&text), limit.max(1));
             self.api().call("GET", &path, None).await
         })
+    }
+
+    fn unread(&self) -> MailFuture<'_, HashMap<AccountId, u32>> {
+        Box::pin(self.api().call("GET", "/unread", None))
     }
 
     fn refresh(&self) -> MailFuture<'_, ()> {

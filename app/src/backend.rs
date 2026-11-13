@@ -1,7 +1,7 @@
 //! What `Mail` asks of a mail source. `LocalBackend` (mail-core, native
 //! only) and `CloudBackend` (the server's REST API) implement it.
 
-use std::{future::Future, pin::Pin, rc::Rc};
+use std::{collections::HashMap, future::Future, pin::Pin, rc::Rc};
 
 use mail_core::types::*;
 use nsh_core::prelude::JsError;
@@ -28,6 +28,8 @@ pub trait Backend {
     fn set_flags(&self, id: String, flags: Flags) -> MailFuture<'_, ()>;
     fn send(&self, draft: Draft) -> MailFuture<'_, ()>;
     fn search(&self, text: String, limit: u32) -> MailFuture<'_, Vec<Summary>>;
+    /// Unread messages in each account's inbox.
+    fn unread(&self) -> MailFuture<'_, HashMap<AccountId, u32>>;
     fn refresh(&self) -> MailFuture<'_, ()>;
 }
 

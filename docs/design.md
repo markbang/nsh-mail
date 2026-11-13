@@ -49,7 +49,7 @@ TSX 不知道当前是哪种模式，界面一套。状态归属：邮件、账�
 
 ```ts
 Mail.init(): Promise<Status>                       // 打开库、恢复会话、开始同步
-Mail.status(): Status                              // { mode: "none"|"local"|"cloud", server?, syncing, error? }
+Mail.status(): Status                              // { mode: "none"|"local"|"cloud", server?, user?, syncing, error? }
 Mail.useLocal(): Promise<void>                     // Web 上 reject：ERR_UNSUPPORTED
 Mail.signIn(server, email, password, signUp): Promise<void>   // 进入云端模式
 Mail.signOut(): Promise<void>
@@ -63,6 +63,7 @@ Mail.get(id): Promise<Message>                     // 正文已清洗；附件�
 Mail.setFlags(id, { seen?, flagged? }): Promise<void>
 Mail.send(draft: Draft): Promise<void>             // 回复时带 inReplyTo / references
 Mail.search(text, limit): Promise<Summary[]>
+Mail.unread(): Promise<Record<accountId, number>>  // 各账号收件箱的未读数
 Mail.refresh(): Promise<void>
 Mail.on(listener: (e: MailEvent) => void): () => void   // newMail / changed / syncState / error
 Push.setToken(token): Promise<void>                // Android 宿主的 FCM token（§5），云端模式登记到服务端
@@ -117,7 +118,7 @@ GET  /v1/detect?email=   POST /v1/sync（立即同步全部账号）
 GET  /v1/oauth/{google|microsoft}/start?token=…           GET /v1/oauth/{provider}/callback
 GET  /v1/messages?folder=&account=&before=&limit=         GET /v1/messages/{id}
 PATCH /v1/messages/{id}  {seen?, flagged?}
-POST /v1/send            GET /v1/search?q=&limit=
+POST /v1/send            GET /v1/search?q=&limit=      GET /v1/unread → {accountId: 未读数}
 POST /v1/devices         {kind: "fcm"|"webpush", token | subscription}     DELETE /v1/devices/{id}
 GET  /v1/push/vapid-key  GET /v1/events (WebSocket，Authorization 或 ?token=；带 ?device=<id> 时该设备在线期间不发推送)
 GET  /                   Web 客户端静态文件         GET /healthz

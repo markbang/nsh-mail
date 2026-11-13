@@ -1,6 +1,7 @@
 //! SQLite store: accounts, folders with IMAP sync state, message envelopes, lazily cached bodies,
 //! and an FTS5 index. One file per user (`data_dir/mail.sqlite`, or `data/users/<id>.sqlite`).
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -456,6 +457,17 @@ impl Store {
             ],
             summary_row,
         )?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Unread messages in each account's inbox.
+    pub fn unread(&self) -> Result<HashMap<AccountId, u32>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT f.account_id, COUNT(*) FROM messages m JOIN folders f ON f.id = m.folder_id
+             WHERE f.kind = 'inbox' AND m.seen = 0 GROUP BY f.account_id",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 

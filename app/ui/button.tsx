@@ -1,9 +1,9 @@
 // Buttons: one size scale sets height, padding, text and icon together; each
 // variant owns its rest, hover, pressed, focus and disabled looks.
-import { Text, View, type JSX } from "nsh";
+import { Text, View, type ImageAsset, type JSX } from "nsh";
 import { Button as BaseButton } from "nsh/base";
 import { touch } from "./density";
-import { Icon, type IconName, type IconTone } from "./icon";
+import { BrandMark, Icon, type IconName, type IconTone } from "./icon";
 import { press } from "./motion";
 
 export type ButtonVariant = "primary" | "default" | "ghost" | "danger";
@@ -44,6 +44,8 @@ export interface ButtonProps {
   variant?: ButtonVariant;
   size?: ButtonSize;
   icon?: IconName;
+  /** A brand's mark in its own colors, in the icon's place. */
+  mark?: ImageAsset;
   label: string;
   disabled?: boolean;
   /** Work is under way: presses do nothing and the label dims, size kept. */
@@ -69,6 +71,7 @@ export function Button(props: ButtonProps) {
       class={`${base} ${press} ${frame[variant()]} ${box[size()]} ${props.loading ? "opacity-70" : ""} ${props.class ?? ""}`}
     >
       <If when={props.icon}>{(name) => <Icon name={name()} tone={tone[variant()]} size={size() === "lg" ? "md" : "sm"} />}</If>
+      <If when={props.mark}>{(src) => <BrandMark src={src()} size={size() === "lg" ? "md" : "sm"} />}</If>
       <Text class={`line-clamp-1 font-medium ${label[size()]} ${ink[variant()]}`}>
         {props.label}
       </Text>

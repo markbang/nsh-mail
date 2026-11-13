@@ -551,6 +551,10 @@ impl Engine {
         self.store().run(move |s| s.list(&query)).await
     }
 
+    pub async fn unread(&self) -> Result<HashMap<AccountId, u32>> {
+        self.store().run(|s| s.unread()).await
+    }
+
     pub async fn search(&self, text: &str, limit: u32) -> Result<Vec<Summary>> {
         let text = text.to_string();
         self.store().run(move |s| s.search(&text, limit)).await

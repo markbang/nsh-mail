@@ -363,6 +363,10 @@ pub async fn search(
     Ok(Json(mail(&s, &u).await?.search(p.q.trim(), limit).await?))
 }
 
+pub async fn unread(State(s): State<Arc<AppState>>, u: AuthUser) -> ApiResult<impl IntoResponse> {
+    Ok(Json(mail(&s, &u).await?.unread().await?))
+}
+
 #[derive(Deserialize)]
 pub struct SubscriptionKeys {
     p256dh: String,

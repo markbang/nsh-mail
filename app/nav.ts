@@ -20,6 +20,15 @@ export const modalStack = createNavStack<Route>([{ name: "settings" }]);
 const modalOpen = signal(false);
 export const isModalOpen = () => modalOpen();
 
+// The heights the dialog's pages measured, by their place in its stack.
+const fits = signal<(number | undefined)[]>([]);
+/** The height the dialog's top page needs: until it has measured, the page under it's; none for the composer, which takes the dialog's own. */
+export const modalFit = () => {
+  const heights = fits();
+  for (let i = modalStack.routes().length - 1; i >= 0; i--) if (heights[i] !== undefined) return heights[i];
+  return undefined;
+};
+
 export interface Navigator {
   stack: NavStackState<Route>;
   /** Leaves the screen: pops it, or closes the dialog at its root. */
@@ -28,6 +37,8 @@ export interface Navigator {
   done: () => void;
   /** Screens in a dialog draw a close button instead of back at their root. */
   modal: boolean;
+  /** A dialog's page reports the height it needs (`undefined` when it leaves); the dialog follows, up to the window. */
+  fit?: (index: number, height: number | undefined) => void;
 }
 
 export const NavContext = context<Navigator>({
@@ -49,6 +60,12 @@ export const modalNavigator: Navigator = {
   close: () => (modalStack.routes().length > 1 ? modalStack.pop() : modalOpen.set(false)),
   done: () => modalOpen.set(false),
   modal: true,
+  fit: (index, height) =>
+    fits.update((heights) => {
+      const next = [...heights];
+      next[index] = height;
+      return next;
+    }),
 };
 
 /** Opens `route` as the wide layout or the phone layout shows it. */
@@ -57,6 +74,7 @@ export function show(route: Route, wide: boolean) {
     phoneStack.push(route);
     return;
   }
+  fits.set([]);
   modalStack.setRoutes([route]);
   modalOpen.set(true);
 }

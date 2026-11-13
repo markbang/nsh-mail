@@ -6,12 +6,18 @@ import { Icon, type IconName } from "./icon";
 
 const marks = ["bg-chart-1", "bg-chart-2", "bg-chart-3", "bg-chart-4", "bg-chart-5"];
 
-/** An account's color: the nth account takes the nth chart color. */
-export function AccountMark(props: { index: number; size?: "sm" | "md" }) {
+/** An account's color: the nth account takes the nth chart color. A dot next
+ * to a name, or a bar along a list row's start edge. */
+export function AccountMark(props: { index: number; size?: "sm" | "md"; shape?: "dot" | "bar" }) {
+  const color = () => marks[Math.max(0, props.index) % marks.length];
   return (
     <View
       accessibilityElementsHidden
-      class={`rounded-full ${props.size === "md" ? "size-2.5" : "size-2"} ${marks[Math.max(0, props.index) % marks.length]}`}
+      class={
+        props.shape === "bar"
+          ? `absolute inset-y-0 start-0 w-[3px] ${color()}`
+          : `rounded-full ${props.size === "md" ? "size-2.5" : "size-2"} ${color()}`
+      }
     />
   );
 }

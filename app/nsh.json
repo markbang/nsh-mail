@@ -5,6 +5,7 @@
   "build": 1,
   "rust": ".",
   "theme": "theme.json",
+  "icon": "icon.png",
   "schemes": ["nshmail"],
   "window": {
     "title": "nsh-mail",

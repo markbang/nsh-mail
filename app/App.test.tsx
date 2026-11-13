@@ -35,7 +35,7 @@ test("opens a message, replies with it quoted, and finds the reply in Sent", asy
   await app.waitFor("id:compose-subject");
   expect(app.value("id:compose-subject")).toBe("Re: Q4 roadmap draft");
   expect(app.value("id:compose-to")).toBe("Jonas Weber <jonas@northwind.dev>");
-  expect(app.value("id:compose-body")).toContain("> Attached is the first draft of the Q4 roadmap.");
+  expect(app.value("id:compose-body")).toMatch(/^\n\nOn .*\n> Attached is the first draft of the Q4 roadmap\.[^]*\n$/);
   await app.press("id:send");
   await app.waitFor("text:Message sent");
   await app.press("text:Sent");
@@ -48,6 +48,7 @@ test("search finds mail across accounts and folders", async () => {
   await app.type("id:search", "roadmap");
   await app.waitFor("id:results >> text:Q4 roadmap draft");
   await app.waitFor("id:results >> text:Re: Q4 roadmap draft");
+  await app.waitFor("text:Results for “roadmap”");
   await app.clear("id:search");
   await app.type("id:search", "no such words anywhere");
   await app.waitFor("text:Nothing found for “no such words anywhere”");

@@ -1,8 +1,9 @@
 // Search on its own page (phones and narrow windows).
-import { cleanup, View } from "nsh";
+import { cleanup, Text, View } from "nsh";
 import { NavPage } from "nsh/base";
 import { t } from "nsh/i18n";
-import { Empty } from "../ui";
+import { Empty, touch } from "../ui";
+import { resultCount } from "../components/Mailbox";
 import { MessageList } from "../components/MessageList";
 import { PageHeader } from "../components/PageHeader";
 import { SearchField } from "../components/SearchField";
@@ -15,8 +16,11 @@ export function SearchPage() {
   return (
     <NavPage title={t("search.label")} header={<PageHeader title={t("search.label")} />}>
       <View class="flex-1 bg-background">
-        <View class="border-b border-border p-3">
+        <View class="gap-2 border-b border-border p-3">
           <SearchField autoFocus />
+          <If when={searchResults()}>
+            {(found) => <Text class={`px-1 tabular-nums text-muted-foreground ${touch ? "text-sm" : "text-xs"}`}>{resultCount(found().length)}</Text>}
+          </If>
         </View>
         <If when={searchResults()} else={<Empty icon="search" title={t("search.hint")} />}>
           {(found) => (
@@ -27,6 +31,7 @@ export function SearchPage() {
                 nav.stack.push({ name: "message", id });
               }}
               showAccount
+              highlight={searchQuery()}
               testID="results"
               empty={<Empty icon="search" title={t("search.none", { query: searchQuery() })} />}
             />
