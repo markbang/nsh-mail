@@ -3,3 +3,4 @@ target/
 *.sqlite
 .env
 /data/
+node_modules/
