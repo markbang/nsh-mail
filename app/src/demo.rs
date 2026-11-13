@@ -776,14 +776,20 @@ const NEWSLETTER_HTML: &str = r#"<h1>This Week in Rust 571</h1>
 <blockquote>Sanitize first, render second.</blockquote>
 <p><img src="https://this-week-in-rust.org/tracking-pixel.gif" alt=""></p>"#;
 
-const RECEIPT_HTML: &str = r#"<h2>Your receipt from Fastmail</h2>
-<table>
-<tr><th>Item</th><th>Amount</th></tr>
-<tr><td>Standard plan, 12 months</td><td>$60.00</td></tr>
-<tr><td>Tax</td><td>$0.00</td></tr>
-<tr><td><b>Total</b></td><td><b>$60.00</b></td></tr>
+// Laid out for 600px, as most commercial mail is: the reader scales it to a narrow pane.
+const RECEIPT_HTML: &str = r#"<table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6"><tr><td align="center" style="padding:24px">
+<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #e5e7eb">
+<tr><td style="padding:20px 32px;background:#0b3d91;color:#ffffff;font-size:20px;font-weight:bold">Fastmail</td></tr>
+<tr><td style="padding:32px"><h2 style="margin:0 0 16px">Your receipt from Fastmail</h2>
+<table width="100%" cellpadding="8" cellspacing="0" style="border-collapse:collapse;font-size:14px">
+<tr style="border-bottom:1px solid #e5e7eb"><th align="left">Item</th><th align="right">Amount</th></tr>
+<tr><td>Standard plan, 12 months</td><td align="right">$60.00</td></tr>
+<tr><td>Tax</td><td align="right">$0.00</td></tr>
+<tr style="border-top:2px solid #111827"><td><b>Total</b></td><td align="right"><b>$60.00</b></td></tr>
 </table>
-<p>Paid with Visa ending 4242 on 3 November.</p>"#;
+<p style="margin:24px 0 0">Paid with Visa ending 4242 on 3 November.</p></td></tr>
+<tr><td style="padding:16px 32px;font-size:12px;color:#6b7280">Fastmail Pty Ltd, Melbourne, Australia</td></tr>
+</table></td></tr></table>"#;
 
 const SEEDS: &[Seed] = &[
     Seed {
