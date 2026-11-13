@@ -125,7 +125,7 @@ function ReaderToolbar(props: { message: Message; onCompose: (mode: ComposeMode)
 /** Replying on a phone: a bar at the bottom of the message, over the gesture area. */
 function ReplyBar(props: { onCompose: (mode: ComposeMode) => void }) {
   return (
-    <View class="border-t border-divider bg-background pb-[env(safe-area-inset-bottom)]">
+    <View class="border-t border-outline-variant bg-surface pb-[env(safe-area-inset-bottom)]">
       <View class="flex-row gap-2 px-4 py-3">
         <Button variant="bordered" radius="full" icon="reply" label={t("actions.reply")} onPress={() => props.onCompose("reply")} class="flex-1" testID="reply" />
         <Button variant="bordered" radius="full" icon="replyAll" label={t("actions.replyAll")} onPress={() => props.onCompose("replyAll")} class="flex-1" testID="reply-all" />
@@ -147,13 +147,13 @@ export function Reader(props: ReaderProps) {
   const header = () => (
     <View class="gap-3">
       <View class="flex-row items-start gap-2">
-        <Text role="header" class={`flex-1 ${material ? "text-headline-s font-medium text-md-on-surface" : `font-semibold text-foreground ${touch ? "text-xl" : "text-large"}`}`}>
+        <Text role="header" class={`flex-1 ${material ? "text-headline-small font-medium text-on-surface" : `font-semibold text-on-surface ${touch ? "text-xl" : "text-title-large"}`}`}>
           {m().subject || t("reader.noSubject")}
         </Text>
         <If when={props.phone}>
           <IconButton
             icon={m().flagged ? "flagFilled" : "flag"}
-            tone={m().flagged ? "flag" : "default-500"}
+            tone={m().flagged ? "flag" : "on-surface-variant"}
             selected={m().flagged}
             label={m().flagged ? t("actions.unflag") : t("actions.flag")}
             onPress={() => void setFlags(m().id, { flagged: !m().flagged })}
@@ -166,19 +166,19 @@ export function Reader(props: ReaderProps) {
         <Avatar name={displayName(m().from)} />
         <View class="min-w-0 flex-1 gap-0.5">
           <View class="flex-row flex-wrap items-baseline gap-x-2">
-            <Text class={`font-medium text-foreground ${touch ? "text-medium" : "text-small"}`}>{displayName(m().from)}</Text>
-            <Text class={`text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>{m().from?.email ?? ""}</Text>
+            <Text class={`font-medium text-on-surface ${touch ? "text-body-large" : "text-body-medium"}`}>{displayName(m().from)}</Text>
+            <Text class={`text-on-surface-variant ${touch ? "text-body-medium" : "text-body-small"}`}>{m().from?.email ?? ""}</Text>
           </View>
-          <Text class={`line-clamp-2 text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>
+          <Text class={`line-clamp-2 text-on-surface-variant ${touch ? "text-body-medium" : "text-body-small"}`}>
             {t("reader.toList", { names: recipients() || t("compose.noRecipients") })}
           </Text>
           <View class="flex-row items-center gap-1.5">
             <If when={accounts().length > 1 && account()}>
               <AccountMark index={accountIndex(m().accountId)} />
-              <Text class="text-tiny text-foreground-500">{account()?.email}</Text>
-              <Text class="text-tiny text-foreground-500">·</Text>
+              <Text class="text-body-small text-on-surface-variant">{account()?.email}</Text>
+              <Text class="text-body-small text-on-surface-variant">·</Text>
             </If>
-            <Text class="text-tiny tabular-nums text-foreground-500">{fullDate(m().date)}</Text>
+            <Text class="text-body-small tabular-nums text-on-surface-variant">{fullDate(m().date)}</Text>
           </View>
         </View>
       </View>
@@ -205,12 +205,12 @@ export function Reader(props: ReaderProps) {
           <View selectable class={`gap-4 ${pad} ${end} ${touch ? "pt-4" : "pt-5"}`}>
             {header()}
             <Divider />
-            <Text class={`text-foreground ${touch ? "text-medium leading-6" : "text-small leading-6"}`} testID="body-text">
+            <Text class={`text-on-surface ${touch ? "text-body-large leading-6" : "text-body-medium leading-6"}`} testID="body-text">
               {m().text ?? ""}
             </Text>
             <If when={m().attachments.length}>
               <View class="gap-2">
-                <Text class="text-tiny font-medium text-foreground-500">{t("reader.attachments")}</Text>
+                <Text class="text-body-small font-medium text-on-surface-variant">{t("reader.attachments")}</Text>
                 <View class="flex-row flex-wrap items-end gap-2">{tiles()}</View>
               </View>
             </If>
@@ -223,9 +223,9 @@ export function Reader(props: ReaderProps) {
           <View selectable class={`gap-4 ${pad}`}>
             {header()}
             <If when={m().remoteImages.length > 0 && !showImages()}>
-              <View class="flex-row items-center gap-3 rounded-medium bg-default-100 px-3 py-2">
-                <Icon name="image" size="sm" tone="default-500" />
-                <Text class={`flex-1 text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>{t("reader.imagesBlocked")}</Text>
+              <View class="flex-row items-center gap-3 rounded-medium bg-surface-container-high px-3 py-2">
+                <Icon name="image" size="sm" tone="on-surface-variant" />
+                <Text class={`flex-1 text-on-surface-variant ${touch ? "text-body-medium" : "text-body-small"}`}>{t("reader.imagesBlocked")}</Text>
                 <Button
                   size="sm"
                   variant="flat"
@@ -235,7 +235,7 @@ export function Reader(props: ReaderProps) {
               </View>
             </If>
           </View>
-          <View class={`min-h-48 flex-1 overflow-hidden border border-divider bg-white ${material ? "rounded-shape-lg" : "rounded-medium"} ${touch ? "mx-2" : "mx-6"}`}>
+          <View class={`min-h-48 flex-1 overflow-hidden border border-outline-variant bg-white ${material ? "rounded-large" : "rounded-medium"} ${touch ? "mx-2" : "mx-6"}`}>
             <MailView html={source()} remote={showImages()} onUnavailable={() => webViewAvailable.set(false)} class="flex-1" />
           </View>
           <If when={m().attachments.length}>

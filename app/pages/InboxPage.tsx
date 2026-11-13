@@ -89,10 +89,10 @@ export function InboxPage() {
       when={picking()}
       else={<AppBar title={mailboxTitle()} search={{ label: t("search.placeholder"), onPress: () => selectTab(1), end: more() }} testID="app-bar" />}
     >
-      <View class="bg-md-surface-container pt-[env(safe-area-inset-top)]">
+      <View class="bg-surface-container pt-[env(safe-area-inset-top)]">
         <View class="h-16 flex-row items-center gap-1 px-2">
           {endSelection()}
-          <Text class="flex-1 px-2 text-title-l font-medium text-md-on-surface" testID="selection-count">
+          <Text class="flex-1 px-2 text-title-large font-medium text-on-surface" testID="selection-count">
             {t("actions.selected", { count: pickedIds().length })}
           </Text>
           {pickedActions()}
@@ -109,7 +109,7 @@ export function InboxPage() {
       appBar={appBar()}
       root
     >
-      <View class="flex-1 bg-background">
+      <View class="flex-1 bg-surface">
         <MailboxList onOpen={open} onAddAccount={() => nav.stack.push({ name: "addAccount" })} searchable={false} touchActions={systemHeader} />
       </View>
       <If when={!systemHeader}>

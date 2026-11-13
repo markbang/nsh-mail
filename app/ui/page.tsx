@@ -30,16 +30,16 @@ export function Page(props: PageProps) {
       header={props.header}
       headerLeft={props.headerLeft && <View class="flex-row items-center">{props.headerLeft}</View>}
       headerRight={props.headerRight && <View class="flex-row items-center">{props.headerRight}</View>}
-      headerClass="bg-background text-foreground tint-foreground"
+      headerClass="bg-surface text-on-surface tint-on-surface"
       headerVisible={!(material && props.appBar)}
       hidesBottomBarWhenPushed={!props.root}
       popOnBack={props.popOnBack ?? true}
       onBackPress={props.onBackPress}
       testID={props.testID}
-      class="bg-background"
+      class="bg-surface"
     >
       <If when={material && props.appBar} else={props.children}>
-        <View class="flex-1 bg-background">
+        <View class="flex-1 bg-surface">
           {props.appBar}
           {props.children}
         </View>

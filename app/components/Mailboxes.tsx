@@ -24,7 +24,7 @@ export function Mailboxes(props: { onCompose?: () => void; onSettings?: () => vo
     return n ? <Badge label={String(n)} color="primary" variant="flat" /> : undefined;
   };
   return (
-    <View class={`flex-1 ${props.onSettings ? "bg-sidebar" : "bg-background"}`}>
+    <View class={`flex-1 ${props.onSettings ? "bg-surface-container" : "bg-surface"}`}>
       <If when={props.onCompose}>
         <View class="px-3 pb-1 pt-3">
           <Button color="primary" icon="compose" label={t("actions.compose")} onPress={() => props.onCompose?.()} fullWidth testID="compose" />
@@ -65,11 +65,11 @@ export function Mailboxes(props: { onCompose?: () => void; onSettings?: () => vo
         </Each>
         </Listbox>
       </Scroll>
-      <View class={`flex-row items-center gap-1 border-t border-divider px-2 ${touch ? "h-14" : "h-11"}`}>
+      <View class={`flex-row items-center gap-1 border-t border-outline-variant px-2 ${touch ? "h-14" : "h-11"}`}>
         <View class="flex-1 flex-row items-center gap-2 px-1">
-          <If when={mailStatus().syncing} else={<Text class="line-clamp-1 text-tiny text-foreground-500">{mailStatus().error ? t("sync.failed") : t(`mode.${mailStatus().mode}`)}</Text>}>
+          <If when={mailStatus().syncing} else={<Text class="line-clamp-1 text-body-small text-on-surface-variant">{mailStatus().error ? t("sync.failed") : t(`mode.${mailStatus().mode}`)}</Text>}>
             <Spinner label={t("sync.running")} size="sm" />
-            <Text class="text-tiny text-foreground-500">{t("sync.running")}</Text>
+            <Text class="text-body-small text-on-surface-variant">{t("sync.running")}</Text>
           </If>
         </View>
         <IconButton icon="refresh" label={t("actions.refresh")} size="sm" onPress={() => void refresh()} />

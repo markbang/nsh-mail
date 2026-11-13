@@ -1,0 +1,7 @@
+{
+  "name": "nsh-mail-m3e-tokens",
+  "private": true,
+  "type": "module",
+  "scripts": { "gen": "node gen.mjs" },
+  "devDependencies": { "@material/material-color-utilities": "0.4.0" }
+}

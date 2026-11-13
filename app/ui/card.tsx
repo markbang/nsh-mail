@@ -3,7 +3,8 @@
 import { View, type JSX } from "nsh";
 import { Button as BaseButton } from "nsh/base";
 import { press } from "./motion";
-import { focusRing, rounded, shadow, type Radius } from "./tokens";
+import { focusRing } from "./tokens";
+import { rounded, shadow, type Radius } from "./variants";
 
 export interface CardProps {
   children?: JSX.Element;
@@ -19,14 +20,14 @@ export interface CardProps {
 
 export function Card(props: CardProps) {
   const frame = () =>
-    `overflow-hidden bg-content1 text-foreground ${rounded[props.radius ?? "lg"]} ${props.bordered ? "border border-divider" : shadow[props.shadow ?? "md"]} ${props.class ?? ""}`;
+    `overflow-hidden bg-surface-container-low text-on-surface ${rounded[props.radius ?? "lg"]} ${props.bordered ? "border border-outline-variant" : shadow[props.shadow ?? "md"]} ${props.class ?? ""}`;
   return (
     <If when={props.onPress} else={<View class={frame()} testID={props.testID} accessibilityLabel={props.accessibilityLabel}>{props.children}</View>}>
       <BaseButton
         onPress={() => props.onPress?.()}
         accessibilityLabel={props.accessibilityLabel}
         testID={props.testID}
-        class={`${frame()} ${press} ${focusRing} hover:bg-content2`}
+        class={`${frame()} ${press} ${focusRing} hover:bg-surface-container-high`}
       >
         {props.children}
       </BaseButton>

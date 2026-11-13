@@ -7,9 +7,9 @@ import { BrandMark, Icon, type IconName } from "./icon";
 import { tip } from "./tooltip";
 import { press } from "./motion";
 import { Spinner } from "./feedback";
-import { disabled, focusRing, rounded, shadow, type Color, type Radius, type Size, type Variant } from "./tokens";
-import { look } from "./variants";
+import { focusRing } from "./tokens";
 import { material, pressMorph } from "./material";
+import { disabled, look, rounded, shadow, type Color, type Radius, type Size, type Variant } from "./variants";
 
 /** HeroUI's variants; `primary`, `default` and `danger` are the earlier names (solid primary, flat default, flat danger). */
 export type ButtonVariant = Variant | "primary" | "default" | "danger";
@@ -33,7 +33,7 @@ const box: Record<Size, string> = {
   lg: "h-12 min-w-24 px-6 gap-3",
 };
 const square: Record<Size, string> = { sm: "size-8", md: "size-10", lg: "size-12" };
-const label: Record<Size, string> = { sm: "text-tiny", md: "text-small", lg: "text-medium" };
+const label: Record<Size, string> = { sm: "text-body-small", md: "text-body-medium", lg: "text-body-large" };
 const corner: Record<Size, Radius> = { sm: "sm", md: "md", lg: "lg" };
 const glyph = (size: Size) => (size === "sm" ? "sm" : "md");
 
@@ -122,7 +122,7 @@ export function IconButton(props: IconButtonProps) {
       testID={props.testID}
       tooltip={tip(props.shortcut ? `${props.label}  ${props.shortcut}` : props.label)}
       hitSlop={material ? 4 : undefined}
-      class={`${material ? `${morph} ${props.selected ? "rounded-shape-md" : "rounded-full"}` : `${base} ${rounded[props.radius ?? corner[size()]]}`} ${l().frame} ${l().hover} ${square[size()]} ${props.class ?? ""}`}
+      class={`${material ? `${morph} ${props.selected ? "rounded-medium" : "rounded-full"}` : `${base} ${rounded[props.radius ?? corner[size()]]}`} ${l().frame} ${l().hover} ${square[size()]} ${props.class ?? ""}`}
     >
       <Icon
         name={props.icon}
@@ -156,12 +156,12 @@ export function Fab(props: { icon: IconName; label: string; extended?: boolean; 
       accessibilityLabel={props.label}
       onPress={props.onPress}
       testID={props.testID}
-      android={{ ripple: { color: `${token("primary-700").slice(0, 7)}1f` }, elevation: 3 }}
-      class={`h-14 flex-row items-center justify-center gap-3 overflow-hidden rounded-[16px] bg-primary-100 ${props.extended ? "px-5" : "w-14"} ${shadow.md} android:shadow-none ${press} ${props.class ?? ""}`}
+      android={{ ripple: { color: `${token("on-primary-container").slice(0, 7)}1f` }, elevation: 3 }}
+      class={`h-14 flex-row items-center justify-center gap-3 overflow-hidden rounded-[16px] bg-primary-container ${props.extended ? "px-5" : "w-14"} ${shadow.md} android:shadow-none ${press} ${props.class ?? ""}`}
     >
-      <Icon name={props.icon} class="tint-primary-700" />
+      <Icon name={props.icon} class="tint-on-primary-container" />
       <If when={props.extended}>
-        <Text class="text-medium font-medium text-primary-700">{props.label}</Text>
+        <Text class="text-body-large font-medium text-on-primary-container">{props.label}</Text>
       </If>
     </View>
   );

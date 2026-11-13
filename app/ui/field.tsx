@@ -7,29 +7,29 @@ import { touch } from "./density";
 import { Icon, type IconName } from "./icon";
 import { listItem, popup } from "./overlay";
 import { wash } from "./motion";
+import { rounded, type Radius, type Size } from "./variants";
 import { material } from "./material";
-import { rounded, type Radius, type Size } from "./tokens";
 
 /** HeroUI's four, and `plain`: no frame, for a composer's body, where the caret shows the focus. */
 export type InputVariant = "flat" | "faded" | "bordered" | "underlined" | "plain";
 
 const wrapper: Record<InputVariant, string> = {
   // Android: Material's filled field and search bar, whose caret shows the focus.
-  flat: material ? "bg-default-100" : "bg-default-100 hover:bg-default-200 shadow-xs focus-within:outline-2 focus-within:outline-focus focus-within:outline-offset-2",
-  faded: "border-2 border-default-200 bg-default-100 hover:border-default-400 focus-within:border-default-400 shadow-xs focus-within:outline-2 focus-within:outline-focus focus-within:outline-offset-2",
-  bordered: "border-2 border-default-200 hover:border-default-400 focus-within:border-default-foreground shadow-xs",
-  underlined: "border-b-2 border-default-200 hover:border-default-300 focus-within:border-default-foreground",
+  flat: material ? "bg-surface-container-high" : "bg-surface-container-high hover:bg-surface-container-highest shadow-xs focus-within:outline-2 focus-within:outline-secondary focus-within:outline-offset-2",
+  faded: "border-2 border-outline-variant bg-surface-container-high hover:border-outline focus-within:border-outline shadow-xs focus-within:outline-2 focus-within:outline-secondary focus-within:outline-offset-2",
+  bordered: "border-2 border-outline-variant hover:border-outline focus-within:border-on-surface shadow-xs",
+  underlined: "border-b-2 border-outline-variant hover:border-outline-variant focus-within:border-on-surface",
   plain: "",
 };
 const invalidWrapper: Record<InputVariant, string> = {
-  flat: "!bg-danger-50 hover:!bg-danger-100",
-  faded: "!border-danger",
-  bordered: "!border-danger",
-  underlined: "!border-danger",
+  flat: "!bg-error-container hover:!bg-error-container",
+  faded: "!border-error",
+  bordered: "!border-error",
+  underlined: "!border-error",
   plain: "",
 };
 const height: Record<Size, string> = { sm: "h-8 px-2", md: "h-10 px-3", lg: "h-12 px-3" };
-const text = (size: Size) => (size === "lg" || touch ? "text-medium" : "text-small");
+const text = (size: Size) => (size === "lg" || touch ? "text-body-large" : "text-body-medium");
 const corner: Record<Size, Radius> = { sm: "sm", md: "md", lg: "lg" };
 
 const box = (variant: InputVariant, size: Size, radius: Radius | undefined, invalid: boolean | undefined, multiline: boolean) =>
@@ -82,7 +82,7 @@ function field(props: TextFieldProps, multiline: boolean) {
       class={`${box(props.variant ?? "flat", size(), props.radius, props.invalid, multiline)} ${props.disabled ? "opacity-50" : ""} ${props.class ?? ""}`}
     >
       <If when={props.startIcon}>
-        {(icon) => <Icon name={icon()} size="sm" tone={props.invalid ? "danger" : "default-400"} />}
+        {(icon) => <Icon name={icon()} size="sm" tone={props.invalid ? "error" : "on-surface-variant"} />}
       </If>
       <Input
         ref={props.ref}
@@ -101,7 +101,7 @@ function field(props: TextFieldProps, multiline: boolean) {
         returnKeyType={props.returnKey}
         accessibilityLabel={props.label}
         testID={props.testID}
-        class={`min-w-0 flex-1 self-stretch bg-transparent ${text(size())} ${props.invalid ? "text-danger placeholder:text-danger" : "text-foreground placeholder:text-foreground-500"} selection:bg-primary/30`}
+        class={`min-w-0 flex-1 self-stretch bg-transparent ${text(size())} ${props.invalid ? "text-error placeholder:text-error" : "text-on-surface placeholder:text-on-surface-variant"} selection:bg-primary/30`}
       />
       {props.end}
     </View>
@@ -112,18 +112,18 @@ function field(props: TextFieldProps, multiline: boolean) {
 export function Field(props: { label: string; description?: string; error?: string | null; required?: boolean; children?: JSX.Element; class?: string }) {
   return (
     <View class={`gap-1.5 ${props.class ?? ""}`}>
-      <Text class="text-small text-foreground">
+      <Text class="text-body-medium text-on-surface">
         {props.label}
         <If when={props.required}>
-          <Text class="text-danger"> *</Text>
+          <Text class="text-error"> *</Text>
         </If>
       </Text>
       {props.children}
       <If when={props.error}>
-        <Text class="px-1 text-tiny text-danger">{props.error}</Text>
+        <Text class="px-1 text-body-small text-error">{props.error}</Text>
       </If>
       <If when={!props.error && props.description}>
-        <Text class="px-1 text-tiny text-foreground-500">{props.description}</Text>
+        <Text class="px-1 text-body-small text-on-surface-variant">{props.description}</Text>
       </If>
     </View>
   );
@@ -153,15 +153,15 @@ export function SelectField(props: SelectFieldProps) {
       testID={props.testID}
       offset={4}
       popupClass={`${popup} p-1`}
-      backdropClass="bg-overlay/50"
+      backdropClass="bg-scrim/32"
       itemClass={`${listItem} justify-center selected:text-primary`}
       class={props.class}
       trigger={
-        <View class={`${box("flat", size(), undefined, false, false)} justify-between aria-expanded:bg-default-200`}>
-          <Text class={`line-clamp-1 flex-1 ${text(size())} ${title() ? "text-foreground" : "text-foreground-500"}`}>
+        <View class={`${box("flat", size(), undefined, false, false)} justify-between aria-expanded:bg-surface-container-highest`}>
+          <Text class={`line-clamp-1 flex-1 ${text(size())} ${title() ? "text-on-surface" : "text-on-surface-variant"}`}>
             {title() ?? props.placeholder ?? ""}
           </Text>
-          <Icon name="chevronDown" tone="default-500" size="sm" />
+          <Icon name="chevronDown" tone="on-surface-variant" size="sm" />
         </View>
       }
     />

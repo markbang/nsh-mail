@@ -3,7 +3,7 @@
 // narrow browser; the toast, keys and the tray.
 import { keymap, mount, View, type InputRef } from "nsh";
 import { NavStack } from "nsh/base";
-import { applyMaterialTheme, Dialog, systemHeader } from "./ui";
+import { Dialog, systemHeader } from "./ui";
 import { Toasts } from "./components/Toasts";
 import { PhoneTabs } from "./components/PhoneTabs";
 import { Workspace } from "./components/Workspace";
@@ -117,7 +117,7 @@ function Main() {
 function App() {
   void start();
   return (
-    <View class="flex-1 bg-background">
+    <View class="flex-1 bg-surface">
       <If when={isStarted()}>
         <If when={mailStatus().mode !== "none"} else={<Onboarding />}>
           <Main />
@@ -131,6 +131,5 @@ function App() {
   );
 }
 
-applyMaterialTheme();
 listenForPushToken();
 mount(App);

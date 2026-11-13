@@ -1,0 +1,70 @@
+name: Screenshots
+
+# The web client on the fixed demo mailboxes (tools/screenshots), light and
+# dark, from the calling App run's `web` artifact. Uploaded as the
+# `screenshots` artifact; same-repository pull requests also get them in one
+# PR comment (images under pr/<n>/<sha>/ on the `screenshots` branch), and main
+# publishes them to main/ there, where README.md links them.
+on:
+  workflow_call:
+
+env:
+  # The same as app.yml's, so the server build reuses the check job's e2e-server cache.
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      greenmail:
+        image: greenmail/standalone:2.1.15
+        ports:
+          - 3025:3025
+          - 3143:3143
+          - 3993:3993
+          - 3465:3465
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: web
+          path: ${{ runner.temp }}/web
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: e2e-server
+          save-if: false
+      - run: cargo build --locked -p nsh-mail-server --features insecure-test-tls
+      - name: Playwright with Chromium and CJK fonts
+        working-directory: tools/screenshots
+        run: |
+          sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - run: tools/screenshots/run.sh "$RUNNER_TEMP/web/nsh-mail" "$RUNNER_TEMP/shots"
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots
+          path: ${{ runner.temp }}/shots
+      - name: Comment on the pull request
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          path="pr/$PR/${SHA::7}"
+          tools/screenshots/publish.sh "$RUNNER_TEMP/shots" "$path"
+          tools/screenshots/comment.sh "$PR" "$RUNNER_TEMP/shots" \
+            "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/screenshots/$path" \
+            "**Screenshots** of ${SHA::7} · 1440×900 · [run]($RUN)"
+      - name: Publish main's screenshots
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tools/screenshots/publish.sh "$RUNNER_TEMP/shots" main

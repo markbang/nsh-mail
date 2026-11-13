@@ -1,34 +1,33 @@
-// Motion tokens, HeroUI's: state changes take 250ms on CSS `ease`, presses sink
-// to 0.97, popovers spring in from 0.8 (300ms) and leave at 0.96 (150ms),
-// tooltips from 0.85 (200ms), modals fade (400ms in, 300ms out). Reduced
-// motion turns transitions and scales off.
+// Motion on M3E's expressive springs: spatial springs move and resize (and
+// overshoot), effects springs fade and recolor. Class transitions take
+// Material's web curves for them (tokens.springCurve); reduced motion turns
+// transitions and scales off.
+import { springCurve } from "./tokens";
 
 export const duration = {
-  instant: 100,
-  fast: 150,
-  base: 250,
-  popover: 300,
-  modal: 400,
-  modalExit: 300,
+  fast: springCurve.effects.fast.ms,
+  base: springCurve.effects.default.ms,
+  popover: springCurve.spatial.fast.ms,
+  modal: springCurve.spatial.default.ms,
+  modalExit: springCurve.effects.slow.ms,
 } as const;
 
-/** A pressable control: colors and opacity ease, the control sinks to 0.97. */
+/** A pressable control: colors on the fast effects spring, the press on the fast spatial one. */
 export const press =
-  "transition duration-250 ease-css active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100";
+  "transition duration-350 ease-spatial-fast active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100";
 
-/** A row or list item: colors only, rows deepen instead of scaling. */
-export const wash = "transition-colors duration-250 ease-css motion-reduce:transition-none";
+/** A row or list item: colors only. */
+export const wash = "transition-colors duration-150 ease-effects-fast motion-reduce:transition-none";
 
-/** Anchored popups (menus, selects, popovers): HeroUI's scaleSpringOpacity. */
+/** Anchored popups (menus, selects, popovers) grow from their trigger. */
 export const popover = {
-  class: "transition duration-300 ease-out motion-reduce:transition-none",
+  class: "transition duration-350 ease-spatial-fast motion-reduce:transition-none",
   starting: "opacity-0 scale-[0.8]",
-  ending: "opacity-0 scale-[0.96] duration-150",
+  ending: "opacity-0 scale-[0.96] duration-150 ease-effects-fast",
 } as const;
 
-/** Tooltips: HeroUI's scaleSpring. */
 export const tooltip = {
-  class: "transition duration-200 ease-out motion-reduce:transition-none",
+  class: "transition duration-150 ease-effects-fast motion-reduce:transition-none",
   starting: "opacity-0 scale-[0.85]",
-  ending: "opacity-0 scale-[0.85] duration-150",
+  ending: "opacity-0 duration-150",
 } as const;

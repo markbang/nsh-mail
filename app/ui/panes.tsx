@@ -7,7 +7,7 @@ export function Panes(props: { children?: JSX.Element; label: string; class?: st
   return (
     <ResizablePanelGroup
       class={`flex-1 flex-row ${props.class ?? ""}`}
-      handleClass="w-px bg-divider"
+      handleClass="w-px bg-outline-variant"
       handleAccessibilityLabel={props.label}
     >
       {props.children}

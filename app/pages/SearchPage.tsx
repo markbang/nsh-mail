@@ -14,11 +14,11 @@ export function SearchPage() {
   cleanup(clearSearch);
   return (
     <Page title={t("search.label")} header={<PageHeader title={t("search.label")} />} root={systemHeader} appBar={<AppBar title={t("search.label")} />}>
-      <View class="flex-1 bg-background">
-        <View class={material ? "gap-2 px-4 pb-2" : "gap-2 border-b border-divider p-3"}>
+      <View class="flex-1 bg-surface">
+        <View class={material ? "gap-2 px-4 pb-2" : "gap-2 border-b border-outline-variant p-3"}>
           <SearchField autoFocus />
           <If when={searchResults()}>
-            {(found) => <Text class={`px-1 tabular-nums text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}>{resultCount(found().length)}</Text>}
+            {(found) => <Text class={`px-1 tabular-nums text-on-surface-variant ${touch ? "text-body-medium" : "text-body-small"}`}>{resultCount(found().length)}</Text>}
           </If>
         </View>
         <If when={searchResults()} else={<Empty icon="search" title={t("search.hint")} />}>

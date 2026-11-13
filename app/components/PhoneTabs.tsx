@@ -47,7 +47,7 @@ export function PhoneTabs(props: { page: (route: Route) => JSX.Element; onCompos
   });
   const covered = () => platform.os === "android" && depth() > 1;
   return (
-    <View class="flex-1 bg-background">
+    <View class="flex-1 bg-surface">
       <View class="flex-1">
         <Each of={tabs} key={(tab) => tab.name}>
           {(tab, index) => (
@@ -72,7 +72,7 @@ export function PhoneTabs(props: { page: (route: Route) => JSX.Element; onCompos
             }
           >
             <View
-              class={`absolute inset-0 bg-md-scrim ${transition.effects} ${menu() ? "opacity-30" : "opacity-0"}`}
+              class={`absolute inset-0 bg-scrim ${transition.effects} ${menu() ? "opacity-30" : "opacity-0"}`}
               style={{ pointerEvents: menu() ? "auto" : "none" }}
               onPress={() => menu.set(false)}
               accessibilityElementsHidden

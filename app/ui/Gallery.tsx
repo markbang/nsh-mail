@@ -38,7 +38,7 @@ const variants: Variant[] = ["solid", "bordered", "light", "flat", "faded", "sha
 function Section(props: { title: string; children?: JSX.Element }) {
   return (
     <View class="gap-3">
-      <Text role="header" class="text-small font-semibold text-foreground-500">
+      <Text role="header" class="text-body-medium font-semibold text-on-surface-variant">
         {props.title}
       </Text>
       {props.children}
@@ -55,15 +55,15 @@ function Gallery() {
   const modal = signal(false);
   const security = signal("tls");
   return (
-    <View class="flex-1 bg-background">
+    <View class="flex-1 bg-surface">
       <Scroll class="flex-1" contentClass="gap-8 p-8">
-        <Text testID="state" class="text-tiny text-foreground-400">{`${on() ? "on" : "off"} ${checked() ? "checked" : "unchecked"} ${nav()} ${tab()}`}</Text>
+        <Text testID="state" class="text-body-small text-on-surface-variant">{`${on() ? "on" : "off"} ${checked() ? "checked" : "unchecked"} ${nav()} ${tab()}`}</Text>
         <Section title="Button">
           <View class="gap-2">
             <Each of={variants}>
               {(v) => (
                 <View class="flex-row flex-wrap items-center gap-2">
-                  <Text class="w-16 text-tiny text-foreground-500">{v()}</Text>
+                  <Text class="w-16 text-body-small text-on-surface-variant">{v()}</Text>
                   <Each of={colors}>{(c) => <Button variant={v()} color={c()} size="sm" label={c()} testID={`btn-${v()}-${c()}`} />}</Each>
                 </View>
               )}
@@ -113,8 +113,8 @@ function Gallery() {
                 <CardHeader>
                   <Avatar name="Jonas Weber" color="primary" />
                   <View class="flex-1">
-                    <Text class="text-small font-semibold text-foreground">Jonas Weber</Text>
-                    <Text class="text-tiny text-foreground-500">jonas@northwind.dev</Text>
+                    <Text class="text-body-medium font-semibold text-on-surface">Jonas Weber</Text>
+                    <Text class="text-body-small text-on-surface-variant">jonas@northwind.dev</Text>
                   </View>
                   <Chip label="Work" size="sm" variant="flat" color="secondary" />
                 </CardHeader>
@@ -191,7 +191,7 @@ function Gallery() {
 
       <Dialog open={modal()} onClose={() => modal.set(false)} label="Discard draft" title="Discard draft?" size="sm" testID="modal">
         <DialogBody>
-          <Text class="text-small text-foreground-500">The message to Jonas Weber hasn't been sent.</Text>
+          <Text class="text-body-medium text-on-surface-variant">The message to Jonas Weber hasn't been sent.</Text>
         </DialogBody>
         <DialogFooter>
           <Button variant="light" color="danger" label="Discard" onPress={() => modal.set(false)} />

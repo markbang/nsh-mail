@@ -65,13 +65,13 @@ const cookie = `data:image/svg+xml,${encodeURIComponent(
  * Where the platform draws no shaders, a turning 9-sided cookie. */
 export function LoadingIndicator(props: { label: string; contained?: boolean; size?: number; progress?: AnimatedNode | number; testID?: string }) {
   const size = () => props.size ?? 48;
-  const color = () => token(props.contained ? "md-on-primary-container" : "md-primary");
+  const color = () => token(props.contained ? "on-primary-container" : "primary");
   return (
     <View
       role="progressbar"
       accessibilityLabel={props.label}
       testID={props.testID}
-      class={`items-center justify-center rounded-full ${props.contained ? "bg-md-primary-container" : ""}`}
+      class={`items-center justify-center rounded-full ${props.contained ? "bg-primary-container" : ""}`}
       style={{ width: size(), height: size() }}
     >
       <If
@@ -115,7 +115,7 @@ export interface NavBarItem {
  * pill-shaped active indicator over its label; the indicator grows from the icon on the fast spatial spring. */
 export function NavBar(props: { items: NavBarItem[]; selected: number; onChange: (index: number) => void; label: string }) {
   return (
-    <View role="tablist" accessibilityLabel={props.label} class="bg-md-surface-container pb-[env(safe-area-inset-bottom)]">
+    <View role="tablist" accessibilityLabel={props.label} class="bg-surface-container pb-[env(safe-area-inset-bottom)]">
       <View class="h-16 flex-row">
         <Each of={props.items} key={(item) => item.title}>
           {(item, index) => {
@@ -129,16 +129,16 @@ export function NavBar(props: { items: NavBarItem[]; selected: number; onChange:
                 testID={item().testID}
                 class="flex-1 items-center justify-center gap-1 pt-1.5 pb-2"
               >
-                <View class="h-8 w-14 items-center justify-center" android={{ ripple: { color: `${token("md-on-surface").slice(0, 7)}1f`, borderless: true, radius: 28 } }}>
-                  <View class={`absolute inset-0 rounded-full bg-md-secondary-container ${transition.fastSpatial} ${on() ? "scale-100 opacity-100" : "scale-x-50 opacity-0"}`} />
-                  <Icon name={item().icon} class={`${transition.fastEffects} ${on() ? "tint-md-on-secondary-container" : "tint-md-on-surface-variant"}`} />
+                <View class="h-8 w-14 items-center justify-center" android={{ ripple: { color: `${token("on-surface").slice(0, 7)}1f`, borderless: true, radius: 28 } }}>
+                  <View class={`absolute inset-0 rounded-full bg-secondary-container ${transition.fastSpatial} ${on() ? "scale-100 opacity-100" : "scale-x-50 opacity-0"}`} />
+                  <Icon name={item().icon} class={`${transition.fastEffects} ${on() ? "tint-on-secondary-container" : "tint-on-surface-variant"}`} />
                   <If when={item().badge}>
-                    <View class="absolute top-0.5 left-[30px] h-4 min-w-4 items-center justify-center rounded-full bg-md-error px-1">
-                      <Text class="text-[11px] font-medium leading-4 text-md-on-error">{item().badge}</Text>
+                    <View class="absolute top-0.5 left-[30px] h-4 min-w-4 items-center justify-center rounded-full bg-error px-1">
+                      <Text class="text-[11px] font-medium leading-4 text-on-error">{item().badge}</Text>
                     </View>
                   </If>
                 </View>
-                <Text class={`text-label-m ${on() ? "font-bold text-md-secondary" : "font-medium text-md-on-surface-variant"}`}>{item().title}</Text>
+                <Text class={`text-label-medium ${on() ? "font-bold text-secondary" : "font-medium text-on-surface-variant"}`}>{item().title}</Text>
               </View>
             );
           }}
@@ -183,16 +183,16 @@ export function FabMenu(props: { icon: IconName; label: string; closeLabel: stri
                 x().item.onPress();
               }}
               testID={x().item.testID}
-              android={{ ripple: { color: `${token("md-on-primary-container").slice(0, 7)}1f` }, elevation: 3 }}
-              class="h-14 flex-row items-center gap-2 overflow-hidden rounded-full bg-md-primary-container ps-6 pe-6"
+              android={{ ripple: { color: `${token("on-primary-container").slice(0, 7)}1f` }, elevation: 3 }}
+              class="h-14 flex-row items-center gap-2 overflow-hidden rounded-full bg-primary-container ps-6 pe-6"
               style={{
                 pointerEvents: props.open ? "auto" : "none",
                 opacity: value,
                 transform: [{ translateY: value.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }, { scale: value.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) }],
               }}
             >
-              <Icon name={x().item.icon} class="tint-md-on-primary-container" />
-              <Text class="text-title-m font-medium text-md-on-primary-container">{x().item.label}</Text>
+              <Icon name={x().item.icon} class="tint-on-primary-container" />
+              <Text class="text-title-medium font-medium text-on-primary-container">{x().item.label}</Text>
             </View>
           );
         }}
@@ -203,10 +203,10 @@ export function FabMenu(props: { icon: IconName; label: string; closeLabel: stri
         accessibilityState={{ expanded: props.open }}
         onPress={() => toggle(!props.open)}
         testID={props.testID}
-        android={{ ripple: { color: `${token("md-on-primary-container").slice(0, 7)}1f` }, elevation: 3 }}
-        class={`mt-1 size-14 items-center justify-center overflow-hidden ${transition.fastSpatial} ${props.open ? "rounded-full bg-md-primary" : "rounded-shape-lg bg-md-primary-container active:rounded-shape-md"}`}
+        android={{ ripple: { color: `${token("on-primary-container").slice(0, 7)}1f` }, elevation: 3 }}
+        class={`mt-1 size-14 items-center justify-center overflow-hidden ${transition.fastSpatial} ${props.open ? "rounded-full bg-primary" : "rounded-large bg-primary-container active:rounded-medium"}`}
       >
-        <Icon name={props.open ? "close" : props.icon} class={props.open ? "tint-md-on-primary" : "tint-md-on-primary-container"} />
+        <Icon name={props.open ? "close" : props.icon} class={props.open ? "tint-on-primary" : "tint-on-primary-container"} />
       </View>
     </View>
   );
@@ -221,7 +221,7 @@ export function FloatingToolbar(props: { label: string; vibrant?: boolean; child
       accessibilityLabel={props.label}
       testID={props.testID}
       android={{ elevation: 3 }}
-      class={`h-16 flex-row items-center gap-1 self-center rounded-full px-2 ${props.vibrant ? "bg-md-primary-container" : "bg-md-surface-container"}`}
+      class={`h-16 flex-row items-center gap-1 self-center rounded-full px-2 ${props.vibrant ? "bg-primary-container" : "bg-surface-container"}`}
     >
       {props.children}
     </View>
@@ -231,7 +231,7 @@ export function FloatingToolbar(props: { label: string; vibrant?: boolean; child
 /** A floating toolbar's action: 48dp, round, squaring up while pressed; `emphasized` is the toolbar's
  * selected button (a surface-container circle in a vibrant toolbar). */
 export function ToolbarButton(props: { icon: IconName; label: string; onPress: () => void; emphasized?: boolean; vibrant?: boolean; testID?: string }) {
-  const ink = () => (props.emphasized ? "tint-md-on-surface" : props.vibrant ? "tint-md-on-primary-container" : "tint-md-on-surface-variant");
+  const ink = () => (props.emphasized ? "tint-on-surface" : props.vibrant ? "tint-on-primary-container" : "tint-on-surface-variant");
   return (
     <View
       role="button"
@@ -239,8 +239,8 @@ export function ToolbarButton(props: { icon: IconName; label: string; onPress: (
       tooltip={props.label}
       onPress={props.onPress}
       testID={props.testID}
-      android={{ ripple: { color: `${token("md-on-surface").slice(0, 7)}1f` } }}
-      class={`size-12 items-center justify-center overflow-hidden rounded-full ${transition.fastSpatial} active:rounded-shape-md ${props.emphasized ? (props.vibrant ? "bg-md-surface-container" : "bg-md-secondary-container") : ""}`}
+      android={{ ripple: { color: `${token("on-surface").slice(0, 7)}1f` } }}
+      class={`size-12 items-center justify-center overflow-hidden rounded-full ${transition.fastSpatial} active:rounded-medium ${props.emphasized ? (props.vibrant ? "bg-surface-container" : "bg-secondary-container") : ""}`}
     >
       <Icon name={props.icon} class={ink()} />
     </View>
@@ -251,13 +251,13 @@ export function ToolbarButton(props: { icon: IconName; label: string; onPress: (
  * bar above it (`search`) and actions at its end. */
 export function AppBar(props: { title: string; search?: { label: string; onPress: () => void; end?: JSX.Element }; actions?: JSX.Element; leading?: JSX.Element; testID?: string }) {
   return (
-    <View class="bg-md-surface pt-[env(safe-area-inset-top)]" testID={props.testID}>
+    <View class="bg-surface pt-[env(safe-area-inset-top)]" testID={props.testID}>
       <If when={props.search}>
         {(search) => (
-          <View class="mx-4 mt-2 h-14 flex-row items-center gap-1 rounded-full bg-md-surface-container-high ps-4 pe-1">
+          <View class="mx-4 mt-2 h-14 flex-row items-center gap-1 rounded-full bg-surface-container-high ps-4 pe-1">
             <View role="search" accessibilityLabel={search().label} onPress={search().onPress} class="h-14 flex-1 flex-row items-center gap-3" testID="search-bar">
-              <Icon name="search" class="tint-md-on-surface-variant" />
-              <Text class="flex-1 text-medium text-md-on-surface-variant">{search().label}</Text>
+              <Icon name="search" class="tint-on-surface-variant" />
+              <Text class="flex-1 text-body-large text-on-surface-variant">{search().label}</Text>
             </View>
             {search().end}
           </View>
@@ -265,7 +265,7 @@ export function AppBar(props: { title: string; search?: { label: string; onPress
       </If>
       <View class={`min-h-16 flex-row items-center gap-1 ps-4 pe-2 ${props.search ? "pt-3" : "pt-2"}`}>
         {props.leading}
-        <Text role="header" class="line-clamp-1 flex-1 text-headline-m font-medium text-md-on-surface">
+        <Text role="header" class="line-clamp-1 flex-1 text-headline-medium font-medium text-on-surface">
           {props.title}
         </Text>
         {props.actions}

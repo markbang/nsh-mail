@@ -163,11 +163,11 @@ function Swipe(props: { id: string; onArchive?: (id: string) => void; onDelete?:
     <If when={touch && (props.onArchive || props.onDelete)} else={props.children}>
       <If when={!material} else={materialSwipe()}>
       <View class="overflow-hidden" onLayout={({ bounds }) => (width = bounds.size.width)}>
-        <View class="absolute inset-0 flex-row items-center justify-between bg-success-100 px-6" style={{ opacity: x.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }) }}>
-          <Icon name="archive" tone="success-800" />
+        <View class="absolute inset-0 flex-row items-center justify-between bg-tertiary-container px-6" style={{ opacity: x.interpolate({ inputRange: [0, 1], outputRange: [0, 1] }) }}>
+          <Icon name="archive" tone="on-tertiary-container" />
         </View>
-        <View class="absolute inset-0 flex-row items-center justify-end bg-danger-100 px-6" style={{ opacity: x.interpolate({ inputRange: [-1, 0], outputRange: [1, 0] }) }}>
-          <Icon name="trash" tone="danger-800" />
+        <View class="absolute inset-0 flex-row items-center justify-end bg-error-container px-6" style={{ opacity: x.interpolate({ inputRange: [-1, 0], outputRange: [1, 0] }) }}>
+          <Icon name="trash" tone="on-error-container" />
         </View>
         <View pan={{ x }} onPanEnd={end} style={{ translate: [x, 0] }}>
           {props.children}
@@ -187,27 +187,27 @@ function Swipe(props: { id: string; onArchive?: (id: string) => void; onDelete?:
       });
     return (
       <View
-        class="mx-2 overflow-hidden rounded-shape-lg"
+        class="mx-2 overflow-hidden rounded-large"
         onLayout={({ bounds }) => {
           width = bounds.size.width;
           span.set(bounds.size.width);
         }}
       >
-        <View class="absolute inset-0 flex-row items-center bg-md-tertiary-container px-6" style={{ opacity: x.interpolate({ inputRange: [0, 8], outputRange: [0, 1] }) }}>
+        <View class="absolute inset-0 flex-row items-center bg-tertiary-container px-6" style={{ opacity: x.interpolate({ inputRange: [0, 8], outputRange: [0, 1] }) }}>
           <View style={{ transform: [{ scale: grow(1) }] }}>
-            <Icon name="archive" class="tint-md-on-tertiary-container" />
+            <Icon name="archive" class="tint-on-tertiary-container" />
           </View>
         </View>
-        <View class="absolute inset-0 flex-row items-center justify-end bg-md-error-container px-6" style={{ opacity: x.interpolate({ inputRange: [-8, 0], outputRange: [1, 0] }) }}>
+        <View class="absolute inset-0 flex-row items-center justify-end bg-error-container px-6" style={{ opacity: x.interpolate({ inputRange: [-8, 0], outputRange: [1, 0] }) }}>
           <View style={{ transform: [{ scale: grow(-1) }] }}>
-            <Icon name="trash" class="tint-md-on-error-container" />
+            <Icon name="trash" class="tint-on-error-container" />
           </View>
         </View>
         <View
           pan={{ x }}
           onPanStart={() => dragging.set(true)}
           onPanEnd={end}
-          class={`overflow-hidden ${transition.fastSpatial} ${dragging() ? "rounded-shape-xl" : "rounded-shape-lg"}`}
+          class={`overflow-hidden ${transition.fastSpatial} ${dragging() ? "rounded-extra-large" : "rounded-large"}`}
           style={{ translate: [x, 0] }}
         >
           {props.children}
@@ -218,9 +218,9 @@ function Swipe(props: { id: string; onArchive?: (id: string) => void; onDelete?:
 }
 
 const tones = [
-  "bg-md-primary-container text-md-on-primary-container",
-  "bg-md-secondary-container text-md-on-secondary-container",
-  "bg-md-tertiary-container text-md-on-tertiary-container",
+  "bg-primary-container text-on-primary-container",
+  "bg-secondary-container text-on-secondary-container",
+  "bg-tertiary-container text-on-tertiary-container",
 ];
 // FNV-1a: one sender, one tone.
 const toneOf = (key: string) => tones[[...key].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261) % tones.length];
@@ -250,7 +250,7 @@ function MaterialRow(props: {
       onLongPress={props.onPick}
       accessibilityLabel={label()}
       testID={`message-${m().id}`}
-      class={`flex-row gap-3 rounded-shape-lg py-3 ps-3 pe-4 ${transition.fastSpatial}`}
+      class={`flex-row gap-3 rounded-large py-3 ps-3 pe-4 ${transition.fastSpatial}`}
     >
       <View
         role="checkbox"
@@ -258,10 +258,10 @@ function MaterialRow(props: {
         accessibilityState={{ checked: props.picked }}
         onPress={props.onPick ? () => props.onPick?.() : undefined}
         hitSlop={4}
-        class={`size-10 items-center justify-center ${transition.fastSpatial} ${props.picked ? "rounded-shape-md bg-md-primary" : `rounded-full ${toneOf(who())}`}`}
+        class={`size-10 items-center justify-center ${transition.fastSpatial} ${props.picked ? "rounded-medium bg-primary" : `rounded-full ${toneOf(who())}`}`}
       >
-        <If when={props.picked} else={<Text class="text-title-s font-medium">{initials(who())}</Text>}>
-          <Icon name="check" class="tint-md-on-primary" />
+        <If when={props.picked} else={<Text class="text-title-small font-medium">{initials(who())}</Text>}>
+          <Icon name="check" class="tint-on-primary" />
         </If>
       </View>
       <View class="min-w-0 flex-1">
@@ -269,23 +269,23 @@ function MaterialRow(props: {
           <If when={props.showAccount}>
             <AccountMark index={accountIndex(m().accountId)} />
           </If>
-          <Text class={`line-clamp-1 flex-1 text-medium ${m().seen ? "text-md-on-surface-variant" : "font-bold text-md-on-surface"}`}>{who()}</Text>
-          <Text class={`text-label-m tabular-nums ${m().seen ? "font-medium text-md-on-surface-variant" : "font-bold text-md-primary"}`}>{listDate(m().date)}</Text>
+          <Text class={`line-clamp-1 flex-1 text-body-large ${m().seen ? "text-on-surface-variant" : "font-bold text-on-surface"}`}>{who()}</Text>
+          <Text class={`text-label-medium tabular-nums ${m().seen ? "font-medium text-on-surface-variant" : "font-bold text-primary"}`}>{listDate(m().date)}</Text>
         </View>
         <View class="flex-row items-center gap-1.5">
           <Marked
             text={m().subject || t("reader.noSubject")}
             terms={props.terms}
-            class={`line-clamp-1 flex-1 text-small ${m().seen ? "text-md-on-surface" : "font-bold text-md-on-surface"}`}
+            class={`line-clamp-1 flex-1 text-body-medium ${m().seen ? "text-on-surface" : "font-bold text-on-surface"}`}
           />
           <If when={m().hasAttachments}>
-            <Icon name="paperclip" size="sm" class="tint-md-on-surface-variant" />
+            <Icon name="paperclip" size="sm" class="tint-on-surface-variant" />
           </If>
           <If when={m().flagged}>
             <Icon name="flagFilled" size="sm" tone="flag" />
           </If>
         </View>
-        <Marked text={m().snippet} terms={props.terms} class="line-clamp-1 text-small text-md-on-surface-variant" />
+        <Marked text={m().snippet} terms={props.terms} class="line-clamp-1 text-body-medium text-on-surface-variant" />
       </View>
     </Row>
   );
@@ -306,7 +306,7 @@ function Marked(props: { text: string; terms: string[]; class: string }) {
     <If when={props.terms.length} else={<Text class={props.class}>{props.text}</Text>}>
       <Text class={props.class}>
         <Each of={parts()} key={(p) => p.key}>
-          {(p) => <Text class={p().hit ? "bg-flag/25 font-semibold text-foreground" : ""}>{p().text}</Text>}
+          {(p) => <Text class={p().hit ? "bg-flag/25 font-semibold text-on-surface" : ""}>{p().text}</Text>}
         </Each>
       </Text>
     </If>
@@ -338,7 +338,7 @@ function MessageRow(props: {
       onLongPress={props.onLongPress}
       accessibilityLabel={label()}
       testID={`message-${m().id}`}
-      class={`flex-row border-b border-divider pe-3 ${props.dense ? (touch ? "py-1.5" : "py-2") : "py-3"}`}
+      class={`flex-row border-b border-outline-variant pe-3 ${props.dense ? (touch ? "py-1.5" : "py-2") : "py-3"}`}
     >
       <If when={props.showAccount}>
         <AccountMark index={accountIndex(m().accountId)} shape="bar" />
@@ -354,9 +354,9 @@ function MessageRow(props: {
         }
       >
         <View class="w-10 items-center pt-0.5">
-          <View class={`size-5 items-center justify-center rounded-full border-2 ${props.selected ? "border-primary bg-primary" : "border-default-400"}`}>
+          <View class={`size-5 items-center justify-center rounded-full border-2 ${props.selected ? "border-primary bg-primary" : "border-outline"}`}>
             <If when={props.selected}>
-              <Icon name="check" size="sm" tone="primary-foreground" />
+              <Icon name="check" size="sm" tone="on-primary" />
             </If>
           </View>
         </View>
@@ -364,11 +364,11 @@ function MessageRow(props: {
       <View class={`min-w-0 flex-1 ${touch && props.dense ? "" : "gap-0.5"}`}>
         <View class="flex-row items-center gap-1.5">
           <Text
-            class={`line-clamp-1 flex-1 text-foreground ${touch ? "text-medium" : "text-small"} ${m().seen ? "" : "font-semibold"}`}
+            class={`line-clamp-1 flex-1 text-on-surface ${touch ? "text-body-large" : "text-body-medium"} ${m().seen ? "" : "font-semibold"}`}
           >
             {who()}
           </Text>
-          <Text class={`tabular-nums ${touch ? "text-small" : "text-tiny"} ${m().seen ? "text-foreground-500" : "font-medium text-foreground"}`}>
+          <Text class={`tabular-nums ${touch ? "text-body-medium" : "text-body-small"} ${m().seen ? "text-on-surface-variant" : "font-medium text-on-surface"}`}>
             {listDate(m().date)}
           </Text>
         </View>
@@ -376,10 +376,10 @@ function MessageRow(props: {
           <Marked
             text={m().subject || t("reader.noSubject")}
             terms={props.terms}
-            class={`line-clamp-1 flex-1 text-foreground ${touch ? "text-medium" : "text-small"} ${m().seen ? "" : "font-medium"}`}
+            class={`line-clamp-1 flex-1 text-on-surface ${touch ? "text-body-large" : "text-body-medium"} ${m().seen ? "" : "font-medium"}`}
           />
           <If when={m().hasAttachments}>
-            <Icon name="paperclip" size="sm" tone="default-500" />
+            <Icon name="paperclip" size="sm" tone="on-surface-variant" />
           </If>
           <View class="w-4 items-center">
             <If when={m().flagged}>
@@ -390,7 +390,7 @@ function MessageRow(props: {
         <Marked
           text={m().snippet}
           terms={props.terms}
-          class={`${props.dense ? "line-clamp-1" : "line-clamp-2"} text-foreground-500 ${touch ? "text-small" : "text-tiny"}`}
+          class={`${props.dense ? "line-clamp-1" : "line-clamp-2"} text-on-surface-variant ${touch ? "text-body-medium" : "text-body-small"}`}
         />
       </View>
     </Row>
