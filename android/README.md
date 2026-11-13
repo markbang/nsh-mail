@@ -18,6 +18,12 @@ Each ABI adds a whole `libnsh.so` (about 32 MB), so APKs carry one: Gradle split
 
 `prepare.sh` downloads `nsh.aar` from the NSH release matching `nsh --version` (checksum verified), replaces its `libnsh.so` with the one `nsh package` builds for this app (it holds the `nsh-mail/native` module), and writes the bundle with `nsh build --release`. Both outputs are git-ignored.
 
+## Signing
+
+CI signs every APK and AAB, `nsh package`'s and this host's, with one release key (certificate SHA-256 `F3:92:9A:E4:A1:E2:AF:07:03:AA:0C:E7:AC:E2:B5:6E:E9:9F:1E:B1:0B:B3:A4:1F:C8:11:07:DE:E4:6B:4B:42`), so each build installs over the last. It comes from the repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS` and `NSH_KEYSTORE_PASSWORD` (one password for the store and the key, as `nsh package` takes it); a build signed with another key fails. Forks' pull requests get no secrets and build debug-signed, for trying only. `v*` tags add the AABs and publish a GitHub Release.
+
+Locally, `prepare.sh` and `assembleDebug` use the debug key. For a release build, set `ANDROID_KEYSTORE_FILE`, `ANDROID_KEY_ALIAS` and `NSH_KEYSTORE_PASSWORD`, pass `--keystore "$ANDROID_KEYSTORE_FILE" --key-alias "$ANDROID_KEY_ALIAS"` to `prepare.sh`, and run `./gradlew assembleRelease bundleRelease`.
+
 ## Firebase
 
 Without `app/google-services.json` the APK builds and runs, with push off. To turn it on:
