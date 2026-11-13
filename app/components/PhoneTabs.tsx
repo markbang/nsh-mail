@@ -39,7 +39,7 @@ export function PhoneTabs(props: { page: (route: Route) => JSX.Element; onCompos
   });
   const covered = () => platform.os === "android" && depth() > 1;
   return (
-    <View class="flex-1 bg-background">
+    <View class="flex-1 bg-surface">
       <View class="flex-1">
         <Each of={tabs} key={(tab) => tab.name}>
           {(tab, index) => (
@@ -71,10 +71,10 @@ export function PhoneTabs(props: { page: (route: Route) => JSX.Element; onCompos
         <If when={platform.os === "android" && unread() > 0}>
           <View
             accessibilityElementsHidden
-            class="absolute top-[14px] h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1"
+            class="absolute top-[14px] h-4 min-w-4 items-center justify-center rounded-full bg-error px-1"
             style={{ left: `${50 / tabs.length}%`, marginLeft: 2, pointerEvents: "none" }}
           >
-            <Text class="text-[11px] font-medium leading-4 text-danger-foreground">{unread() > 999 ? "999+" : String(unread())}</Text>
+            <Text class="text-[11px] font-medium leading-4 text-on-error">{unread() > 999 ? "999+" : String(unread())}</Text>
           </View>
         </If>
       </View>

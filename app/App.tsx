@@ -111,7 +111,7 @@ function Main() {
 function App() {
   void start();
   return (
-    <View class="flex-1 bg-background">
+    <View class="flex-1 bg-surface">
       <If when={isStarted()}>
         <If when={mailStatus().mode !== "none"} else={<Onboarding />}>
           <Main />

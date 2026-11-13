@@ -1,4 +1,4 @@
-// The ui layer's components behave as HeroUI's do; on a real target
+// The ui layer's components keep their states and open their overlays; on a real target
 // (`nsh test --target web`) the gallery is also pictured, light and dark, in .nsh/.
 import { open, test } from "nsh/test";
 
@@ -29,6 +29,6 @@ test("gallery pictures", async () => {
     const drawn = await app.screenshot().catch(() => null);
     if (!drawn?.length) return;
     await app.setViewport(1440, 1180);
-    await app.screenshot(`.nsh/heroui-gallery-${scheme}.png`);
+    await app.screenshot(`.nsh/m3e-gallery-${scheme}.png`);
   }
 });

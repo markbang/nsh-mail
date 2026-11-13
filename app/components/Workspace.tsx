@@ -24,22 +24,22 @@ export function Workspace(props: WorkspaceProps) {
         <Mailboxes onCompose={() => props.onCompose("new")} onSettings={props.onSettings} />
       </Pane>
       <Pane size={400} minSize={300} maxSize={600} fixed>
-        <View class="flex-1 bg-background">
-          <View class="h-12 flex-row items-center gap-2 border-b border-divider pe-2 ps-4">
+        <View class="flex-1 bg-surface">
+          <View class="h-12 flex-row items-center gap-2 border-b border-outline-variant pe-2 ps-4">
             <If
               when={searchResults()}
               else={
-                <Text role="header" class="line-clamp-1 flex-1 text-small font-semibold text-foreground">
+                <Text role="header" class="line-clamp-1 flex-1 text-body-medium font-semibold text-on-surface">
                   {mailboxTitle()}
                 </Text>
               }
             >
               {(found) => (
                 <>
-                  <Text role="header" class="line-clamp-1 flex-1 text-small font-semibold text-foreground" testID="results-title">
+                  <Text role="header" class="line-clamp-1 flex-1 text-body-medium font-semibold text-on-surface" testID="results-title">
                     {t("search.title", { query: searchQuery().trim() })}
                   </Text>
-                  <Text class="text-tiny tabular-nums text-foreground-500">{resultCount(found().length)}</Text>
+                  <Text class="text-body-small tabular-nums text-on-surface-variant">{resultCount(found().length)}</Text>
                 </>
               )}
             </If>
@@ -48,15 +48,15 @@ export function Workspace(props: WorkspaceProps) {
             </If>
             <IconButton icon="refresh" label={t("actions.refresh")} size="sm" onPress={() => void refresh()} />
           </View>
-          <View class="border-b border-divider px-3 py-2">
+          <View class="border-b border-outline-variant px-3 py-2">
             <SearchField ref={props.searchRef} />
           </View>
           <MailboxList onOpen={(id) => openMessage(id)} onAddAccount={props.onAddAccount} highlight />
         </View>
       </Pane>
       <Pane minSize={360}>
-        <View class="flex-1 bg-background">
-          <View class="h-12 flex-row items-center justify-end border-b border-divider px-2">
+        <View class="flex-1 bg-surface">
+          <View class="h-12 flex-row items-center justify-end border-b border-outline-variant px-2">
             <If when={open()}>{(m) => <ReaderActions message={m()} onCompose={props.onCompose} />}</If>
           </View>
           <If

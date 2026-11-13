@@ -14,13 +14,13 @@ import { touch } from "./density";
 import { Icon, type IconName } from "./icon";
 import { IconButton } from "./button";
 import { popover, wash } from "./motion";
-import { shadow } from "./tokens";
+import { shadow } from "./variants";
 
 /** The surface every anchored popup shares: content1, large radius, medium shadow. */
-export const popup = `min-w-[200px] rounded-large bg-content1 ${shadow.md}`;
+export const popup = `min-w-[200px] rounded-large bg-surface-container-low ${shadow.md}`;
 
 /** A listbox or dropdown item: HeroUI's menu item, solid default (hover and keyboard focus fill with `default`). */
-export const listItem = `flex-row items-center gap-2 rounded-small px-2 ${touch ? "min-h-11" : "min-h-8 py-1.5"} text-small text-foreground hover:bg-default hover:text-default-foreground focus:bg-default active:bg-default ${wash}`;
+export const listItem = `flex-row items-center gap-2 rounded-small px-2 ${touch ? "min-h-11" : "min-h-8 py-1.5"} text-body-medium text-on-surface hover:bg-surface-container-highest hover:text-on-surface focus:bg-surface-container-highest active:bg-surface-container-highest ${wash}`;
 
 export type ModalSize = "xs" | "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "full";
 
@@ -64,16 +64,16 @@ export function Dialog(props: DialogProps) {
       accessibilityLabel={props.label}
       animation="fade"
       testID={props.testID}
-      backdropClass="bg-overlay/50"
+      backdropClass="bg-scrim/32"
       class={`flex-1 items-center ${touch ? "justify-end p-1" : "justify-center px-6 py-16"}`}
     >
       <View
-        class={`relative max-h-full w-full overflow-hidden rounded-large bg-content1 ${shadow.sm} ${modalWidth[size()]}`}
+        class={`relative max-h-full w-full overflow-hidden rounded-large bg-surface-container-low ${shadow.sm} ${modalWidth[size()]}`}
         style={{ height: props.height ?? (tall.includes(size()) ? 640 : undefined) }}
       >
         <If when={!props.bare}>
           <View class="flex-row items-center py-4 pe-12 ps-6">
-            <Text role="header" class="line-clamp-1 flex-1 text-large font-semibold text-foreground">
+            <Text role="header" class="line-clamp-1 flex-1 text-title-large font-semibold text-on-surface">
               {props.title}
             </Text>
           </View>
@@ -112,11 +112,11 @@ export function Sheet(props: SheetProps) {
       onOpenChange={(e) => !e.open && props.onClose()}
       side={side()}
       closeOnSwipe={side() === "bottom"}
-      backdropClass="bg-overlay/50"
+      backdropClass="bg-scrim/32"
       popupClass={
         side() === "bottom"
-          ? `max-h-[85%] rounded-t-large bg-content1 pb-[env(safe-area-inset-bottom)] ${shadow.lg}`
-          : `w-[300px] max-w-[85%] bg-sidebar pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] ${shadow.lg}`
+          ? `max-h-[85%] rounded-t-large bg-surface-container-low pb-[env(safe-area-inset-bottom)] ${shadow.lg}`
+          : `w-[300px] max-w-[85%] bg-surface-container pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] ${shadow.lg}`
       }
     >
       {props.children}
@@ -145,35 +145,35 @@ export function Menu(props: { trigger: JSX.Element; actions: MenuAction[]; label
       popupClass={`${popup} p-1 ${popover.class}`}
       popupStartingClass={popover.starting}
       popupEndingClass={popover.ending}
-      backdropClass="bg-overlay/50"
+      backdropClass="bg-scrim/32"
     >
       <Each of={props.actions} key={(a) => a.id}>
         {(action) => (
           <>
             <If when={action().separatorBefore}>
-              <MenuSeparator class="mx-2 my-1 h-px bg-divider" />
+              <MenuSeparator class="mx-2 my-1 h-px bg-outline-variant" />
             </If>
             <BaseMenuItem
               onSelect={() => action().onSelect()}
-              class={`group ${listItem} ${action().destructive ? "text-danger hover:bg-danger hover:text-danger-foreground focus:bg-danger focus:text-danger-foreground" : ""}`}
+              class={`group ${listItem} ${action().destructive ? "text-error hover:bg-error hover:text-on-error focus:bg-error focus:text-on-error" : ""}`}
             >
               <If when={action().icon}>
                 {(icon) => (
                   <Icon
                     name={icon()}
                     size="sm"
-                    class={action().destructive ? "tint-danger group-hover:tint-danger-foreground group-focus:tint-danger-foreground" : "tint-default-500 group-hover:tint-default-foreground"}
+                    class={action().destructive ? "tint-error group-hover:tint-on-error group-focus:tint-on-error" : "tint-on-surface-variant group-hover:tint-on-surface"}
                   />
                 )}
               </If>
               <View class="min-w-0 flex-1">
-                <Text class="text-small">{action().label}</Text>
+                <Text class="text-body-medium">{action().label}</Text>
                 <If when={action().description}>
-                  <Text class="text-tiny text-foreground-500 group-hover:text-current">{action().description}</Text>
+                  <Text class="text-body-small text-on-surface-variant group-hover:text-current">{action().description}</Text>
                 </If>
               </View>
               <If when={action().shortcut}>
-                <Text class="rounded-sm border border-default-300 px-1 py-0.5 text-tiny text-foreground-500">{action().shortcut}</Text>
+                <Text class="rounded-sm border border-outline-variant px-1 py-0.5 text-body-small text-on-surface-variant">{action().shortcut}</Text>
               </If>
             </BaseMenuItem>
           </>

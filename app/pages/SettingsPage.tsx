@@ -60,8 +60,8 @@ export function SettingsPage() {
     await setNotificationsEnabled(on);
   };
 
-  const text = touch ? "text-medium" : "text-small";
-  const note = touch ? "text-small" : "text-tiny";
+  const text = touch ? "text-body-large" : "text-body-medium";
+  const note = touch ? "text-body-medium" : "text-body-small";
   return (
     <Page title={t("settings.title")} header={<PageHeader title={t("settings.title")} />} root={systemHeader}>
       <PageScroll contentClass={touch ? "gap-6 p-4" : "gap-6 p-5"} testID="settings">
@@ -77,10 +77,10 @@ export function SettingsPage() {
                   <View class={`flex-row items-center gap-3 ps-3 pe-1 ${touch ? "min-h-14 py-2" : "min-h-12 py-1.5"}`}>
                     <AccountMark index={index()} size="md" />
                     <View class="min-w-0 flex-1">
-                      <Text class={`line-clamp-1 text-foreground ${text}`}>
+                      <Text class={`line-clamp-1 text-on-surface ${text}`}>
                         {a().email}
                       </Text>
-                      <Text class={`line-clamp-1 text-foreground-500 ${note}`}>
+                      <Text class={`line-clamp-1 text-on-surface-variant ${note}`}>
                         {a().name ? `${a().name} · ${providerName(a())}` : providerName(a())}
                       </Text>
                     </View>
@@ -106,23 +106,23 @@ export function SettingsPage() {
           <SectionLabel label={t("settings.sync")} class="px-0" />
           <Card shadow="sm" class="gap-3 p-3">
             <View class="flex-row items-center gap-3">
-              <Icon name={mailStatus().mode === "cloud" ? "cloud" : "device"} tone="default-500" />
+              <Icon name={mailStatus().mode === "cloud" ? "cloud" : "device"} tone="on-surface-variant" />
               <View class="flex-1 gap-0.5">
-                <Text class={`text-foreground ${text}`}>{t(`mode.${mailStatus().mode}`)}</Text>
+                <Text class={`text-on-surface ${text}`}>{t(`mode.${mailStatus().mode}`)}</Text>
                 <If when={mailStatus().mode === "cloud" && mailStatus().user}>
                   {(user) => (
-                    <Text class={`text-foreground ${note}`} testID="signed-in-as">
+                    <Text class={`text-on-surface ${note}`} testID="signed-in-as">
                       {t("settings.signedInAs", { email: user() })}
                     </Text>
                   )}
                 </If>
-                <Text class={`text-foreground-500 ${note}`}>
+                <Text class={`text-on-surface-variant ${note}`}>
                   {mailStatus().mode === "cloud" ? (mailStatus().server ?? "") : t("settings.localDetail")}
                 </Text>
               </View>
             </View>
             <If when={mailStatus().mode === "local" && platform.os === "android"}>
-              <Text class={`text-foreground-500 ${note}`}>{t("settings.androidLocal")}</Text>
+              <Text class={`text-on-surface-variant ${note}`}>{t("settings.androidLocal")}</Text>
             </If>
             <Button variant="flat" color="danger" icon="logOut" label={t("settings.signOut")} onPress={() => void signOut()} class="self-start" testID="sign-out" />
           </Card>
@@ -141,7 +141,7 @@ export function SettingsPage() {
           </Card>
         </View>
 
-        <Text class={`text-center text-foreground-500 ${note}`}>{t("settings.about")}</Text>
+        <Text class={`text-center text-on-surface-variant ${note}`}>{t("settings.about")}</Text>
       </PageScroll>
     </Page>
   );

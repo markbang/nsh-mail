@@ -4,7 +4,7 @@ import { Text, type JSX } from "nsh";
 import { Tooltip as BaseTooltip } from "nsh/base";
 import { touch } from "./density";
 import { tooltip } from "./motion";
-import { shadow } from "./tokens";
+import { shadow } from "./variants";
 
 /** HeroUI's Tooltip, for an element's `tooltip` prop: a small content1 bubble. */
 export function Tooltip(props: { text: string; placement?: "top" | "bottom" | "left" | "right"; delay?: number }) {
@@ -13,11 +13,11 @@ export function Tooltip(props: { text: string; placement?: "top" | "bottom" | "l
       placement={props.placement ?? "top"}
       delay={props.delay ?? 500}
       offset={7}
-      class={`max-w-xs rounded-medium bg-content1 px-2.5 py-1 ${shadow.sm} ${tooltip.class}`}
+      class={`max-w-xs rounded-medium bg-surface-container-low px-2.5 py-1 ${shadow.sm} ${tooltip.class}`}
       startingClass={tooltip.starting}
       endingClass={tooltip.ending}
     >
-      <Text class="text-small text-content1-foreground">{props.text}</Text>
+      <Text class="text-body-medium text-on-surface">{props.text}</Text>
     </BaseTooltip>
   );
 }

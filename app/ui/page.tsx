@@ -27,12 +27,12 @@ export function Page(props: PageProps) {
       header={props.header}
       headerLeft={props.headerLeft && <View class="flex-row items-center">{props.headerLeft}</View>}
       headerRight={props.headerRight && <View class="flex-row items-center">{props.headerRight}</View>}
-      headerClass="bg-background text-foreground tint-foreground"
+      headerClass="bg-surface text-on-surface tint-on-surface"
       hidesBottomBarWhenPushed={!props.root}
       popOnBack={props.popOnBack ?? true}
       onBackPress={props.onBackPress}
       testID={props.testID}
-      class="bg-background"
+      class="bg-surface"
     >
       {props.children}
     </NavPage>

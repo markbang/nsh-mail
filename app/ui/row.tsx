@@ -8,7 +8,7 @@ import { tip } from "./tooltip";
 import { Icon, type IconName } from "./icon";
 import { wash } from "./motion";
 
-const rowFocus = "focus-visible:outline-2 focus-visible:outline-focus focus-visible:-outline-offset-2";
+const rowFocus = "focus-visible:outline-2 focus-visible:outline-secondary focus-visible:-outline-offset-2";
 
 /** A full-width pressable row: the message list's. */
 export function Row(props: {
@@ -28,7 +28,7 @@ export function Row(props: {
       accessibilityLabel={props.accessibilityLabel}
       tooltip={tip(props.tooltip)}
       testID={props.testID}
-      class={`${props.selected ? "bg-selected" : "hover:bg-hover"} active:bg-pressed ${rowFocus} ${wash} ${props.class ?? ""}`}
+      class={`${props.selected ? "bg-secondary-container" : "hover:bg-on-surface/8"} active:bg-on-surface/10 ${rowFocus} ${wash} ${props.class ?? ""}`}
     >
       {props.children}
     </BaseButton>
@@ -64,18 +64,18 @@ export function NavItem(props: {
       onPress={props.onPress}
       tooltip={tip(props.tooltip)}
       testID={props.testID}
-      class={`group flex-row items-center gap-2 rounded-small px-2 ${touch ? "min-h-11" : "min-h-8 py-1.5"} ${props.selected ? "bg-default-100" : "hover:bg-default/40"} active:bg-default/60 ${rowFocus} ${wash}`}
+      class={`group flex-row items-center gap-2 rounded-small px-2 ${touch ? "min-h-11" : "min-h-8 py-1.5"} ${props.selected ? "bg-surface-container-high" : "hover:bg-on-surface/8"} active:bg-on-surface/10 ${rowFocus} ${wash}`}
     >
       <View class="w-4 items-center">
-        {props.lead ?? (props.icon ? <Icon name={props.icon} size="sm" tone={props.selected ? "foreground" : "default-500"} /> : null)}
+        {props.lead ?? (props.icon ? <Icon name={props.icon} size="sm" tone={props.selected ? "on-secondary-container" : "on-surface-variant"} /> : null)}
       </View>
       <View class="min-w-0 flex-1">
-        <Text class={`line-clamp-1 ${touch ? "text-medium" : "text-small"} ${props.selected ? "font-medium" : ""} text-foreground`}>{props.label}</Text>
+        <Text class={`line-clamp-1 ${touch ? "text-body-large" : "text-body-medium"} ${props.selected ? "font-medium" : ""} text-on-surface`}>{props.label}</Text>
         <If when={props.description}>
-          <Text class="line-clamp-1 text-tiny text-foreground-500">{props.description}</Text>
+          <Text class="line-clamp-1 text-body-small text-on-surface-variant">{props.description}</Text>
         </If>
       </View>
-      {props.end ?? (props.detail ? <Text class="text-tiny tabular-nums text-foreground-500">{props.detail}</Text> : null)}
+      {props.end ?? (props.detail ? <Text class="text-body-small tabular-nums text-on-surface-variant">{props.detail}</Text> : null)}
     </BaseButton>
   );
 }
@@ -86,7 +86,7 @@ export const ListboxItem = NavItem;
 /** HeroUI's ListboxSection title: a quiet tiny heading over a group. */
 export function SectionLabel(props: { label: string; class?: string }) {
   return (
-    <Text role="header" class={`px-2 pb-1 pt-3 text-tiny text-foreground-500 ${props.class ?? ""}`}>
+    <Text role="header" class={`px-2 pb-1 pt-3 text-body-small text-on-surface-variant ${props.class ?? ""}`}>
       {props.label}
     </Text>
   );
