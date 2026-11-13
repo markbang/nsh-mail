@@ -529,18 +529,12 @@ imap.security:
 imap.imapHost:
   en: IMAP server
   zh-CN: IMAP 服务器
-imap.imapPort:
-  en: IMAP port
-  zh-CN: IMAP 端口
 imap.imapSecurity:
   en: IMAP encryption
   zh-CN: IMAP 加密方式
 imap.smtpHost:
   en: SMTP server
   zh-CN: SMTP 服务器
-imap.smtpPort:
-  en: SMTP port
-  zh-CN: SMTP 端口
 imap.smtpSecurity:
   en: SMTP encryption
   zh-CN: SMTP 加密方式

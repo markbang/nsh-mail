@@ -75,7 +75,7 @@ function field(props: TextFieldProps, multiline: boolean) {
   const filled = () => props.value.length > 0;
   // The label rests centered (body-large) and floats 12pt up at 0.75 (body-small) when focused or filled.
   const label = () =>
-    `absolute start-0 top-4 origin-left text-body-large ${ease} ${filled() ? "-translate-y-3 scale-75" : "group-focus-within:-translate-y-3 group-focus-within:scale-75"} ${
+    `absolute start-0 top-4 line-clamp-1 origin-left text-body-large ${ease} ${filled() ? "-translate-y-3 scale-75" : "group-focus-within:-translate-y-3 group-focus-within:scale-75"} ${
       bad() ? "text-error" : "text-on-surface-variant group-focus-within:text-primary"
     }`;
   const help = () => props.error || props.supporting;
@@ -161,7 +161,7 @@ export function SelectField(props: SelectFieldProps) {
       offset={4}
       popupClass={`${menuSurface} min-w-[200px]`}
       backdropClass="bg-scrim/32"
-      itemClass={`${menuItem} selected:rounded-medium selected:bg-tertiary-container selected:text-on-tertiary-container`}
+      itemClass={`${menuItem} selected:rounded-medium selected:bg-tertiary-container selected:text-on-tertiary-container selected:hover:bg-tertiary-container selected:focus:bg-tertiary-container`}
       class={props.class}
       trigger={
         <View
