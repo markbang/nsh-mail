@@ -201,9 +201,9 @@ GitHub Actions，每个 PR 跑：
 | core + server | ubuntu-24.04 | `cargo test`、`clippy`；服务端 Docker 镜像（main 上推 ghcr） |
 | linux | ubuntu-24.04（GTK 4.14） | `nsh package --target linux` → `.tar.gz` |
 | windows | windows-latest（只在 `v*` 标签和手动运行） | `nsh package --target windows` → `.zip` + 安装器；有证书 secret 时 signtool 签名（带时间戳） |
-| android | ubuntu-24.04 + SDK/NDK | `nsh package` 的 `.apk`，以及 Gradle 宿主（FCM）的 `.apk`，只含 arm64-v8a，全部用正式密钥签名（fork 的 PR 拿不到 secret，用调试密钥）。`v*` 标签和手动运行另出两份 `.aab`（arm64-v8a + armeabi-v7a，Play 按设备只下发一份 `libnsh.so`），旁边的 `nsh package` `.apk` 仍只含 arm64-v8a，Gradle 宿主按 ABI 各出一份 `.apk` |
+| android | ubuntu-24.04 + SDK/NDK | `nsh package` 的 `.apk`，以及 Gradle 宿主（FCM）的 `.apk`，只含 arm64-v8a，全部用正式密钥签名（fork 的 PR 拿不到 secret，用调试密钥）。`v*` 标签和手动运行按 ABI（arm64-v8a、armeabi-v7a、x86_64）各出一份 `nsh package` `.apk`，外加一份 universal，另出两份 `.aab`（arm64-v8a + armeabi-v7a，Play 按设备只下发一份 `libnsh.so`），Gradle 宿主按 ABI 各出一份 `.apk`。versionCode = `build` × 10 + ABI 位（[android/README.zh-CN.md](../android/README.zh-CN.md#版本号versioncode)） |
 | web | ubuntu-24.04 + wasm32 | 静态站点 `.zip` |
-| release | ubuntu-24.04（只在 `v*` 标签） | GitHub Release：Android `.apk` + `.aab`、Linux `.tar.gz`、Windows `.zip` + 安装器、`SHA256SUMS.txt`；说明取自 `docs/releases/<版本>.md` 和 `.zh-CN.md` |
+| release | ubuntu-24.04（`v*` 标签；手动运行带 `upload_to` 时补传已有版本的 Android 包） | GitHub Release：Android 按 ABI 的 `.apk` + universal + `.aab`、Linux `.tar.gz`、Windows `.zip` + 安装器、`SHA256SUMS.txt`；说明取自 `docs/releases/<版本>.md` 和 `.zh-CN.md` |
 
 ## 9. 第一版范围
 
