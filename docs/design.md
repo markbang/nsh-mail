@@ -144,7 +144,7 @@ PATCH /v1/messages/{id}  {seen?, flagged?}
 POST /v1/send            GET /v1/search?q=&limit=      GET /v1/unread → {accountId: 未读数}
 POST /v1/uploads         {filename, mimeType, size} → Upload {id, filename, mimeType, size}
 PATCH /v1/uploads/{id}?offset=   分块原始字节（≤ 4 MiB）→ {received}      DELETE /v1/uploads/{id}
-POST /v1/devices         {kind: "fcm"|"webpush", token | subscription}     DELETE /v1/devices/{id}
+POST /v1/devices         {kind: "fcm"|"webpush", token | subscription, vapidKey?}  DELETE /v1/devices/{id}
 GET  /v1/push/vapid-key  GET /v1/events (WebSocket，Authorization 或 ?token=；带 ?device=<id> 时该设备在线期间不发推送)
 GET  /                   Web 客户端静态文件         GET /healthz
 ```
@@ -159,7 +159,7 @@ GET  /                   Web 客户端静态文件         GET /healthz
 | Web | Web Push → Service Worker `push` 事件 → `showNotification` | NSH 打包不带额外文件，打包后把 `app/web/sw.js` 复制到 `index.html` 旁（CI 的 web job 已做）；Rust 侧经 wasm-bindgen 调 `PushManager.subscribe`（VAPID 公钥来自服务端），在用户允许通知后订阅 |
 | Linux / Windows | 常驻进程（托盘）挂 WebSocket，收到 `newMail` 调 `Notifications.show` | NSH 自带，无需额外服务 |
 
-服务端：FCM 用 HTTP v1 API + 服务账号 JWT；Web Push 用 `web-push` crate（aes128gcm 加密，VAPID 签名）。推送失效（404/410、`UNREGISTERED`）即删除该设备。
+服务端：FCM 用 HTTP v1 API + 服务账号 JWT；Web Push 用 `web-push` crate（aes128gcm 加密，VAPID 签名）。推送失效（404/410、`UNREGISTERED`）即删除该设备。Web Push 订阅绑定订阅时的 VAPID 公钥：服务端随设备记下当时的公钥，启动时删掉公钥不同的订阅；登记时带的 `vapidKey` 不是当前公钥就回 409。Web 客户端每次启动取 `/v1/push/vapid-key`，已有订阅的 `applicationServerKey` 不同就先退订再订阅，然后照常 `POST /v1/devices`。
 
 隐私：Web Push 内容端到端加密；FCM 载荷经过 Google，只带发件人名和主题，设置里可选"通知不显示内容"（只发消息 id，客户端自取）。
 
@@ -175,7 +175,7 @@ Android 宿主（`android/`，用法见其 README）：
 - **Rust + axum + tokio**：与 mail-core 同语言，同步逻辑一份代码。
 - **存储**：一个 `server.sqlite` 存用户、会话、设备，以及所有用户的邮件（与客户端同一套表和 FTS5）。邮件表每行带 `user_id`，索引以它开头；mail-core 只在绑定了用户的 `Store` 上提供查询，漏写用户的查询写不出来。客户端本地库是同一套表，只有一个用户（`LOCAL_USER` = 0）。一个文件好备份、好迁移；代价是单机。v1 单实例足够。旧版每用户一份的 `data/users/<id>.sqlite` 在启动时导入（逐表核对行数和内容，事务内完成），原文件改名为 `*.migrated` 保留；导入或核对失败则拒绝启动、原文件不动。
 - **密码**：Argon2id；会话 token 随机 32 字节，库里只存 SHA-256。
-- **邮箱凭据**：AES-256-GCM 加密存储在每个用户的 `data/users/<id>.secrets.json`（mail-core 的 `EncryptedFileStore`），主密钥来自环境变量 `NSHMAIL_MASTER_KEY`，不落盘。
+- **邮箱凭据**：AES-256-GCM 加密存储在每个用户的 `data/users/<id>.secrets.json`（mail-core 的 `EncryptedFileStore`），主密钥来自环境变量 `NSHMAIL_MASTER_KEY`，不落盘。轮换：新钥放 `NSHMAIL_MASTER_KEY`、旧钥放 `NSHMAIL_MASTER_KEY_OLD`，启动时先读全部文件，有条目两把钥匙都解不开就拒绝启动、不改任何文件；否则把旧钥加密的条目逐文件重写（先留 `.bak-old-key`，原子替换，只用新钥重读核对后删副本），之后可去掉 `NSHMAIL_MASTER_KEY_OLD`。只设一把钥匙时解不开同样拒绝启动。
 - **部署**：CI 构建 Docker 镜像推到 ghcr.io；`docker compose` 一键自托管。正式上线的主机和域名需要另行确认（付费、对外）。
 
 ## 7. 安全

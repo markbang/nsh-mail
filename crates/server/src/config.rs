@@ -10,6 +10,8 @@ pub struct Config {
     pub data_dir: PathBuf,
     pub public_url: String,
     pub master_key: [u8; 32],
+    /// The previous master key while rotating: secrets still under it are re-encrypted at start.
+    pub master_key_old: Option<[u8; 32]>,
     pub web_dir: Option<PathBuf>,
     pub cors_origins: Vec<String>,
     pub allow_signup: bool,
@@ -31,12 +33,15 @@ fn var(name: &str) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
-pub fn parse_master_key(value: &str) -> Result<[u8; 32]> {
+/// Errors never carry the decoder's message: it quotes bytes of the key.
+pub fn parse_master_key(name: &str, value: &str) -> Result<[u8; 32]> {
     let bytes = STANDARD
         .decode(value.trim())
-        .context("NSHMAIL_MASTER_KEY is not valid base64")?;
+        .map_err(|_| anyhow::anyhow!("{name} is not valid base64"))?;
     bytes.try_into().map_err(|_| {
-        anyhow::anyhow!("NSHMAIL_MASTER_KEY must decode to exactly 32 bytes (generate one with `openssl rand -base64 32`)")
+        anyhow::anyhow!(
+            "{name} must decode to exactly 32 bytes (generate one with `openssl rand -base64 32`)"
+        )
     })
 }
 
@@ -57,7 +62,7 @@ impl Config {
             bail!(
                 "NSHMAIL_MASTER_KEY is not set. It encrypts stored mail credentials; \
                  generate one with `openssl rand -base64 32`, keep it outside the data directory, \
-                 and never change it after accounts were added"
+                 and rotate it only through NSHMAIL_MASTER_KEY_OLD (see the deployment guide)"
             );
         };
         let bind = var("NSHMAIL_BIND")
@@ -88,7 +93,10 @@ impl Config {
             data_dir: var("NSHMAIL_DATA_DIR")
                 .unwrap_or_else(|| "data".into())
                 .into(),
-            master_key: parse_master_key(&key)?,
+            master_key: parse_master_key("NSHMAIL_MASTER_KEY", &key)?,
+            master_key_old: var("NSHMAIL_MASTER_KEY_OLD")
+                .map(|k| parse_master_key("NSHMAIL_MASTER_KEY_OLD", &k))
+                .transpose()?,
             web_dir: var("NSHMAIL_WEB_DIR").map(PathBuf::from),
             cors_origins: var("NSHMAIL_CORS_ORIGINS")
                 .map(|v| {
