@@ -226,12 +226,13 @@ jobs:
             ./gradlew --no-daemon assembleRelease $([ "$RELEASE" = true ] && echo bundleRelease)
             apksigner=$(printf '%s\n' "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
             for apk in ../app/.nsh/out/*.apk app/build/outputs/apk/release/*.apk; do
-              cert=$("$apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
-              echo "$(basename "$apk"): certificate SHA-256 $cert"
+              certs=$("$apksigner" verify --print-certs "$apk")
+              echo "$(basename "$apk"):" && echo "$certs" | grep 'certificate'
+              cert=$(echo "$certs" | grep -m1 'certificate SHA-256 digest' | awk '{print $NF}' || :)
               [ "$cert" = "$ANDROID_CERT_SHA256" ] || { echo "::error::$apk is not signed with the release key ($ANDROID_CERT_SHA256): check the ANDROID_KEYSTORE_BASE64 secret."; exit 1; }
             done
             for aab in $(compgen -G '../app/.nsh/out/*.aab'; compgen -G 'app/build/outputs/bundle/release/*.aab'); do
-              cert=$(keytool -printcert -jarfile "$aab" | sed -n 's/^\s*SHA256: //p' | head -1 | tr -d ':' | tr 'A-F' 'a-f')
+              cert=$(keytool -printcert -jarfile "$aab" | grep -m1 'SHA256:' | awk '{print $NF}' | tr -d ':' | tr 'A-F' 'a-f' || :)
               echo "$(basename "$aab"): certificate SHA-256 $cert"
               [ "$cert" = "$ANDROID_CERT_SHA256" ] || { echo "::error::$aab is not signed with the release key ($ANDROID_CERT_SHA256)."; exit 1; }
             done
