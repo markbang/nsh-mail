@@ -192,12 +192,17 @@ jobs:
           [ -n "$NSH_KEYSTORE_PASSWORD" ] || { echo "::error::The NSH_KEYSTORE_PASSWORD secret is missing: add the keystore's password."; exit 1; }
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          # The AABs carry 32-bit phones' library too (Play delivers each phone only its own); previews stay arm64-v8a.
+          echo "NSH_ABIS=arm64-v8a,armeabi-v7a" >> "$GITHUB_ENV"
       # Runs `nsh package --target android`, then readies the Gradle host (android/): nsh.aar with that libnsh.so, and the bundle.
       - run: android/prepare.sh ${ANDROID_KEYSTORE_FILE:+--keystore "$ANDROID_KEYSTORE_FILE" --key-alias "$ANDROID_KEY_ALIAS"}
         working-directory: .
+      # The release artifact is the AAB; the APK beside it, for sideloading, stays arm64-v8a.
       - name: App bundle for Google Play
         if: env.ANDROID_KEYSTORE_FILE != ''
-        run: nsh package App.tsx --target android --format aab --keystore "$ANDROID_KEYSTORE_FILE" --key-alias "$ANDROID_KEY_ALIAS"
+        run: |
+          nsh package App.tsx --target android --format aab --abi "$NSH_ABIS" --keystore "$ANDROID_KEYSTORE_FILE" --key-alias "$ANDROID_KEY_ALIAS"
+          nsh package App.tsx --target android --abi arm64-v8a --keystore "$ANDROID_KEYSTORE_FILE" --key-alias "$ANDROID_KEY_ALIAS"
       - uses: actions/upload-artifact@v7
         with:
           name: android

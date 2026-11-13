@@ -1,0 +1,13 @@
+# Release builds of what `nsh package` generates (.nsh/rust) take this profile: nsh's workspace has none of its own,
+# and Cargo reads config from the directory nsh runs in, so run `nsh package` from app/.
+# Measured on the Android arm64 libnsh.so: 57.7 MB as Cargo's default, 47.3 MB fat LTO, 32.1 MB this.
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+# panic stays "unwind": NSH turns panics in native modules into JS errors with catch_unwind.
+# Kept fast: the QuickJS interpreter (C) and layout run on every interaction, as nsh's own profiles keep them.
+[profile.release.package.quickjs-jit-sys]
+opt-level = 3
+[profile.release.package.taffy]
+opt-level = 3

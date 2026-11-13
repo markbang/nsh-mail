@@ -9,7 +9,8 @@ set -euo pipefail
 
 android=$(cd "$(dirname "$0")" && pwd)
 app="$android/../app"
-abis=${NSH_ABIS:-arm64-v8a,armeabi-v7a}
+# 64-bit phones only unless asked: each ABI adds a whole libnsh.so (release CI adds armeabi-v7a for the AAB).
+abis=${NSH_ABIS:-arm64-v8a}
 version="v$(nsh --version | awk '{print $2}')"
 
 # The Java runtime must match libnsh.so's: take it from the same release as the CLI.

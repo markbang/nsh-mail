@@ -197,7 +197,7 @@ GitHub Actions，每个 PR 跑：
 | core + server | ubuntu-24.04 | `cargo test`、`clippy`；服务端 Docker 镜像（main 上推 ghcr） |
 | linux | ubuntu-24.04（GTK 4.14） | `nsh package --target linux` → `.tar.gz` |
 | windows | windows-latest（只在 `v*` 标签和手动运行） | `nsh package --target windows` → `.zip` + 安装器；有证书 secret 时 signtool 签名（带时间戳） |
-| android | ubuntu-24.04 + SDK/NDK | `nsh package` 的 `.apk`，以及 Gradle 宿主（FCM）的 `.apk`；PR 和 main 用调试签名，`v*` 标签和手动运行在有密钥 secret 时用正式签名，另出两份 `.aab` |
+| android | ubuntu-24.04 + SDK/NDK | `nsh package` 的 `.apk`，以及 Gradle 宿主（FCM）的 `.apk`，只含 arm64-v8a；PR 和 main 用调试签名。`v*` 标签和手动运行在有密钥 secret 时用正式签名，发布产物是两份 `.aab`（arm64-v8a + armeabi-v7a，Play 按设备只下发一份 `libnsh.so`），旁边的 `nsh package` `.apk` 仍只含 arm64-v8a，Gradle 宿主按 ABI 各出一份 `.apk` |
 | web | ubuntu-24.04 + wasm32 | 静态站点 `.zip` |
 
 ## 9. 第一版范围
