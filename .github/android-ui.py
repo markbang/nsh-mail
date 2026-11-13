@@ -146,8 +146,13 @@ for mode in ("light", "dark"):
         quarter = (x2 - x1) // 4
         during(["swipe", str(mid - quarter), str(y), str(mid), str(y), "1500"], f"{mode}-swipe-archive", 1.0)
         time.sleep(1)
-        adb("shell", "input", "swipe", str(mid - quarter), str(y), str(x2 - 60), str(y), "150")
-        wait("id:toast-action", 5)
+        # Right after launch the list may still be settling and miss the first fling.
+        for _ in range(2):
+            adb("shell", "input", "swipe", str(mid - quarter), str(y), str(x2 - 60), str(y), "150")
+            if find("id:toast-action", 5):
+                break
+        else:
+            fail("never showed: id:toast-action")
         shot(f"{mode}-archived-snackbar")
         tap("id:toast-action", 5)
         time.sleep(1)
