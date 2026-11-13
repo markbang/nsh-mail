@@ -24,8 +24,40 @@ pub(crate) type Session = async_imap::Session<Stream>;
 /// async-imap ends a response stream at EOF without an error, so a command on a connection the
 /// server closed "succeeds" with an empty answer (a SELECT with no messages and no UIDVALIDITY,
 /// which made sync clear the folder). Every command expects a tagged reply, so EOF is an error.
+///
+/// It also records whether the connection is gone, so a command that failed on a dead pooled
+/// connection can be told apart from one the server answered with an error.
 #[derive(Debug)]
-pub(crate) struct Stream(TlsStream<TcpStream>);
+pub(crate) struct Stream {
+    inner: TlsStream<TcpStream>,
+    closed: bool,
+}
+
+impl Stream {
+    fn new(inner: TlsStream<TcpStream>) -> Self {
+        Self {
+            inner,
+            closed: false,
+        }
+    }
+
+    pub(crate) fn closed(&self) -> bool {
+        self.closed
+    }
+
+    fn check<T>(&mut self, r: std::io::Result<T>) -> std::io::Result<T> {
+        use std::io::ErrorKind::*;
+        if let Err(e) = &r
+            && matches!(
+                e.kind(),
+                UnexpectedEof | ConnectionReset | ConnectionAborted | BrokenPipe | NotConnected
+            )
+        {
+            self.closed = true;
+        }
+        r
+    }
+}
 
 impl AsyncRead for Stream {
     fn poll_read(
@@ -34,14 +66,18 @@ impl AsyncRead for Stream {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
         let before = buf.filled().len();
-        ready!(Pin::new(&mut self.0).poll_read(cx, buf))?;
-        if buf.filled().len() == before && buf.remaining() > 0 {
-            return Poll::Ready(Err(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "the server closed the connection",
-            )));
-        }
-        Poll::Ready(Ok(()))
+        let r = ready!(Pin::new(&mut self.inner).poll_read(cx, buf));
+        let r = r.and_then(|()| {
+            if buf.filled().len() == before && buf.remaining() > 0 {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "the server closed the connection",
+                ))
+            } else {
+                Ok(())
+            }
+        });
+        Poll::Ready(self.check(r))
     }
 }
 
@@ -51,15 +87,17 @@ impl AsyncWrite for Stream {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
-        Pin::new(&mut self.0).poll_write(cx, buf)
+        let r = ready!(Pin::new(&mut self.inner).poll_write(cx, buf));
+        Poll::Ready(self.check(r))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.0).poll_flush(cx)
+        let r = ready!(Pin::new(&mut self.inner).poll_flush(cx));
+        Poll::Ready(self.check(r))
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.0).poll_shutdown(cx)
+        Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
 
@@ -105,12 +143,12 @@ pub(crate) async fn connect(ep: &Endpoint, login: Login<'_>) -> Result<Conn> {
     })?;
     let client = match ep.security {
         Security::Tls => {
-            let mut c = async_imap::Client::new(Stream(tls_wrap(tcp, &ep.host).await?));
+            let mut c = async_imap::Client::new(Stream::new(tls_wrap(tcp, &ep.host).await?));
             greeting(&mut c).await?;
             c
         }
         Security::StartTls => {
-            async_imap::Client::new(Stream(tls_wrap(starttls(tcp).await?, &ep.host).await?))
+            async_imap::Client::new(Stream::new(tls_wrap(starttls(tcp).await?, &ep.host).await?))
         }
     };
     let session = match login {

@@ -20,6 +20,7 @@ jobs:
         ports:
           - 3993:3993
           - 3465:3465
+          - 3143:3143
     env:
       CARGO_TERM_COLOR: always
     steps:
