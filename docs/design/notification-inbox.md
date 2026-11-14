@@ -22,9 +22,11 @@ Two new tables in the same `server.sqlite` (local mode: `mail.sqlite`), both car
 | `enabled` | pause ingestion without deleting |
 | `created_at` | |
 
-A mail account is a source of kind `mail` whose `config.account_id` points at the existing mail account. Existing mail accounts are given sources by the migration; the mail code path is unchanged.
+A mail account is a source of kind `mail` whose `config.accountId` points at the existing mail account (its id is `src_m_<account id>`, so a rebuild finds the same row). Existing mail accounts are given sources by the migration; the mail code path is unchanged.
 
-### `messages` (the feed)
+### `feed_messages` (the feed)
+
+(Called `messages` in the first draft; the mail tables already use that name in the same database.)
 
 | Column | Notes |
 |---|---|
@@ -34,16 +36,18 @@ A mail account is a source of kind `mail` whose `config.account_id` points at th
 | `sender`, `title` | |
 | `body_text`, `body_html`, `body_markdown` | at least one; HTML sanitized exactly like mail (scripts, event handlers, remote images blocked by default) |
 | `link` | opens in the system browser |
-| `received_at` | when the service accepted it |
+| `received_at` | when the service accepted it, milliseconds since the epoch (mail's `date` is already ms) |
 | `read_at`, `archived_at` | null while unread / in the feed |
 | `priority` | 0–10, Gotify/ntfy compatible scale |
 | `tags` | JSON array |
 | `payload` | raw request body, capped at 64 KiB, for debugging |
 | `thread_id` | mail only |
 
-Indexes: `(user_id, received_at DESC, id)`, `(user_id, source_id, received_at DESC)`, `(user_id, read_at) WHERE read_at IS NULL`, and the existing FTS index gains a second table for non-mail text.
+Indexes: `(user_id, received_at DESC, id)`, `(user_id, source_id, received_at DESC)`, `(user_id) WHERE read_at IS NULL`, a unique `(source_id, external_id) WHERE external_id IS NOT NULL` for dedup, and a second FTS table (`feed_messages_fts`) for non-mail text; mail text stays in the mail index.
 
-**Mail is projected, not moved.** Mail keeps its own tables (bodies, flags, thread keys, watermarks). Every mail insert/flag change writes the matching `messages` row in the same transaction — a projected copy used by the unified feed, so the feed's paging, filters and SSE are one query and mail code stays untouched. The projection is rebuildable (`nsh-mail-server rebuild-feed`), so a bug cannot lose mail. Tradeoff: one extra row per mail message (≈120 bytes plus text), accepted for a uniform feed.
+`id` is `msg_…` for ingested messages and the mail message id for mail; `seq` (the row's rowid) is monotonic per user and is what SSE resumes from.
+
+**Mail is projected, not moved.** Mail keeps its own tables (bodies, flags, thread keys, watermarks). Triggers on `accounts`, `folders` and `messages` write the matching `feed_messages` row in the same transaction, so the mail code path is unchanged; drafts and trash are not projected (they are not notifications) — a projected copy used by the unified feed, so the feed's paging, filters and SSE are one query and mail code stays untouched. The projection is rebuildable (`nsh-mail-server rebuild-feed`), so a bug cannot lose mail. Tradeoff: one extra row per mail message (≈120 bytes plus text), accepted for a uniform feed.
 
 ## 2. Ingestion
 
@@ -102,7 +106,11 @@ GET  /v1/messages?unread=1&source=src_…&since=<rfc3339|id>&q=…&limit=50&curs
 GET  /v1/messages/{id}
 POST /v1/messages/{id}/read        POST /v1/messages/{id}/archive
 GET  /v1/sources                   GET /v1/sources/{id}
+POST /v1/sources                   PATCH|DELETE /v1/sources/{id}
+POST /v1/sources/{id}/token        POST /v1/sources/{id}/test
 ```
+
+`POST /v1/sources` answers `{"source": …, "token": "…", "ingestUrl": "…"}` once; `POST /v1/sources/{id}/token` rotates the token and answers the same, so the old URL stops working immediately. `POST /v1/sources/{id}/test` stores a test message through the ingestion path.
 
 Cursors are opaque (base64 of `received_at` + `id`, keyset paging). `q` uses the FTS index across non-mail and mail text. Every query is filtered by the key's sources.
 

@@ -45,3 +45,14 @@ curl localhost:8080/healthz
 - `GET /v1/events?device=<id>` — 这个连接打开期间，该设备不再收推送。
 - `GET /v1/oauth/{provider}/start?token=…&return=native|web` — 结束时跳到 `nshmail://oauth-done?account=<id>` 或 `<PUBLIC_URL>/?oauth-done&account=<id>`；失败时带 `error=<说明>`。
 - 推送数据：`{type:"newMail", account, id, from?, subject?}`。
+- `GET|POST /v1/sources`、`GET|PATCH|DELETE /v1/sources/{id}`、`POST /v1/sources/{id}/token`、`POST /v1/sources/{id}/test` — 通知来源（见 [docs/design/notification-inbox.zh-CN.md](../../docs/design/notification-inbox.zh-CN.md)）。邮件账号就是一个 `kind: "mail"` 的 source，随账号创建和删除。新建 webhook/Gotify/ntfy 来源时返回一次 `{source, token, ingestUrl}`；`/token` 用于轮换，旧地址立刻失效。每封邮件也会被 `mail_core` 里的触发器投影进 feed（`feed_messages`），所以邮件和接收来的通知在列表与搜索里表现一致。
+
+## 通知 feed
+
+启动时 `server.sqlite` 会新增 `sources` 和 `feed_messages`；迁移可重复执行，并校验投影里正好每封邮件一行（草稿箱和垃圾箱除外）。投影是派生数据：
+
+```sh
+docker compose exec app nsh-mail-server rebuild-feed   # 以 JSON 打印行数
+```
+
+feed 出错时用它重建，邮件表只读。`NSHMAIL_DATA_DIR` 指定数据库位置。

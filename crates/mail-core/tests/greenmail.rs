@@ -1083,8 +1083,25 @@ async fn conversations_group_replies_across_accounts() {
     drop(engine);
     let db = dir.path().join("mail.sqlite");
     let conn = rusqlite::Connection::open(&db).unwrap();
-    conn.execute_batch("DROP TABLE thread_keys; DROP INDEX messages_by_thread; ALTER TABLE messages DROP COLUMN thread_id;")
-        .unwrap();
+    // A database from before both threads and the notification feed: the feed's triggers would
+    // block the column drop, and they did not exist in that version.
+    conn.execute_batch(
+        "DROP TRIGGER messages_feed_insert;
+         DROP TRIGGER messages_feed_seen;
+         DROP TRIGGER messages_feed_delete;
+         DROP TRIGGER accounts_source_insert;
+         DROP TRIGGER accounts_source_update;
+         DROP TRIGGER accounts_source_delete;
+         DROP TRIGGER feed_messages_fts_delete;
+         DROP TABLE feed_messages_fts;
+         DROP TABLE feed_messages;
+         DROP TABLE feed_meta;
+         DROP TABLE sources;
+         DROP TABLE thread_keys;
+         DROP INDEX messages_by_thread;
+         ALTER TABLE messages DROP COLUMN thread_id;",
+    )
+    .unwrap();
     drop(conn);
     let engine = self::engine(&dir);
     let again = engine.threads(unified(FolderKind::Inbox)).await.unwrap();

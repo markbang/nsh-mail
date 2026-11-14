@@ -45,3 +45,14 @@ Back up `data/` and the master key together; without the key the stored mail cre
 - `GET /v1/events?device=<id>` — while this socket is open, that device gets no push.
 - `GET /v1/oauth/{provider}/start?token=…&return=native|web` — ends at `nshmail://oauth-done?account=<id>` or `<PUBLIC_URL>/?oauth-done&account=<id>`; failures carry `error=<message>`.
 - Push data: `{type:"newMail", account, id, from?, subject?}`.
+- `GET|POST /v1/sources`, `GET|PATCH|DELETE /v1/sources/{id}`, `POST /v1/sources/{id}/token`, `POST /v1/sources/{id}/test` — notification sources (see [docs/design/notification-inbox.md](../../docs/design/notification-inbox.md)). A mail account is a `kind: "mail"` source created and deleted with the account. Creating a webhook/Gotify/ntfy source answers `{source, token, ingestUrl}` once; `/token` rotates it and the old URL stops working. Every mail message is also projected into the feed (`feed_messages`) by triggers in `mail_core`, so list and search behave the same for mail and for ingested notifications.
+
+## Notification feed
+
+`server.sqlite` gains `sources` and `feed_messages` at start; the migration is idempotent and verifies that the projection holds exactly one row per mail message (drafts and trash excluded). The projection is derived data:
+
+```sh
+docker compose exec app nsh-mail-server rebuild-feed   # prints counts as JSON
+```
+
+Use it if the feed is ever wrong; mail rows are only read. `NSHMAIL_DATA_DIR` selects the database.

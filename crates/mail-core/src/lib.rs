@@ -14,6 +14,8 @@ mod engine;
 #[cfg(feature = "engine")]
 mod error;
 #[cfg(feature = "engine")]
+pub mod feed;
+#[cfg(feature = "engine")]
 mod imap;
 #[cfg(feature = "engine")]
 mod mime;
@@ -32,6 +34,10 @@ mod tls;
 
 #[cfg(feature = "engine")]
 pub use engine::{Engine, EngineOptions, StagedFile};
+#[cfg(feature = "engine")]
+pub use feed::{
+    Feed, FeedCounts, FeedMessage, Inserted, NewFeedMessage, NewSource, Source, SourcePatch,
+};
 #[cfg(feature = "engine")]
 pub use oauth::{OAuthApp, OAuthApps, OAuthGrant, OAuthTokens};
 #[cfg(feature = "engine")]

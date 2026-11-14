@@ -4,6 +4,7 @@ pub mod crypto;
 pub mod db;
 pub mod events;
 pub mod mail;
+pub mod notify;
 pub mod oauth;
 pub mod push;
 pub mod rotate;
@@ -36,6 +37,7 @@ use push::{Fcm, Push};
 pub struct AppState {
     pub config: Config,
     pub db: Db,
+    pub mail_db: MailDb,
     pub mailboxes: Mailboxes,
     pub push: Arc<Push>,
     pub http: reqwest::Client,
@@ -83,7 +85,7 @@ pub async fn build(config: Config) -> Result<Arc<AppState>> {
         presence: Default::default(),
     });
     let mailboxes = Mailboxes::new(
-        mail_db,
+        mail_db.clone(),
         users_dir,
         config.master_key,
         config.oauth.clone(),
@@ -95,6 +97,7 @@ pub async fn build(config: Config) -> Result<Arc<AppState>> {
         vapid_public_key,
         config,
         db,
+        mail_db,
         mailboxes,
         push,
         http,
@@ -155,6 +158,18 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/search", get(api::search))
         .route("/unread", get(api::unread))
+        .route(
+            "/sources",
+            get(notify::list_sources).post(notify::create_source),
+        )
+        .route(
+            "/sources/{id}",
+            get(notify::get_source)
+                .patch(notify::update_source)
+                .delete(notify::delete_source),
+        )
+        .route("/sources/{id}/token", post(notify::rotate_token))
+        .route("/sources/{id}/test", post(notify::test_source))
         .route("/devices", post(api::add_device))
         .route("/devices/{id}", delete(api::delete_device))
         .route("/push/vapid-key", get(api::vapid_key))
