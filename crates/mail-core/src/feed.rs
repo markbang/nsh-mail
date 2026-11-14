@@ -1061,10 +1061,7 @@ mod tests {
                 .collect();
             assert_eq!(ids.len(), 2);
             for id in ids {
-                assert_eq!(
-                    feed.message(&id).unwrap().title.starts_with("subject"),
-                    true
-                );
+                assert!(feed.message(&id).unwrap().title.starts_with("subject"));
             }
         }
     }
