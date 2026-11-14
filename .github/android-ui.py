@@ -5,32 +5,42 @@ refresh, reader, a conversation, compose, Schedule send, search, mailboxes, Sche
 keep the inbox's scroll position; then larger text and a tablet-sized screen.
 
 Usage: android-ui.py <dir with the APK> <screenshot dir>
-Finds views by their testID (the accessibility resource id) or their text.
+Every view is found by its testID (the accessibility resource id) or its text, and every lookup waits
+for it: nothing is tapped or typed into before the screen shows it. A failure leaves its screenshot
+and the dump beside it in the screenshot dir, which the job uploads.
 """
-import glob, os, re, subprocess, sys, time, xml.etree.ElementTree as ET
+import glob, os, re, subprocess, sys, time, traceback, xml.etree.ElementTree as ET
 
 PKG = "top.bangwu.nshmail"
 apk_dir, out = sys.argv[1], sys.argv[2]
 os.makedirs(out, exist_ok=True)
 failures = []
+mode = "start"
+dump_xml = ""
 
 
 def adb(*args, check=True):
     return subprocess.run(["adb", *args], check=check, capture_output=True, encoding="utf-8", errors="replace").stdout
 
 
-def shot(name):
-    time.sleep(1.2)
+def frame():
+    """The screen as PNG bytes."""
+    return subprocess.run(["adb", "exec-out", "screencap", "-p"], check=True, capture_output=True).stdout
+
+
+def screenshot(name):
     with open(os.path.join(out, f"{name}.png"), "wb") as f:
-        f.write(subprocess.run(["adb", "exec-out", "screencap", "-p"], check=True, capture_output=True).stdout)
-    print("shot", name, flush=True)
+        f.write(frame())
 
 
 def nodes():
+    """The screen's nodes, re-dumped until uiautomator answers; the last dump is kept for evidence."""
+    global dump_xml
     for _ in range(3):
         adb("shell", "uiautomator", "dump", "/sdcard/ui.xml", check=False)
         xml = adb("exec-out", "cat", "/sdcard/ui.xml", check=False)
         if xml.strip().startswith("<?xml"):
+            dump_xml = xml
             return list(ET.fromstring(xml).iter("node"))
         time.sleep(1)
     return []
@@ -43,39 +53,146 @@ def matches(n, key):
     return key in (text, desc)
 
 
-def settled(key, tries=10):
-    """`key`'s bounds once they stop moving: a cold start on a slow emulator is still sliding in."""
-    last = bounds(key)
-    for _ in range(tries):
-        time.sleep(1)
-        now = bounds(key)
-        if now == last:
-            return now
-        last = now
-    return last
+def box(n):
+    """The node's bounds, or None while it has no area (laid out, not painted)."""
+    x1, y1, x2, y2 = map(int, re.findall(r"\d+", n.get("bounds")))
+    return (x1, y1, x2, y2) if x2 > x1 and y2 > y1 else None
 
 
-def bounds(key, timeout=20):
+def find(key, timeout=20):
+    """`key`'s node once it is on screen: every lookup waits to its deadline, none assumes a paint."""
     end = time.time() + timeout
     while time.time() < end:
         found = nodes()
         if dismiss_anr(found):
             continue
         for n in found:
-            if matches(n, key):
-                x1, y1, x2, y2 = map(int, re.findall(r"\d+", n.get("bounds")))
-                if x2 > x1 and y2 > y1:
-                    return x1, y1, x2, y2
+            if matches(n, key) and box(n):
+                return n
         time.sleep(1)
     return None
+
+
+def gone(key, timeout=15):
+    """True once `key` has left the screen (a snackbar, a dialog)."""
+    end = time.time() + timeout
+    while time.time() < end:
+        if not any(matches(n, key) and box(n) for n in nodes()):
+            return True
+        time.sleep(1)
+    return False
+
+
+def centre(n):
+    """The middle of a uiautomator node."""
+    x1, y1, x2, y2 = box(n)
+    return (x1 + x2) // 2, (y1 + y2) // 2
+
+
+def tap(key, timeout=20):
+    n = find(key, timeout)
+    if n is None:
+        fail(f"not found: {key}")
+        return False
+    x, y = centre(n)
+    adb("shell", "input", "tap", str(x), str(y))
+    return True
+
+
+def wait(key, timeout=30):
+    if find(key, timeout) is None:
+        fail(f"never showed: {key}")
+        return False
+    return True
+
+
+def text_of(key, timeout=20):
+    n = find(key, timeout)
+    return (n.get("text") or n.get("content-desc")) if n is not None else None
+
+
+def settled(key, tries=10):
+    """`key`'s box once it stops moving: a cold start on a slow emulator is still sliding in."""
+    n = find(key)
+    last = box(n) if n is not None else None
+    for _ in range(tries):
+        time.sleep(1)
+        n = find(key)
+        now = box(n) if n is not None else None
+        if now == last:
+            return now
+        last = now
+    return last
+
+
+def quiet(timeout=8):
+    """Until the screen stops changing: a page sliding in is not painted yet."""
+    end, last = time.time() + timeout, None
+    while time.time() < end:
+        nodes()
+        if dump_xml == last:
+            return
+        last = dump_xml
+
+
+def shot(name):
+    quiet()
+    screenshot(name)
+    print("shot", name, flush=True)
+
+
+def steady(before=b"", timeout=12):
+    """Until two screenshots in a row are the same, and not `before`: a fade or a theme swap is a
+    pixel change the dump cannot see. Returns the frame that settled."""
+    end, last = time.time() + timeout, before
+    while time.time() < end:
+        time.sleep(0.3)
+        now = frame()
+        if now and now != before and now == last:
+            return now
+        last = now
+    print("the screen never settled, going on", flush=True)
+    return last
+
+
+def repainted(name, before):
+    """A screenshot once the theme swap under way has been drawn; the frame it saved."""
+    settled = steady(before)
+    with open(os.path.join(out, f"{name}.png"), "wb") as f:
+        f.write(settled)
+    print("shot", name, flush=True)
+    return settled
+
+
+def sign_out(name, tries=2):
+    """Settings' Sign out answered, then the onboarding: the dialog's title in the dump and its fade
+    over before its positive button (Android's last action) is tapped. A tap the emulator drops during
+    that fade only dismisses the dialog, and an app wedged under it answers nothing: each attempt
+    starts from Settings, the second from a restarted app."""
+    for attempt in range(1, tries + 1):
+        if attempt > 1:
+            print("signing out again, from a restarted app", flush=True)
+            launch()
+        if not (tap("Settings") and tap("id:sign-out")):
+            return False
+        if not wait("Sign out of nsh-mail?", 15):
+            return False
+        if attempt == 1:
+            shot(name)
+        steady()
+        tap("id:android:id/button1")
+        if wait("id:onboarding", 30):
+            return True
+        print(f"sign out {attempt} did not show the onboarding", flush=True)
+    fail("signing out never showed the onboarding")
+    return False
 
 
 def during(gesture, name, at=0.7):
     """Screenshots `name` while `gesture` (an `adb shell input` command) is under way."""
     p = subprocess.Popen(["adb", "shell", "input", *gesture])
     time.sleep(at)
-    with open(os.path.join(out, f"{name}.png"), "wb") as f:
-        f.write(subprocess.run(["adb", "exec-out", "screencap", "-p"], check=True, capture_output=True).stdout)
+    screenshot(name)
     p.wait()
     print("shot", name, flush=True)
 
@@ -92,50 +209,61 @@ def dismiss_anr(found):
     return False
 
 
-def find(key, timeout=20):
+def changed(key, before, timeout=10):
+    """True once `key` says something other than `before` (the selection's count, say)."""
     end = time.time() + timeout
     while time.time() < end:
-        found = nodes()
-        if dismiss_anr(found):
-            continue
-        for n in found:
-            if matches(n, key):
-                x1, y1, x2, y2 = map(int, re.findall(r"\d+", n.get("bounds")))
-                if x2 > x1 and y2 > y1:
-                    return (x1 + x2) // 2, (y1 + y2) // 2
+        if text_of(key, 3) not in (None, before):
+            return True
         time.sleep(1)
-    return None
+    return False
 
 
-def tap(key, timeout=20):
-    at = find(key, timeout)
-    if not at:
-        fail(f"not found: {key}")
-        return False
-    adb("shell", "input", "tap", str(at[0]), str(at[1]))
-    return True
-
-
-def wait(key, timeout=30):
-    if not find(key, timeout):
-        fail(f"never showed: {key}")
-
-
-def centre(node):
-    """The middle of a uiautomator node."""
-    x1, y1, x2, y2 = map(int, re.findall(r"\d+", node.get("bounds")))
-    return (x1 + x2) // 2, (y1 + y2) // 2
+def evidence(name):
+    """The screen and its dump under `name`: what the next flake is diagnosed from."""
+    try:
+        quiet(3)
+        screenshot(name)
+        nodes()
+        with open(os.path.join(out, f"{name}.xml"), "w") as f:
+            f.write(dump_xml)
+        print("evidence", name, flush=True)
+        # What the app itself said, where a failure is read.
+        print("\n".join(adb("logcat", "-d", "-s", "nsh:*", "AndroidRuntime:E", check=False).splitlines()[-25:]), flush=True)
+    except Exception as e:  # it must never hide the failure it explains
+        print("no evidence for", name, "-", e, flush=True)
 
 
 def fail(what):
     failures.append(f"[{mode}] {what}")
     print("FAIL", what, flush=True)
-    shot(f"{mode}-fail-{len(failures)}")
+    evidence(f"{mode}-fail-{len(failures)}")
 
 
-def back():
+def back(timeout=4):
+    """Android's back, then wait for what it changed."""
     adb("shell", "input", "keyevent", "4")
-    time.sleep(0.8)
+    quiet(timeout)
+
+
+def long_press(x, y, tries=2):
+    """A hold until a selection shows: under load the list takes a short hold for a scroll."""
+    for hold in ("900", "1400")[:tries]:
+        adb("shell", "input", "swipe", str(x), str(y), str(x), str(y), hold)
+        if find("id:end-selection", 5) is not None:
+            return True
+        print("the long-press did not select, holding longer", flush=True)
+    fail("the long-press never started a selection")
+    return False
+
+
+def uncaught(kind, value, tb):
+    """A failure nobody expected still leaves the screen behind it."""
+    evidence(f"{mode}-crash")
+    traceback.print_exception(kind, value, tb)
+
+
+sys.excepthook = uncaught
 
 
 def prop(name):
@@ -243,25 +371,22 @@ for mode in ("light", "dark"):
         during(["swipe", str(mid - quarter), str(y), str(mid), str(y), "1500"], f"{mode}-swipe-archive", 1.0)
         settled("id:message-.*")
         if swipe_archive(row):
-            shot(f"{mode}-archived-snackbar")
-            tap("id:toast-action", 5)
-        time.sleep(1)
+            screenshot(f"{mode}-archived-snackbar")  # the snackbar lives seconds: no waiting for it
+            print("shot", f"{mode}-archived-snackbar", flush=True)
+            if tap("id:toast-action", 5):
+                gone("id:toast-action")  # Undo: the row is back once its snackbar has gone
         during(["swipe", str(mid + quarter), str(y), str(mid), str(y), "1500"], f"{mode}-swipe-delete", 1.0)
-        time.sleep(1)
+        gone("id:toast-action")  # the deletion's Undo leaves before the next gesture
 
-        # Long-press selects; a tap adds the next row; back ends it. A long-press the list takes for a
-        # scroll must not fail the run: it is tried again.
-        for attempt in range(1, 4):
-            adb("shell", "input", "swipe", str(x1 + 200), str(y), str(x1 + 200), str(y), "900")
-            time.sleep(0.5)
+        # Long-press selects; a tap adds the row below; back ends it. The selection has to show before
+        # that tap: a long-press taken for a scroll would leave the tap to open the message instead.
+        if long_press(x1 + 200, y):
+            count = text_of("id:selection-count", 5)
             adb("shell", "input", "tap", str(x1 + 200), str(y + (y2 - y1)))
-            if find("id:end-selection", 4):
-                break
-            print(f"select {attempt} did not start a selection", flush=True)
+            if not changed("id:selection-count", count, 8):
+                fail(f"the tap below the selection did not add a row: {text_of('id:selection-count', 3)}")
+            shot(f"{mode}-selection")
             back()
-        wait("id:end-selection", 5)
-        shot(f"{mode}-selection")
-        back()
 
         # Pull to refresh.
         during(["swipe", str(w // 2), str(y1), str(w // 2), str(y1 + h // 3), "1200"], f"{mode}-pull-refresh", 0.9)
@@ -302,12 +427,13 @@ for mode in ("light", "dark"):
         scheduled = False
         if tap("id:compose-to"):
             adb("shell", "input", "text", "maya@northwind.dev")
-            if tap("id:send-later") and find("Tomorrow morning", 5):
+            if tap("id:send-later") and find("Tomorrow morning", 5) is not None:
                 shot(f"{mode}-schedule-menu")
                 scheduled = tap("Tomorrow morning")
                 if scheduled:
                     wait("id:toast-action", 5)
-                    shot(f"{mode}-scheduled-snackbar")
+                    screenshot(f"{mode}-scheduled-snackbar")
+                    print("shot", f"{mode}-scheduled-snackbar", flush=True)
         if not scheduled:
             back()
             back()
@@ -318,21 +444,22 @@ for mode in ("light", "dark"):
     shot(f"{mode}-inbox-scrolled")
 
     if tap("Search"):
-        time.sleep(1)
+        wait("id:search")
         shot(f"{mode}-search")
+        tap("id:search")  # the field, before anything is typed
         adb("shell", "input", "text", "roadmap")
-        wait("id:results")
+        wait("id:result-count", 15)
         back()  # the keyboard
         shot(f"{mode}-search-results")
         # A mail laid out for 600px fits the phone's width.
         if tap("id:search"):
             adb("shell", "input", "keyevent", "123", *["67"] * 8)  # end, then delete "roadmap"
             adb("shell", "input", "text", "receipt")
-            wait("id:results")
+            wait("Your receipt from Fastmail", 15)
             back()
             # The first tap may only take the focus from the search field.
             for _ in range(2):
-                if tap("Your receipt from Fastmail") and find("id:reader", 8):
+                if tap("Your receipt from Fastmail") and find("id:reader", 8) is not None:
                     shot(f"{mode}-reader-fit")
                     back()
                     break
@@ -360,9 +487,7 @@ for mode in ("light", "dark"):
             row = settled("id:message-.*")
             if row:
                 x1, y1, x2, y2 = row
-                adb("shell", "input", "swipe", str(x1 + 200), str((y1 + y2) // 2), str(x1 + 200), str((y1 + y2) // 2), "900")
-                time.sleep(0.5)
-                if tap("id:picked-delete"):
+                if long_press(x1 + 200, (y1 + y2) // 2) and tap("id:picked-delete"):
                     wait("id:empty-compose", 15)
                     shot(f"{mode}-empty-folder")
         if tap("Mailboxes") and tap("id:mailbox-all"):
@@ -381,7 +506,7 @@ for mode in ("light", "dark"):
             shot(f"{mode}-signature")
             # The first tap may only take the focus from the field.
             for _ in range(2):
-                if tap("id:signature-save") and find("id:settings", 8):
+                if tap("id:signature-save") and find("id:settings", 8) is not None:
                     break
             else:
                 fail("the signature page never closed")
@@ -396,36 +521,27 @@ for mode in ("light", "dark"):
             back()
             wait("id:messages")
 
-    # The appearance changes while the app runs.
+    # The appearance changes while the app runs: a colour change, so this waits on the pixels.
     other = "light" if mode == "dark" else "dark"
+    before = frame()
     adb("shell", "cmd", "uimode", "night", "yes" if other == "dark" else "no")
-    time.sleep(3)
-    shot(f"{mode}-then-{other}-live")
+    swapped = repainted(f"{mode}-then-{other}-live", before)
     adb("shell", "cmd", "uimode", "night", "yes" if mode == "dark" else "no")
-    time.sleep(3)
+    steady(swapped)  # this mode's appearance again, before the screen is touched
 
-    # Signing out shows the onboarding. The confirmation is a system dialog the emulator is slow to
-    # draw, so the whole step is tried again rather than failing the run on its timing.
-    if tap("Settings"):
-        for attempt in range(1, 4):
-            tap("id:sign-out")
-            time.sleep(1)
-            if attempt == 1:
-                shot(f"{mode}-sign-out-dialog")
-            # The dialog's own button: the one on Cancel's row, not the page's under the dialog.
-            nodes_now = nodes()
-            cancel = next((n for n in nodes_now if n.get("text", "") == "Cancel"), None)
-            choices = [n for n in nodes_now if n.get("text", "").lower() == "sign out"]
-            if choices:
-                pick = min(choices, key=lambda n: abs(centre(n)[1] - centre(cancel)[1])) if cancel is not None else choices[-1]
-                x, y = centre(pick)
-                adb("shell", "input", "tap", str(x), str(y))
-            if find("id:onboarding", 10):
-                shot(f"{mode}-onboarding")
-                break
-            print(f"sign out {attempt} did not show the onboarding", flush=True)
-        else:
-            fail("signing out never showed the onboarding")
+    # Signing out shows the onboarding.
+    if sign_out(f"{mode}-sign-out-dialog"):
+        # The first screen of the onboarding, painted: where mail comes from, and its way on.
+        wait("id:mode-local", 15)
+        wait("id:onboarding-go", 15)
+        shot(f"{mode}-onboarding")
+        # The cloud form: the server address and the sign-in/sign-up choice are painted before
+        # anything is typed into it.
+        if tap("id:mode-cloud"):
+            wait("id:server", 15)
+            wait("id:cloud-email", 15)
+            wait("Create account", 15)
+            shot(f"{mode}-onboarding-cloud")
 
 mode = "large"
 # Larger text (Android's font size at 130%), then a tablet-sized screen (1280 x 800 dp).
@@ -440,6 +556,7 @@ adb("shell", "wm", "size", "2560x1600")
 adb("shell", "wm", "density", "320")
 launch()
 tap("id:message-.*")
+wait("id:reader")
 shot("tablet")
 adb("shell", "wm", "size", "reset")
 adb("shell", "wm", "density", "reset")

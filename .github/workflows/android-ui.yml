@@ -105,6 +105,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
+          # The screens, and on a failure the screenshot and dump the script left beside them.
           name: android-ui
           path: screens/
           if-no-files-found: warn
