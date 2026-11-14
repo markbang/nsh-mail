@@ -35,6 +35,8 @@ pub trait Backend {
     fn remove_account(&self, id: String) -> MailFuture<'_, ()>;
     fn set_signature(&self, id: String, signature: Signature) -> MailFuture<'_, Account>;
     fn list(&self, query: ListQuery) -> MailFuture<'_, Vec<Summary>>;
+    /// Loads a page of older mail the store does not hold yet.
+    fn older(&self, folder: FolderKind, account: Option<String>) -> MailFuture<'_, Backfill>;
     /// Conversations, as `list` pages messages; `before` is a thread id.
     fn threads(&self, query: ListQuery) -> MailFuture<'_, Vec<Thread>>;
     /// A conversation's messages, oldest first.

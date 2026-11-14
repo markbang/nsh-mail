@@ -343,6 +343,11 @@ impl Backend for DemoBackend {
         })
     }
 
+    fn older(&self, folder: FolderKind, account: Option<String>) -> MailFuture<'_, Backfill> {
+        let _ = (folder, account);
+        ok(Ok(Backfill::default()))
+    }
+
     fn threads(&self, query: ListQuery) -> MailFuture<'_, Vec<Thread>> {
         Box::pin(async move {
             latency(120).await;

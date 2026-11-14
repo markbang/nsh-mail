@@ -82,6 +82,8 @@ struct Inner {
     outbox_task: Mutex<Option<AbortHandle>>,
     outbox_wake: Arc<tokio::sync::Notify>,
     refresh_lock: tokio::sync::Mutex<()>,
+    /// How far each account's running sync has come, for the server's status endpoint.
+    progress: Mutex<HashMap<AccountId, SyncProgress>>,
 }
 
 impl Drop for Inner {
@@ -148,6 +150,7 @@ impl Engine {
                 outbox_task: Mutex::new(None),
                 outbox_wake: Arc::new(tokio::sync::Notify::new()),
                 refresh_lock: tokio::sync::Mutex::new(()),
+                progress: Mutex::new(HashMap::new()),
             }),
         })
     }
@@ -164,6 +167,35 @@ impl Engine {
 
     fn store(&self) -> &Arc<Store> {
         &self.inner.store
+    }
+
+    /// How far the running syncs have come, merged over accounts; `None` when none runs.
+    pub fn progress(&self) -> Option<SyncProgress> {
+        let progress = lock(&self.inner.progress);
+        if progress.is_empty() {
+            return None;
+        }
+        let mut total = SyncProgress::default();
+        for p in progress.values() {
+            total.folders_done += p.folders_done;
+            total.folders_total += p.folders_total;
+            total.messages += p.messages;
+        }
+        Some(total)
+    }
+
+    fn set_progress(&self, account_id: &str, progress: SyncProgress) {
+        lock(&self.inner.progress).insert(account_id.to_string(), progress);
+    }
+
+    fn update_progress(&self, account_id: &str, f: impl FnOnce(&mut SyncProgress)) {
+        if let Some(p) = lock(&self.inner.progress).get_mut(account_id) {
+            f(p);
+        }
+    }
+
+    fn clear_progress(&self, account_id: &str) {
+        lock(&self.inner.progress).remove(account_id);
     }
 
     async fn secrets<T: Send + 'static>(
@@ -487,6 +519,42 @@ impl Engine {
         self.sync_folders(&account, None).await
     }
 
+    /// Loads one page of older mail in `folder` — of one account, or of every account's when
+    /// `account_id` is `None` — and says how much it added and whether older mail is left.
+    /// A folder with everything stored is skipped without opening a connection.
+    pub async fn backfill(&self, account_id: Option<&str>, folder: FolderKind) -> Result<Backfill> {
+        let accounts = match account_id {
+            Some(id) => vec![self.account(id).await?],
+            None => self.accounts().await?,
+        };
+        let store = self.store().clone();
+        let mut inserted = 0;
+        let mut pending = false;
+        for account in accounts {
+            let id = account.id.clone();
+            let row = store.run(move |s| s.folder(&id, folder)).await?;
+            let Some(row) = row.filter(|r| r.backfill_seq.is_some()) else {
+                continue;
+            };
+            let page = self
+                .with_imap(&account, async |conn| {
+                    imap::backfill_page(conn, &store, row.clone()).await
+                })
+                .await?;
+            if let Some(page) = page {
+                inserted += page.inserted.len() as u32;
+                pending |= page.pending;
+                if !page.inserted.is_empty() {
+                    self.emit(MailEvent::Changed {
+                        account_id: account.id.clone(),
+                        folder,
+                    });
+                }
+            }
+        }
+        Ok(Backfill { inserted, pending })
+    }
+
     /// Syncs every account (pull to refresh). Errors are reported per account as `SyncState`
     /// events; the first one is also returned.
     pub async fn sync_all(&self) -> Result<()> {
@@ -512,6 +580,7 @@ impl Engine {
         });
         let store = self.store().clone();
         let account_id = account.id.clone();
+        let engine = self.clone();
         let result = self
             .with_imap(account, async |conn| {
                 let mut folders = match only {
@@ -536,14 +605,46 @@ impl Engine {
                         .await?;
                     folders.sort_by_key(|f| f.kind != FolderKind::Inbox);
                 }
+                let total = folders.len() as u32;
+                engine.set_progress(
+                    &account_id,
+                    SyncProgress {
+                        folders_done: 0,
+                        folders_total: total,
+                        messages: 0,
+                    },
+                );
                 let mut out = Vec::new();
-                for f in folders {
+                for (i, f) in folders.into_iter().enumerate() {
                     let kind = f.kind;
-                    out.push((kind, imap::sync_folder(conn, &store, f).await?));
+                    let page_engine = engine.clone();
+                    let page_account = account_id.clone();
+                    let r = imap::sync_folder(conn, &store, f, |n| {
+                        if n == 0 {
+                            return;
+                        }
+                        page_engine.update_progress(&page_account, |p| p.messages += n as u32);
+                        page_engine.emit(MailEvent::SyncProgress {
+                            account_id: page_account.clone(),
+                            progress: page_engine.progress().unwrap_or_default(),
+                        });
+                        page_engine.emit(MailEvent::Changed {
+                            account_id: page_account.clone(),
+                            folder: kind,
+                        });
+                    })
+                    .await?;
+                    engine.update_progress(&account_id, |p| p.folders_done = i as u32 + 1);
+                    engine.emit(MailEvent::SyncProgress {
+                        account_id: account_id.clone(),
+                        progress: engine.progress().unwrap_or_default(),
+                    });
+                    out.push((kind, r));
                 }
                 Ok(out)
             })
             .await;
+        self.clear_progress(&account_id);
         let error = result.as_ref().err().cloned();
         if let Ok(results) = &result {
             for (kind, r) in results {
@@ -878,7 +979,7 @@ impl Engine {
             let store = self.store().clone();
             let synced = self
                 .with_imap(&account, async |conn| {
-                    imap::sync_folder(conn, &store, target).await
+                    imap::sync_folder(conn, &store, target, |_| {}).await
                 })
                 .await;
             if synced.is_ok_and(|r| r.changed) {
@@ -960,7 +1061,7 @@ impl Engine {
                 if !gmail {
                     imap::append(&mut conn.session, &sent.name, &raw).await?;
                 }
-                Ok(imap::sync_folder(conn, &store, sent).await?.changed)
+                Ok(imap::sync_folder(conn, &store, sent, |_| {}).await?.changed)
             })
             .await;
         match saved {

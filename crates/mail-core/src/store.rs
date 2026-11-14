@@ -48,6 +48,14 @@ pub(crate) struct FolderRow {
     pub name: String,
     pub uidvalidity: Option<u32>,
     pub uidnext: Option<u32>,
+    /// The next sequence number to page down from while catching up on mail above everything
+    /// stored; `None` when there is nothing to catch up on. Kept apart from `backfill_seq` so an
+    /// interrupted catch-up resumes where it stopped instead of skipping the gap.
+    pub catchup_seq: Option<u32>,
+    /// The next sequence number to page down from for older mail; `None` once every message is
+    /// stored. Sequence positions (not UIDs) because IMAP can only take a page off the end:
+    /// expunges shift them down and can only make a page fetch a message twice, never skip one.
+    pub backfill_seq: Option<u32>,
     pub highestmodseq: Option<u64>,
 }
 
@@ -127,6 +135,8 @@ CREATE TABLE IF NOT EXISTS folders (
     name TEXT NOT NULL,
     uidvalidity INTEGER,
     uidnext INTEGER,
+    catchup_seq INTEGER,
+    backfill_seq INTEGER,
     highestmodseq INTEGER,
     UNIQUE (account_id, kind)
 );
@@ -224,6 +234,10 @@ impl MailDb {
         let mut conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
+        // A page of 200 messages writes a few MiB of WAL, so SQLite's default 1000-page
+        // autocheckpoint runs every few pages and turned page commits into ~300 ms fsyncs on a
+        // 50k mailbox. 32 MiB keeps a page near 10 ms and the WAL bounded.
+        conn.pragma_update(None, "wal_autocheckpoint", 8192)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         if has_table(&conn, "main", "accounts")?
             && !has_column(&conn, "main", "accounts", "user_id")?
@@ -239,6 +253,16 @@ impl MailDb {
             && !has_column(&conn, "main", "messages", "thread_id")?
         {
             conn.execute_batch("ALTER TABLE messages ADD COLUMN thread_id TEXT")?;
+        }
+        if has_table(&conn, "main", "folders")?
+            && !has_column(&conn, "main", "folders", "backfill_seq")?
+        {
+            conn.execute_batch("ALTER TABLE folders ADD COLUMN backfill_seq INTEGER")?;
+        }
+        if has_table(&conn, "main", "folders")?
+            && !has_column(&conn, "main", "folders", "catchup_seq")?
+        {
+            conn.execute_batch("ALTER TABLE folders ADD COLUMN catchup_seq INTEGER")?;
         }
         conn.pragma_update(None, "foreign_keys", true)?;
         conn.execute_batch(SCHEMA)?;
@@ -900,7 +924,7 @@ impl Store {
     pub fn folders(&self, account_id: &str) -> Result<Vec<FolderRow>> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, kind, name, uidvalidity, uidnext, highestmodseq FROM folders
+            "SELECT id, kind, name, uidvalidity, uidnext, catchup_seq, backfill_seq, highestmodseq FROM folders
              WHERE user_id = ?1 AND account_id = ?2",
         )?;
         let rows = stmt.query_map(params![self.user, account_id], folder_row)?;
@@ -958,7 +982,8 @@ impl Store {
                         params![user, id],
                     )?;
                     tx.execute(
-                        "UPDATE folders SET name = ?3, uidvalidity = NULL, uidnext = NULL, highestmodseq = NULL
+                        "UPDATE folders SET name = ?3, uidvalidity = NULL, uidnext = NULL,
+                             catchup_seq = NULL, backfill_seq = NULL, highestmodseq = NULL
                          WHERE user_id = ?1 AND id = ?2",
                         params![user, id, name],
                     )?;
@@ -984,13 +1009,16 @@ impl Store {
 
     pub fn set_folder_state(&self, folder: &FolderRow) -> Result<()> {
         self.conn().execute(
-            "UPDATE folders SET uidvalidity = ?3, uidnext = ?4, highestmodseq = ?5
+            "UPDATE folders SET uidvalidity = ?3, uidnext = ?4, catchup_seq = ?5,
+                 backfill_seq = ?6, highestmodseq = ?7
              WHERE user_id = ?1 AND id = ?2",
             params![
                 self.user,
                 folder.id,
                 folder.uidvalidity,
                 folder.uidnext,
+                folder.catchup_seq,
+                folder.backfill_seq,
                 folder.highestmodseq.map(|m| m as i64)
             ],
         )?;
@@ -1005,8 +1033,14 @@ impl Store {
         Ok(())
     }
 
-    /// Inserts messages not yet stored; returns summaries of the inserted ones.
-    pub fn insert_messages(&self, folder_id: i64, messages: &[NewMessage]) -> Result<Vec<Summary>> {
+    /// Inserts one sync page and records the folder's watermark in the same transaction, so a
+    /// page interrupted midway leaves neither rows nor a watermark past them.
+    pub fn insert_page(
+        &self,
+        folder_id: i64,
+        messages: &[NewMessage],
+        state: Option<&FolderRow>,
+    ) -> Result<Vec<Summary>> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         let mut inserted = Vec::new();
@@ -1078,6 +1112,22 @@ impl Store {
                 )?;
                 inserted.push(id);
             }
+        }
+        if let Some(f) = state {
+            tx.execute(
+                "UPDATE folders SET uidvalidity = ?3, uidnext = ?4, catchup_seq = ?5,
+                     backfill_seq = ?6, highestmodseq = ?7
+                 WHERE user_id = ?1 AND id = ?2",
+                params![
+                    self.user,
+                    f.id,
+                    f.uidvalidity,
+                    f.uidnext,
+                    f.catchup_seq,
+                    f.backfill_seq,
+                    f.highestmodseq.map(|m| m as i64)
+                ],
+            )?;
         }
         tx.commit()?;
         drop(conn);
@@ -1652,7 +1702,9 @@ fn folder_row(r: &Row) -> rusqlite::Result<Option<FolderRow>> {
         name: r.get(2)?,
         uidvalidity: r.get(3)?,
         uidnext: r.get(4)?,
-        highestmodseq: r.get::<_, Option<i64>>(5)?.map(|m| m as u64),
+        catchup_seq: r.get(5)?,
+        backfill_seq: r.get(6)?,
+        highestmodseq: r.get::<_, Option<i64>>(7)?.map(|m| m as u64),
     }))
 }
 
@@ -1745,4 +1797,174 @@ fn fts_query(text: &str) -> Option<String> {
         .filter(|t| t != "\"\"*")
         .collect();
     (!terms.is_empty()).then(|| terms.join(" "))
+}
+
+/// Store-level checks and the 50k sync-page benchmark, in-crate because `Store` is not public:
+/// `cargo test -p mail-core --lib -- --ignored bench_store_50k --nocapture`.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    fn seeded_db(dir: &tempfile::TempDir) -> (MailDb, Store, i64) {
+        let db = MailDb::open(&dir.path().join("mail.sqlite")).unwrap();
+        let store = db.user(LOCAL_USER);
+        let account = Account {
+            id: "a".into(),
+            email: "a@test.local".into(),
+            name: None,
+            provider: None,
+            username: "a@test.local".into(),
+            auth: Auth::Password,
+            imap: Endpoint {
+                host: "127.0.0.1".into(),
+                port: 993,
+                security: Security::Tls,
+            },
+            smtp: Endpoint {
+                host: "127.0.0.1".into(),
+                port: 465,
+                security: Security::Tls,
+            },
+            signature: Signature::default(),
+        };
+        store.insert_account(&account).unwrap();
+        store
+            .set_folders("a", &[(FolderKind::Inbox, "INBOX".into())])
+            .unwrap();
+        let folder = store.folder("a", FolderKind::Inbox).unwrap().unwrap();
+        (db, store, folder.id)
+    }
+
+    fn page(start: u32, count: u32) -> Vec<NewMessage> {
+        (start..start + count)
+            .map(|i| NewMessage {
+                uid: i,
+                date: 1_700_000_000_000 + i as i64,
+                from: Some(Address {
+                    name: None,
+                    email: "from@test.local".into(),
+                }),
+                to: vec![Address {
+                    name: None,
+                    email: "a@test.local".into(),
+                }],
+                cc: Vec::new(),
+                subject: format!("message {i:05}"),
+                snippet: format!("body {i}"),
+                message_id: Some(format!("<{i}@test.local>")),
+                in_reply_to: None,
+                references: Vec::new(),
+                seen: false,
+                flagged: false,
+                has_attachments: false,
+                size: 100,
+                body: Some(format!("body {i}").into_bytes()),
+                index_text: Some(format!("body {i}")),
+                gmail_thread: None,
+            })
+            .collect()
+    }
+
+    /// One page per transaction, and a page inserted twice adds nothing.
+    #[test]
+    fn sync_page_is_atomic_and_keeps_the_cursor() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_db, store, folder_id) = seeded_db(&dir);
+        let mut state = FolderRow {
+            id: folder_id,
+            kind: FolderKind::Inbox,
+            name: "INBOX".into(),
+            uidvalidity: Some(7),
+            uidnext: None,
+            catchup_seq: None,
+            backfill_seq: None,
+            highestmodseq: None,
+        };
+        state.uidnext = Some(201);
+        state.backfill_seq = Some(800);
+        let first = store
+            .insert_page(folder_id, &page(1, 200), Some(&state))
+            .unwrap();
+        assert_eq!(first.len(), 200);
+        let again = store
+            .insert_page(folder_id, &page(1, 200), Some(&state))
+            .unwrap();
+        assert!(again.is_empty());
+        assert_eq!(store.uids(folder_id).unwrap().len(), 200);
+        let seen = store.folder("a", FolderKind::Inbox).unwrap().unwrap();
+        assert_eq!(
+            (seen.uidvalidity, seen.uidnext, seen.backfill_seq),
+            (Some(7), Some(201), Some(800))
+        );
+    }
+
+    #[test]
+    #[ignore = "benchmark: seeds 50,000 messages"]
+    fn bench_store_50k() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_db, store, folder_id) = seeded_db(&dir);
+        let state = FolderRow {
+            id: folder_id,
+            kind: FolderKind::Inbox,
+            name: "INBOX".into(),
+            uidvalidity: Some(1),
+            uidnext: Some(50_001),
+            catchup_seq: None,
+            backfill_seq: None,
+            highestmodseq: None,
+        };
+        let mut per_page = Vec::new();
+        let started = Instant::now();
+        for start in (1..=50_000).step_by(200) {
+            let t = Instant::now();
+            store
+                .insert_page(folder_id, &page(start, 200), Some(&state))
+                .unwrap();
+            per_page.push(t.elapsed());
+        }
+        let total = started.elapsed();
+        per_page.sort();
+        let p = |q: f64| per_page[(per_page.len() as f64 * q) as usize];
+        println!(
+            "50k insert: total {total:?}, per 200-page p50 {:?} p95 {:?} max {:?}",
+            p(0.5),
+            p(0.95),
+            per_page.last().unwrap()
+        );
+
+        let t = Instant::now();
+        let mut before = None;
+        let mut seen = 0;
+        loop {
+            let page = store
+                .list(&ListQuery {
+                    folder: FolderKind::Inbox,
+                    account: Some("a".into()),
+                    before,
+                    limit: 500,
+                })
+                .unwrap();
+            if page.is_empty() {
+                break;
+            }
+            seen += page.len();
+            before = page.last().map(|s| s.id.clone());
+        }
+        println!(
+            "list all {seen} in {:?} ({:?} per 500-page)",
+            t.elapsed(),
+            t.elapsed() / (seen as u32).div_ceil(500)
+        );
+        assert_eq!(seen, 50_000);
+
+        let t = Instant::now();
+        let hits = store.search("message 49999", 50).unwrap();
+        println!(
+            "FTS hit {:?} in {:?}",
+            hits.first().map(|h| &h.subject),
+            t.elapsed()
+        );
+        assert!(!hits.is_empty());
+    }
 }

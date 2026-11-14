@@ -7,14 +7,14 @@ use axum::{
     http::{HeaderValue, StatusCode, header, request::Parts},
     response::{IntoResponse, Response},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use mail_core::{
     Engine,
     types::{
-        Draft, DraftAttachment, Error, ErrorCode, Flags, FolderKind, ImapInput, ListQuery, SendAt,
-        Signature,
+        Backfill, Draft, DraftAttachment, Error, ErrorCode, Flags, FolderKind, ImapInput,
+        ListQuery, SendAt, Signature, SyncProgress,
     },
 };
 
@@ -317,6 +317,47 @@ pub async fn detect(
 pub async fn sync(State(s): State<Arc<AppState>>, u: AuthUser) -> ApiResult<StatusCode> {
     mail(&s, &u).await?.sync_all().await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// What the current sync has done so far, for a client that connects mid-sync. Events carry the
+/// same progress as it happens; this is the starting point after a reload.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncStatus {
+    syncing: bool,
+    progress: Option<SyncProgress>,
+}
+
+pub async fn sync_status(
+    State(s): State<Arc<AppState>>,
+    u: AuthUser,
+) -> ApiResult<Json<SyncStatus>> {
+    let progress = mail(&s, &u).await?.progress();
+    Ok(Json(SyncStatus {
+        syncing: progress.is_some(),
+        progress,
+    }))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OlderParams {
+    folder: FolderKind,
+    account: Option<String>,
+}
+
+/// Loads a page of older mail (the list ran out of what is stored).
+pub async fn older(
+    State(s): State<Arc<AppState>>,
+    u: AuthUser,
+    Json(p): Json<OlderParams>,
+) -> ApiResult<Json<Backfill>> {
+    Ok(Json(
+        mail(&s, &u)
+            .await?
+            .backfill(p.account.as_deref(), p.folder)
+            .await?,
+    ))
 }
 
 #[derive(Deserialize)]

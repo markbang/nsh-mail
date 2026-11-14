@@ -55,7 +55,7 @@ TSX does not know which mode is active; there is one UI. State ownership: mail, 
 
 ```ts
 Mail.init(): Promise<Status>                       // open the store, restore the session, start syncing
-Mail.status(): Status                              // { mode: "none"|"local"|"cloud", server?, user?, syncing, error? }
+Mail.status(): Status                              // { mode: "none"|"local"|"cloud", server?, user?, syncing, progress?, error? }
 Mail.useLocal(): Promise<void>                     // rejects on the web: ERR_UNSUPPORTED
 Mail.signIn(server, email, password, signUp): Promise<void>   // enter cloud mode
 Mail.signOut(): Promise<void>
@@ -66,6 +66,7 @@ Mail.addOAuth(provider: "google"|"microsoft"): Promise<Account>
 Mail.removeAccount(id): Promise<void>
 Mail.setSignature(id, { text, newMessages, replies }): Promise<Account>   // kept with the account (§4 Signatures)
 Mail.list(q: { folder: "inbox"|"sent"|"drafts"|"archive"|"trash", account?, before?, limit }): Promise<Summary[]>
+Mail.older(folder, account): Promise<Backfill>      // one page of older mail the store lacks: `{inserted, pending}` (§4 Sync)
 Mail.threads(q): Promise<Thread[]>                 // conversations, as `list` pages messages (§4 Conversations); `before` is a thread id
 Mail.thread(id): Promise<Summary[]>                // a conversation's messages, oldest first, in every folder and account
 Mail.setThreadFlags(id, { seen?, flagged? }): Promise<void>   // read/unread for all of it; flagging flags its latest message, unflagging all
@@ -87,7 +88,7 @@ Mail.attachmentLimit(): number                     // most a message's attachmen
 Mail.search(text, limit): Promise<Summary[]>
 Mail.unread(): Promise<Record<accountId, number>>  // unread count of each account's inbox
 Mail.refresh(): Promise<void>
-Mail.on(listener: (e: MailEvent) => void): () => void   // newMail / changed / syncState / error / outbox
+Mail.on(listener: (e: MailEvent) => void): () => void   // newMail / changed / syncState / syncProgress / error / outbox
 Push.setToken(token): Promise<void>                // FCM token from the Android host (§5), registered with the server in cloud mode
 ```
 
@@ -107,11 +108,12 @@ TSX ──Mail.*──▶ Rust LocalBackend ──tokio/rustls──▶ IMAP (99
 ```
 
 1. Adding an account: `detect` fills in the servers → connection test → credentials go to the keychain, account metadata to SQLite.
-2. First sync: fetch the latest 500 messages of each folder. Messages up to 32 KB are downloaded whole (readable offline, full-text indexed); for larger ones only the headers and the first text part are fetched for the snippet (located through `BODYSTRUCTURE`, not partial FETCH), and the body is downloaded and cached on demand when opened.
-3. Incremental: new mail is whatever lies above the highest UID stored locally (`UID FETCH n:*`, RFC 4549 §4.3.1); `UIDNEXT` is only used to tell whether there is new mail, never as a high-water mark (a server may assign a UID before the message becomes visible); with `CONDSTORE`, flags are synced through `HIGHESTMODSEQ`; when UIDVALIDITY changes the folder is rebuilt.
-4. Real time: `IDLE` on INBOX; an `EXISTS`/`EXPUNGE`/`FETCH` (flags changed by another client) triggers an INBOX sync; IDLE is reissued every 30 seconds because some servers (such as GreenMail) hold flag changes made elsewhere until IDLE ends; a full sync runs every 29 minutes. Servers without IDLE are polled every 2 minutes. One command connection per account, reused; when the reused connection has been closed by the server (idle timeout), the command is retried once on a new connection, and other errors are not retried. Connection or sync errors are logged (with the account id), followed by a reconnect with backoff from 5 seconds to 5 minutes and a full sync. After new mail is written to the store a `newMail` event fires, plus a system notification when the app is not in the foreground.
-5. Sending: lettre sends over SMTP, then on success `APPEND`s to "Sent" (except Gmail, which saves it on its own).
-6. Search: local FTS5 (subject, from, to, body); old mail not stored locally will get IMAP `SEARCH` in a later version. Results stay one per message; opening one opens its conversation.
+2. First sync: the newest 500 messages of each folder, in pages of 200 — the newest page first, so the inbox opens while the rest is still arriving. Messages up to 32 KB are downloaded whole (readable offline, full-text indexed); for larger ones only the headers and the first text part are fetched for the snippet (located through `BODYSTRUCTURE`, not partial FETCH), and the body is downloaded and cached on demand when opened.
+3. Paging and progress: each page is one FETCH and one transaction that also records the folder's watermarks, so a sync stopped midway resumes from the last committed page. `syncProgress` events carry folders done and messages stored so far; `Status.progress` and the server's `GET /v1/sync` report the same. A folder remembers `uidnext` (highest UID stored + 1), `catchup_seq` (where an interrupted catch-up on mail above the stored range continues) and `backfill_seq` (where older, still unstored mail continues). Older mail is loaded on demand (`Mail.older` / `POST /v1/sync/older`) one page at a time, newest first backwards, and becomes searchable once stored.
+4. Incremental: new mail is whatever lies above the highest UID stored locally (RFC 4549 §4.3.1), fetched from the newest page down until it reaches the stored range; `UIDNEXT` is only used to tell whether there is new mail, never as a high-water mark (a server may assign a UID before the message becomes visible); with `CONDSTORE`, flags are synced through `HIGHESTMODSEQ`; when UIDVALIDITY changes the folder is rebuilt.
+5. Real time: `IDLE` on INBOX; an `EXISTS`/`EXPUNGE`/`FETCH` (flags changed by another client) triggers an INBOX sync; IDLE is reissued every 30 seconds because some servers (such as GreenMail) hold flag changes made elsewhere until IDLE ends; a full sync runs every 29 minutes. Servers without IDLE are polled every 2 minutes. One command connection per account, reused; when the reused connection has been closed by the server (idle timeout), the command is retried once on a new connection, and other errors are not retried. Connection or sync errors are logged (with the account id), followed by a reconnect with backoff from 5 seconds to 5 minutes and a full sync. After new mail is written to the store a `newMail` event fires, plus a system notification when the app is not in the foreground.
+6. Sending: lettre sends over SMTP, then on success `APPEND`s to "Sent" (except Gmail, which saves it on its own).
+7. Search: local FTS5 (subject, from, to, body); old mail not stored locally will get IMAP `SEARCH` in a later version. Results stay one per message; opening one opens its conversation.
 
 On desktop, closing the main window leaves the app in the tray, IDLE continues and system notifications work as usual. Android local mode syncs only while the app is open (no background service); background push needs cloud mode, as the settings page says.
 
@@ -178,6 +180,7 @@ POST /v1/auth/logout      GET /v1/me    PATCH /v1/me  {hideContent} (notificatio
 GET  /v1/accounts        POST /v1/accounts (imap)        DELETE /v1/accounts/{id}
 PATCH /v1/accounts/{id}  {signature: {text, newMessages, replies}} → Account
 GET  /v1/detect?email=   POST /v1/sync (sync every account now)
+GET  /v1/sync → {syncing, progress}   POST /v1/sync/older {folder, account?} → Backfill {inserted, pending}
 GET  /v1/oauth/{google|microsoft}/start?token=…           GET /v1/oauth/{provider}/callback
 GET  /v1/messages?folder=&account=&before=&limit=         GET /v1/messages/{id}
 GET  /v1/messages/{id}/attachments/{index}  attachment bytes: Content-Type is its type, Content-Disposition: attachment (filename* per RFC 5987 with the UTF-8 original name),

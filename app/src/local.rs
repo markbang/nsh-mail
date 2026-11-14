@@ -215,6 +215,10 @@ impl Backend for LocalBackend {
         self.call(|e| async move { e.list(query).await })
     }
 
+    fn older(&self, folder: FolderKind, account: Option<String>) -> MailFuture<'_, Backfill> {
+        self.call(|e| async move { e.backfill(account.as_deref(), folder).await })
+    }
+
     fn threads(&self, query: ListQuery) -> MailFuture<'_, Vec<Thread>> {
         self.call(|e| async move { e.threads(query).await })
     }

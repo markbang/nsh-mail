@@ -51,7 +51,9 @@ function Status(props: { expanded: boolean; onSettings?: () => void }) {
         <View class="min-w-0 flex-1 flex-row items-center gap-2">
           <If when={mailStatus().syncing} else={<Text class="line-clamp-1 text-label-medium tracking-label-medium text-on-surface-variant">{mailStatus().error ? t("sync.failed") : t(`mode.${mailStatus().mode}`)}</Text>}>
             <LoadingIndicator label={t("sync.running")} size={24} />
-            <Text class="line-clamp-1 text-label-medium tracking-label-medium text-on-surface-variant">{t("sync.running")}</Text>
+            <Text class="line-clamp-1 text-label-medium tracking-label-medium text-on-surface-variant">
+              {mailStatus().progress?.messages ? t("sync.progress", { count: mailStatus().progress?.messages ?? 0 }) : t("sync.running")}
+            </Text>
           </If>
         </View>
       </If>
