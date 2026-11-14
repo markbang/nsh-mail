@@ -106,6 +106,8 @@ GET  /v1/sources                   GET /v1/sources/{id}
 
 cursor 不透明（`received_at` + `id` 的 base64，keyset 分页）。`q` 走 FTS 索引，覆盖邮件和非邮件正文。所有查询都按 key 的 source 范围过滤。
 
+返回结构：`GET /v1/messages` 返回 `{messages: [Message], next_cursor?}`（最后一页没有游标）；`GET /v1/messages/{id}` 返回一个 `Message`；`read` 和 `archive` 返回更新后的 `Message` 或 204；`GET /v1/sources` 返回 `{sources: [Source]}`。`Message` 为 `{id, source_id, sender, title, body_text, link, received_at, priority, tags, read_at, archived_at, thread_id?}`，`Source` 为 `{id, kind, name, enabled, min_priority}`。客户端会忽略不认识的字段，所以两者都能扩展而不影响已装好的 agent。
+
 ### 实时
 
 `GET /v1/stream`（SSE）：事件 `message`（JSON 与 `/v1/messages/{id}` 相同）、`read`、`archived`，每 15 秒心跳注释。`Last-Event-ID` 从最后收到的 id 续传（id 按用户单调递增），`?since=` 用于冷启动；`?source=` 收窄；key 的范围始终生效。另提供 WebSocket 变体（`GET /v1/stream?format=ws`）。
@@ -123,6 +125,8 @@ cursor 不透明（`received_at` + `id` 的 base64，keyset 分页）。`q` 走 
 | `list_sources` | `{}` |
 
 两种传输：stdio（`nsh-notify-mcp --server https://… --key nb_…`）和服务端 HTTP（`/mcp`，同一个 Bearer key）。README 给出 Claude Code、Codex、Cursor 的接入配置。
+
+这个 crate 既是可执行文件也是库：`notify_mcp::router(factory)` 返回可挂载的 `POST /mcp`，自身不鉴权（由挂载它的服务器校验 key），`Notify` trait 让服务器直接用自己的存储回答工具调用，不必绕一圈 HTTP。独立可执行文件是同一个分发器，只是 `Notify` 走 REST。
 
 ### OpenAPI
 

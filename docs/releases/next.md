@@ -2,6 +2,7 @@ English | [简体中文](next.zh-CN.md)
 
 ## Added
 
+- An MCP server for agents (`nsh-notify-mcp`): list unread notifications, search across every source, read one in full, mark it read and list sources, over stdio or HTTP with an API key. Config blocks for Claude Code, Codex and Cursor are in `crates/mcp/README.md`.
 - Signatures, one per account (Settings → the account's menu → Signature), with **bold**, *italic* and links. Added to new messages and to replies and forwards (each can be turned off), above the quoted message as Gmail does, and sent as plain text and HTML. Changing From in the composer swaps it, unless you edited it. Kept on the device in local mode, on the server in cloud mode.
 
 ## Improved

@@ -1,0 +1,27 @@
+name: mcp
+
+on:
+  pull_request:
+    paths: ["crates/mcp/**", "Cargo.toml", "Cargo.lock", ".github/workflows/mcp.yml"]
+  push:
+    branches: [main]
+    paths: ["crates/mcp/**", "Cargo.toml", "Cargo.lock", ".github/workflows/mcp.yml"]
+
+concurrency:
+  group: mcp-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy -p nsh-notify-mcp --all-targets -- -D warnings
+      - run: cargo test -p nsh-notify-mcp
