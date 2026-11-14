@@ -10,6 +10,7 @@ English | [简体中文](next.zh-CN.md)
 ## Improved
 
 - Newsletters and other mail laid out for a fixed width scale to fit narrow panes and phones instead of scrolling sideways (#42).
+- On phone-width browsers a 600px newsletter now fits without any sideways scroll: the reader drops its own padding around zoomed mail and keeps a slimmer margin.
 
 ## Fixed
 

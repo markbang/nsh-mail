@@ -42,8 +42,9 @@ export function MailView(props: MailViewProps) {
 // Below this the text gets too small to read: the mail scrolls sideways instead.
 const MIN_ZOOM = 0.6;
 const ZOOM_STEP = 0.025;
-// Our body padding, and the gutter newsletters commonly leave around their fixed-width table.
-const AROUND = 2 * 16 + 2 * 24;
+// Our body padding, dropped once the mail fills the view; the gutter newsletters commonly leave around their fixed-width table.
+const PAD = 16;
+const GUTTER = 2 * 24;
 const BLOCK = /<(?:table|td|th|div|center)\b[^>]*>/gi;
 const WIDTH_ATTR = /\swidth\s*=\s*["']?\s*(\d+(?:\.\d+)?)(?:px)?(?=["'\s>])/i;
 const CSS_WIDTH = /(?<![-\w])(?:min-)?width\s*:\s*(\d+(?:\.\d+)?)px/gi;
@@ -64,11 +65,12 @@ function declaredWidth(html: string) {
   return widest;
 }
 
-/** Zooms the body so `width` fits the view, in steps chosen by the view's width, down to MIN_ZOOM. */
+/** Zooms the body so `width` fits the view, in steps chosen by the view's width, down to MIN_ZOOM.
+ * Narrower than the mail and our padding, the padding goes first: a 600px newsletter fits a phone. */
 function fitCss(width: number) {
   if (!width) return "";
-  const full = width + AROUND;
-  let css = "";
+  const full = width + GUTTER;
+  let css = `@media (max-width:${full + 2 * PAD - 1}px){body{padding:0}}`;
   for (let i = 1; 1 - i * ZOOM_STEP >= MIN_ZOOM - 1e-9; i++) {
     const zoom = 1 - i * ZOOM_STEP;
     css += `@media (max-width:${Math.ceil(full * (zoom + ZOOM_STEP)) - 1}px){body{zoom:${zoom.toFixed(3)}}}`;
@@ -85,6 +87,6 @@ function mailDocument(html: string, remote: boolean) {
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light only">${base}
-<style>html{background:#fff;color:#202020}body{margin:0;padding:16px;font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans","PingFang SC","Microsoft YaHei","Noto Sans CJK SC","Source Han Sans SC",sans-serif;overflow-wrap:break-word}img{max-width:100%;height:auto}pre{white-space:pre-wrap}blockquote{margin:0 0 0 4px;padding-left:12px;border-left:2px solid #d4d4d8;color:#52525b}${fitCss(declaredWidth(html))}</style>
+<style>html{background:#fff;color:#202020}body{margin:0;padding:${PAD}px;font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans","PingFang SC","Microsoft YaHei","Noto Sans CJK SC","Source Han Sans SC",sans-serif;overflow-wrap:break-word}img{max-width:100%;height:auto}pre{white-space:pre-wrap}blockquote{margin:0 0 0 4px;padding-left:12px;border-left:2px solid #d4d4d8;color:#52525b}${fitCss(declaredWidth(html))}</style>
 </head><body>${html}</body></html>`;
 }
