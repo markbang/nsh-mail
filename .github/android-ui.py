@@ -396,10 +396,20 @@ for mode in ("light", "dark"):
     if tap("Settings") and tap("id:sign-out"):
         time.sleep(1)
         shot(f"{mode}-sign-out-dialog")
-        nodes_now = [n for n in nodes() if n.get("text", "").lower() == "sign out"]
-        if nodes_now:
-            x1, y1, x2, y2 = map(int, re.findall(r"\d+", nodes_now[-1].get("bounds")))
-            adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+        # The dialog's own button, not the one the page draws under it.
+        nodes_now = nodes()
+        frame = next((n for n in nodes_now if n.get("text", "") == "Sign out of nsh-mail?"), None)
+        if frame:
+            fx1, fy1, fx2, fy2 = map(int, re.findall(r"\d+", frame.get("bounds")))
+            inside = [
+                n for n in nodes_now
+                if n.get("text", "").lower() == "sign out"
+                and (b := list(map(int, re.findall(r"\d+", n.get("bounds") or "")))) and len(b) == 4
+                and fx1 <= (b[0] + b[2]) // 2 <= fx2 and fy1 <= (b[1] + b[3]) // 2 <= fy2
+            ]
+            if inside:
+                x1, y1, x2, y2 = map(int, re.findall(r"\d+", inside[-1].get("bounds")))
+                adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
         wait("id:onboarding")
         shot(f"{mode}-onboarding")
 
