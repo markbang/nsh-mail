@@ -106,6 +106,8 @@ GET  /v1/sources                   GET /v1/sources/{id}
 
 Cursors are opaque (base64 of `received_at` + `id`, keyset paging). `q` uses the FTS index across non-mail and mail text. Every query is filtered by the key's sources.
 
+Shapes: `GET /v1/messages` answers `{messages: [Message], next_cursor?}` (no cursor on the last page); `GET /v1/messages/{id}` answers a `Message`; `read` and `archive` answer the updated `Message` or 204; `GET /v1/sources` answers `{sources: [Source]}`. A `Message` is `{id, source_id, sender, title, body_text, link, received_at, priority, tags, read_at, archived_at, thread_id?}` and a `Source` `{id, kind, name, enabled, min_priority}`. Clients ignore unknown fields, so both can grow without breaking installed agents.
+
 ### Streaming
 
 `GET /v1/stream` (SSE): events `message` (the same JSON as `/v1/messages/{id}`), `read`, `archived`, heartbeat comment every 15 s. `Last-Event-ID` resumes after the last delivered id (ids are monotonic per user); `?since=` works for a cold start. `?source=` narrows it; the key's scope always applies. A WebSocket variant (`GET /v1/stream?format=ws`) is offered for clients that prefer it.
@@ -123,6 +125,8 @@ A separate crate `crates/mcp` (`nsh-notify-mcp`), tools:
 | `list_sources` | `{}` |
 
 Two transports: stdio (`nsh-notify-mcp --server https://… --key nb_…`) and HTTP (streamable HTTP at `/mcp` on the server, same Bearer key). README shows the exact config block for Claude Code, Codex and Cursor.
+
+The crate is a library as much as a binary: `notify_mcp::router(factory)` returns a mountable `POST /mcp` that does no auth of its own (the mounting server's key check applies), and the `Notify` trait lets the server answer the tools from its own store without an HTTP hop. The standalone binary is the same dispatcher with a REST-backed `Notify`.
 
 ### OpenAPI
 

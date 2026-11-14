@@ -40,6 +40,8 @@ crates/mail-core     Rust library, no NSH dependency: IMAP sync, SMTP sending, M
                      OAuth (PKCE), provider presets, credential store. Shared by client and server.
 crates/server        nsh-mail-server: axum + tokio. Accounts, sync scheduling, REST/WebSocket API, push (FCM, Web Push),
                      and it also serves the web client's static files (same origin, no CORS).
+crates/mcp           nsh-notify-mcp: the MCP server for agents (notification-inbox.md §3). A library plus a
+                     binary; the server can mount its `POST /mcp` router and answer from its own store.
 app/                 NSH mixed app (TSX UI + Rust crate). The crate exports `nsh-mail/native`; TSX only calls that.
 android/             Gradle host project: NshView + Firebase Messaging (§5).
 ```

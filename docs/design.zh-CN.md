@@ -40,6 +40,8 @@ crates/mail-core     Rust 库，不依赖 NSH：IMAP 同步、SMTP 发送、MIME
                      OAuth（PKCE）、服务商预设、凭据库。客户端和服务端共用。
 crates/server        nsh-mail-server：axum + tokio。账号、同步调度、REST/WebSocket API、推送（FCM、Web Push）、
                      顺带托管 Web 客户端静态文件（同源，免 CORS）。
+crates/mcp           nsh-notify-mcp：给 agent 用的 MCP 服务器（notification-inbox.zh-CN.md §3）。既是库也是
+                     可执行文件；服务器可以挂载它的 `POST /mcp` 路由，直接用自己的存储回答。
 app/                 NSH 混合应用（TSX 界面 + Rust crate）。crate 导出 `nsh-mail/native`，TSX 只调它。
 android/             Gradle 宿主工程：NshView + Firebase Messaging（§5）。
 ```
