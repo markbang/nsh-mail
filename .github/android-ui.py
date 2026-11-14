@@ -138,6 +138,15 @@ def back():
     time.sleep(0.8)
 
 
+def back_to(key, tries=3, timeout=6):
+    """Back until `key` shows: a page's keyboard takes the first Back, the page the next."""
+    for _ in range(tries):
+        if find(key, timeout):
+            return True
+        back()
+    return bool(find(key, timeout))
+
+
 def prop(name):
     return adb("shell", "getprop", name, check=False).strip()
 
@@ -391,9 +400,8 @@ for mode in ("light", "dark"):
                 if tap("id:sources-add-top"):
                     wait("id:add-source", 10)
                     shot(f"{mode}-source-kinds")
-                    back()
-                wait("id:sources", 10)
-                back()
+                    back_to("id:sources")
+                back_to("id:notifications")
             else:
                 back()
         # A notification opens on its own page; Back returns to the feed.
@@ -428,14 +436,13 @@ for mode in ("light", "dark"):
                 if tap("id:keys-add-top"):
                     wait("id:new-key", 10)
                     shot(f"{mode}-new-key")
-                    back()
-                wait("id:api-keys", 10)
-                back()
+                    back_to("id:api-keys")
+                back_to("id:settings")
         if scroll_to("id:settings-rules"):
             if tap("id:settings-rules"):
                 wait("id:notify-rules", 15)
                 shot(f"{mode}-notify-rules")
-                back()
+                back_to("id:settings")
 
     if tap("Mail"):
         wait("id:messages")
