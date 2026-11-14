@@ -9,12 +9,13 @@
 
 use std::sync::{Arc, Mutex};
 
+use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::err;
-use crate::store::{MailDb, new_id};
+use crate::store::{MailDb, fts_query, new_id};
 use crate::types::{ErrorCode, Result};
 
 /// `config` keys and served JSON use camelCase, like the rest of the client API.
@@ -91,15 +92,18 @@ CREATE TRIGGER IF NOT EXISTS accounts_source_delete AFTER DELETE ON accounts BEG
 END;
 
 -- Drafts and trash are not notifications; everything else mirrors, with the mail id as the feed
--- id so the two tables stay 1:1.
+-- id so the two tables stay 1:1. Mail in Archive arrives archived: the app moves it there, so the
+-- notification is handled and leaves the feed view.
 CREATE TRIGGER IF NOT EXISTS messages_feed_insert AFTER INSERT ON messages
 WHEN (SELECT kind FROM folders WHERE id = new.folder_id) NOT IN ('drafts', 'trash') BEGIN
     INSERT INTO feed_messages (id, user_id, source_id, sender, title, body_text, received_at,
-                               read_at, priority, tags, thread_id)
+                               read_at, archived_at, priority, tags, thread_id)
     SELECT new.id, new.user_id, 'src_m_' || f.account_id,
            IFNULL(json_extract(new.from_addr, '$.name'), json_extract(new.from_addr, '$.email')),
            new.subject, new.snippet, new.date,
-           CASE WHEN new.seen THEN new.date END, 0, '[]', new.thread_id
+           CASE WHEN new.seen THEN new.date END,
+           CASE WHEN f.kind = 'archive' THEN new.date END,
+           0, '[]', new.thread_id
     FROM folders f WHERE f.id = new.folder_id
     ON CONFLICT (id) DO NOTHING;
 END;
@@ -114,8 +118,26 @@ CREATE TRIGGER IF NOT EXISTS messages_feed_delete AFTER DELETE ON messages BEGIN
 END;
 "#;
 
-/// Bumped when the mail projection needs to be reconciled again at open.
-const SCHEMA_VERSION: i64 = 1;
+/// Bumped when the mail projection needs to be reconciled again at open. 2: mail in Archive is
+/// projected as archived.
+const SCHEMA_VERSION: i64 = 2;
+
+/// The mail → feed projection, shared by the migration and the rebuild so the two cannot drift.
+/// `ON CONFLICT DO NOTHING` with the `NOT EXISTS` check keeps a large mailbox from rewriting rows
+/// that are already projected.
+const PROJECT_MAIL_SQL: &str = "
+INSERT INTO feed_messages (id, user_id, source_id, sender, title, body_text, received_at,
+                           read_at, archived_at, priority, tags, thread_id)
+SELECT m.id, m.user_id, 'src_m_' || f.account_id,
+       IFNULL(json_extract(m.from_addr, '$.name'), json_extract(m.from_addr, '$.email')),
+       m.subject, m.snippet, m.date,
+       CASE WHEN m.seen THEN m.date END,
+       CASE WHEN f.kind = 'archive' THEN m.date END,
+       0, '[]', m.thread_id
+FROM messages m JOIN folders f ON f.id = m.folder_id
+WHERE f.kind NOT IN ('drafts', 'trash')
+  AND NOT EXISTS (SELECT 1 FROM feed_messages x WHERE x.id = m.id)
+ON CONFLICT (id) DO NOTHING";
 
 /// Every kind the design allows. IM sources are accepted here but only the HTTP kinds ingest yet.
 pub const KINDS: [&str; 10] = [
@@ -148,6 +170,7 @@ pub fn now_ms() -> i64 {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Source {
     pub id: String,
@@ -207,6 +230,7 @@ pub struct SourcePatch {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct FeedMessage {
     /// The mail message id when the source is a mail account.
@@ -274,6 +298,53 @@ pub struct FeedCounts {
     pub feed_messages: i64,
 }
 
+/// Where a page starts: the last row of the page before, in the feed's order (newest first).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Cursor {
+    pub received_at: i64,
+    pub id: String,
+}
+
+/// Which archived rows a query sees. Archived means handled: the notification left the feed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Archived {
+    #[default]
+    Hide,
+    Only,
+    Any,
+}
+
+/// A page of the feed, newest first.
+#[derive(Clone, Debug)]
+pub struct FeedPage {
+    pub messages: Vec<FeedMessage>,
+    /// Rows wait beyond this page: pass the last message as the next [`ListFilter::before`].
+    pub more: bool,
+}
+
+/// One feed query; every field narrows. The defaults are the app's feed view: newest first,
+/// archived hidden.
+#[derive(Clone, Debug, Default)]
+pub struct ListFilter {
+    /// The sources the caller may see (an API key's scope); empty or `None` is every source.
+    pub sources: Option<Vec<String>>,
+    /// One source on top of [`sources`](Self::sources).
+    pub source: Option<String>,
+    /// Only unread notifications that are still in the feed.
+    pub unread: bool,
+    pub archived: Archived,
+    /// Words to find in title, sender and body, over both full-text indexes.
+    pub text: Option<String>,
+    /// Only notifications received after this (ms since the epoch).
+    pub since: Option<i64>,
+    pub before: Option<Cursor>,
+    /// 1–[`LIST_LIMIT`].
+    pub limit: u32,
+}
+
+/// The most one page may hold.
+pub const LIST_LIMIT: u32 = 200;
+
 /// One user's view of the feed, bound by [`MailDb::feed`] so no query can touch another user's
 /// rows: every statement binds `user_id` as `?1`.
 #[derive(Clone)]
@@ -301,6 +372,19 @@ impl MailDb {
         if version >= SCHEMA_VERSION {
             return tx.commit().map_err(Into::into);
         }
+        if version < 2 {
+            // Version 1 predates archived mail in the feed: mail already in Archive joins it
+            // archived, so it does not show up as a new notification.
+            tx.execute(
+                "UPDATE feed_messages SET archived_at =
+                    (SELECT m.date FROM messages m WHERE m.id = feed_messages.id)
+                 WHERE archived_at IS NULL
+                   AND source_id IN (SELECT id FROM sources WHERE kind = 'mail')
+                   AND id IN (SELECT m.id FROM messages m JOIN folders f ON f.id = m.folder_id
+                              WHERE f.kind = 'archive')",
+                [],
+            )?;
+        }
         tx.execute(
             "INSERT OR IGNORE INTO sources (id, user_id, kind, name, config, created_at)
              SELECT 'src_m_' || id, user_id, 'mail', IFNULL(json_extract(data, '$.email'), id),
@@ -308,20 +392,7 @@ impl MailDb {
              FROM accounts",
             [],
         )?;
-        tx.execute(
-            "INSERT INTO feed_messages (id, user_id, source_id, sender, title, body_text,
-                                        received_at, read_at, priority, tags, thread_id)
-             SELECT m.id, m.user_id, 'src_m_' || f.account_id,
-                    IFNULL(json_extract(m.from_addr, '$.name'),
-                           json_extract(m.from_addr, '$.email')),
-                    m.subject, m.snippet, m.date,
-                    CASE WHEN m.seen THEN m.date END, 0, '[]', m.thread_id
-             FROM messages m JOIN folders f ON f.id = m.folder_id
-             WHERE f.kind NOT IN ('drafts', 'trash')
-               AND NOT EXISTS (SELECT 1 FROM feed_messages x WHERE x.id = m.id)
-             ON CONFLICT (id) DO NOTHING",
-            [],
-        )?;
+        tx.execute(PROJECT_MAIL_SQL, [])?;
         tx.execute(
             "DELETE FROM feed_messages
              WHERE source_id IN (SELECT id FROM sources WHERE kind = 'mail')
@@ -384,19 +455,7 @@ impl MailDb {
              WHERE kind = 'mail' AND id NOT IN (SELECT 'src_m_' || id FROM accounts)",
             [],
         )?;
-        tx.execute(
-            "INSERT INTO feed_messages (id, user_id, source_id, sender, title, body_text,
-                                        received_at, read_at, priority, tags, thread_id)
-             SELECT m.id, m.user_id, 'src_m_' || f.account_id,
-                    IFNULL(json_extract(m.from_addr, '$.name'),
-                           json_extract(m.from_addr, '$.email')),
-                    m.subject, m.snippet, m.date,
-                    CASE WHEN m.seen THEN m.date END, 0, '[]', m.thread_id
-             FROM messages m JOIN folders f ON f.id = m.folder_id
-             WHERE f.kind NOT IN ('drafts', 'trash')
-             ON CONFLICT (id) DO NOTHING",
-            [],
-        )?;
+        tx.execute(PROJECT_MAIL_SQL, [])?;
         check_mail_projection(&tx)?;
         tx.execute("DELETE FROM feed_meta", [])?;
         tx.execute(
@@ -795,6 +854,104 @@ impl Feed {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// One page of the feed, newest first, with every filter applied in one statement so keyset
+    /// paging stays cheap on a large mailbox.
+    pub fn list(&self, filter: &ListFilter) -> Result<FeedPage> {
+        let limit = filter.limit.clamp(1, LIST_LIMIT) as i64;
+        let scope = source_scope(filter);
+        if scope.as_ref().is_some_and(Vec::is_empty) {
+            return Ok(FeedPage {
+                messages: Vec::new(),
+                more: false,
+            });
+        }
+        let mut sql = format!("SELECT {MESSAGE_COLUMNS} FROM feed_messages WHERE user_id = ?1");
+        let mut args: Vec<SqlValue> = vec![SqlValue::Integer(self.user)];
+        let bind = |args: &mut Vec<SqlValue>, value: SqlValue| {
+            args.push(value);
+            format!("?{}", args.len())
+        };
+        if let Some(ids) = &scope {
+            let mut list = String::from(" AND source_id IN (");
+            for (i, id) in ids.iter().enumerate() {
+                if i > 0 {
+                    list.push(',');
+                }
+                list.push_str(&bind(&mut args, SqlValue::Text(id.clone())));
+            }
+            list.push(')');
+            sql.push_str(&list);
+        }
+        if filter.unread {
+            sql.push_str(" AND read_at IS NULL AND archived_at IS NULL");
+        }
+        match filter.archived {
+            Archived::Hide if !filter.unread => sql.push_str(" AND archived_at IS NULL"),
+            Archived::Only => sql.push_str(" AND archived_at IS NOT NULL"),
+            _ => {}
+        }
+        if let Some(since) = filter.since {
+            let p = bind(&mut args, SqlValue::Integer(since));
+            sql.push_str(&format!(" AND received_at > {p}"));
+        }
+        if let Some(before) = &filter.before {
+            let at = bind(&mut args, SqlValue::Integer(before.received_at));
+            let id = bind(&mut args, SqlValue::Text(before.id.clone()));
+            sql.push_str(&format!(
+                " AND (received_at < {at} OR (received_at = {at} AND id < {id}))"
+            ));
+        }
+        let text = filter
+            .text
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty());
+        if let Some(text) = text {
+            let Some(query) = fts_query(text) else {
+                return Ok(FeedPage {
+                    messages: Vec::new(),
+                    more: false,
+                });
+            };
+            // Mail text lives in the mail index, everything else in the feed's own; one page
+            // spans both, so a search does not have to say where a notification came from.
+            let mails = bind(&mut args, SqlValue::Text(query.clone()));
+            let users = bind(&mut args, SqlValue::Integer(self.user));
+            let feeds = bind(&mut args, SqlValue::Text(query));
+            let their_user = bind(&mut args, SqlValue::Integer(self.user));
+            sql.push_str(&format!(
+                " AND id IN (
+                    SELECT m.id FROM messages_fts JOIN messages m ON m.pk = messages_fts.rowid
+                      JOIN folders f ON f.id = m.folder_id
+                     WHERE messages_fts MATCH {mails} AND m.user_id = {users}
+                       AND f.kind NOT IN ('drafts', 'trash')
+                    UNION
+                    SELECT y.id FROM feed_messages_fts
+                      JOIN feed_messages y ON y.pk = feed_messages_fts.rowid
+                     WHERE feed_messages_fts MATCH {feeds} AND y.user_id = {their_user})"
+            ));
+        }
+        let take = bind(&mut args, SqlValue::Integer(limit + 1));
+        sql.push_str(&format!(" ORDER BY received_at DESC, id DESC LIMIT {take}"));
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&sql)?;
+        let mut messages = stmt
+            .query_map(rusqlite::params_from_iter(args.iter()), message_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let more = messages.len() as i64 > limit;
+        messages.truncate(limit as usize);
+        Ok(FeedPage { messages, more })
+    }
+
+    /// The message a page's `next` continues from, by its id.
+    pub fn cursor_of(&self, id: &str) -> Result<Cursor> {
+        let message = self.message(id)?;
+        Ok(Cursor {
+            received_at: message.received_at,
+            id: message.id,
+        })
+    }
+
     /// Unread count across the feed, and per source.
     pub fn unread(&self) -> Result<(i64, Vec<(String, i64)>)> {
         let conn = self.conn();
@@ -812,6 +969,20 @@ impl Feed {
             .query_map([self.user], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
         Ok((total, per))
+    }
+}
+
+/// The sources a query may read: the caller's scope narrowed to the one source it asked for.
+/// `None` is every source; an empty list matches nothing.
+fn source_scope(filter: &ListFilter) -> Option<Vec<String>> {
+    match (&filter.sources, &filter.source) {
+        (Some(scope), _) if !scope.is_empty() => Some(match &filter.source {
+            Some(one) if scope.contains(one) => vec![one.clone()],
+            Some(_) => Vec::new(),
+            None => scope.clone(),
+        }),
+        (_, Some(one)) => Some(vec![one.clone()]),
+        _ => None,
     }
 }
 

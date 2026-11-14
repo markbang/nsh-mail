@@ -11,6 +11,11 @@ async fn main() {
     if std::env::args().nth(1).as_deref() == Some("rebuild-feed") {
         std::process::exit(rebuild_feed());
     }
+    // Writes the OpenAPI document to stdout; CI keeps docs/openapi.json in step with it.
+    if std::env::args().nth(1).as_deref() == Some("openapi") {
+        println!("{}", nsh_mail_server::agent::openapi_json());
+        return;
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),

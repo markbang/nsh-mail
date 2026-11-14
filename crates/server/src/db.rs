@@ -31,6 +31,20 @@ CREATE TABLE IF NOT EXISTS devices (
     vapid_key TEXT,
     UNIQUE (user_id, token)
 );
+CREATE TABLE IF NOT EXISTS api_keys (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    hash BLOB NOT NULL UNIQUE,
+    prefix TEXT NOT NULL,
+    scopes TEXT NOT NULL DEFAULT 'read',
+    source_ids TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER,
+    last_used_at INTEGER,
+    revoked_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS api_keys_by_user ON api_keys (user_id, created_at);
 CREATE TABLE IF NOT EXISTS oauth_states (
     state_hash BLOB PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -94,7 +108,7 @@ impl Db {
         Ok(Db(Arc::new(Mutex::new(conn))))
     }
 
-    fn with<T>(&self, f: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> Result<T> {
+    pub(crate) fn with<T>(&self, f: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> Result<T> {
         let conn = self.0.lock().unwrap_or_else(|e| e.into_inner());
         Ok(f(&conn)?)
     }

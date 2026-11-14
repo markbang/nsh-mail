@@ -1794,7 +1794,7 @@ fn is_cjk(c: char) -> bool {
 
 /// unicode61 treats a run of CJK characters as one token; splitting them makes every character a
 /// token so a phrase query finds any substring.
-fn fts_text(s: &str) -> String {
+pub(crate) fn fts_text(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
     for c in s.chars() {
         if is_cjk(c) {
@@ -1809,7 +1809,7 @@ fn fts_text(s: &str) -> String {
 }
 
 /// Every whitespace-separated term must match, as a prefix phrase.
-fn fts_query(text: &str) -> Option<String> {
+pub(crate) fn fts_query(text: &str) -> Option<String> {
     let terms: Vec<String> = text
         .split_whitespace()
         .map(|t| {

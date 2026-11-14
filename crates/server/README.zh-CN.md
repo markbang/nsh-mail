@@ -70,3 +70,17 @@ docker compose exec app nsh-mail-server rebuild-feed   # 以 JSON 打印行数
 ```
 
 feed 出错时用它重建，邮件表只读。`NSHMAIL_DATA_DIR` 指定数据库位置。
+
+## 面向 agent
+
+进到收件箱的一切就是一条 feed；agent 用 API key 读，人用自己的会话读。两种身份走同一批路由，所以两边看到的东西不会不一致。
+
+- **API key** —— `GET|POST /v1/keys`、`DELETE /v1/keys/{id}`（只接受会话）。key 是 `nb_…`，只在创建时返回一次；库里只有它的 SHA-256、前 8 个字符（`prefix`）、权限（`read`，带 `write` 才能标已读和归档）、可访问的 source（为空表示全部）和过期时间。`lastUsedAt` 最多每分钟写一次；撤销后下一个请求即失效。用 `Authorization: Bearer nb_…` 或 `X-API-Key` 发送。
+- **Feed** —— `GET /v1/feed?unread=1&source=src_…&q=…&since=…&limit=50&cursor=…` 返回 `{messages, nextCursor?, more, unread, counts}`；另有 `GET /v1/feed/{id}`、`POST /v1/feed/{id}/read`、`POST /v1/feed/{id}/archive`，以及给 App 用的批量接口 `POST /v1/feed/read`（`{ids, read?}`）和 `POST /v1/feed/archive`（`{ids}`）。`since=` 接受 RFC 3339、毫秒或消息 id；`archived=0|1|any` 选择是否看已归档。归档一条邮件通知会用邮件引擎把邮件移到 Archive 并从 feed 里隐藏，和 App 上点“归档”完全一样。
+- **实时** —— `GET /v1/stream` 是 SSE（`message`、`read`、`archived`，每 15 秒心跳）；`?format=ws` 给 WebSocket。`message` 事件把 feed 的 `seq` 作为事件 id，所以 `Last-Event-ID` 或 `?since=` 能无缝续传。`?source=` 收窄范围；key 的范围始终生效。
+- **MCP** —— `POST /mcp` 用同一个 key 提供 streamable HTTP MCP（`nsh-notify-mcp` 的工具），直接由本服务的存储回答。独立的 `nsh-notify-mcp` 可执行文件则走 `/v1`。
+- **OpenAPI** —— `/openapi.json`（`utoipa` 从路由生成）和 `/docs`（Swagger UI，资源内置，断网也能用）。`docs/openapi.json` 提交在仓库里，给没有服务器可问的 agent：
+
+```sh
+cargo run -p nsh-mail-server -- openapi > docs/openapi.json   # 过期时 CI 会失败
+```

@@ -247,18 +247,18 @@ impl NotifyApi {
             params.push(("cursor", cursor.clone()));
         }
         params.push(("limit", query.limit.clamp(1, MAX_LIMIT).to_string()));
-        let req = self.http.get(self.url("/v1/messages")).query(&params);
+        let req = self.http.get(self.url("/v1/feed")).query(&params);
         let value: Value = self.request(req).await?;
         page_from_value(value)
     }
 
     pub async fn get(&self, id: &str) -> Result<Message, Error> {
-        let req = self.http.get(self.url(&format!("/v1/messages/{id}")));
+        let req = self.http.get(self.url(&format!("/v1/feed/{id}")));
         self.request(req).await
     }
 
     pub async fn mark_read(&self, id: &str) -> Result<Message, Error> {
-        let req = self.http.post(self.url(&format!("/v1/messages/{id}/read")));
+        let req = self.http.post(self.url(&format!("/v1/feed/{id}/read")));
         let text = self.send(req).await?;
         if text.trim().is_empty() {
             return Ok(Message {
@@ -346,8 +346,9 @@ fn error_body(text: &str) -> (String, String) {
     )
 }
 
-/// Accepts `{messages, next_cursor}` (what the server sends), the same wrapper
-/// with `items`/`next`, and a bare array, so an older server still works.
+/// Accepts `{messages, nextCursor}` (what the server sends), the snake_case
+/// spelling, a wrapper with `items`/`next`, and a bare array, so an older server
+/// still works.
 fn page_from_value(value: Value) -> Result<Page, Error> {
     match value {
         Value::Array(items) => Ok(Page {
@@ -360,7 +361,7 @@ fn page_from_value(value: Value) -> Result<Page, Error> {
                 .or_else(|| map.remove("items"))
                 .and_then(|v| v.as_array().cloned())
                 .ok_or_else(|| Error::Decode("no `messages` array in the feed".into()))?;
-            let next = ["next_cursor", "next", "cursor"]
+            let next = ["nextCursor", "next_cursor", "next", "cursor"]
                 .iter()
                 .find_map(|k| map.get(*k).and_then(Value::as_str))
                 .filter(|s| !s.is_empty())
@@ -370,7 +371,7 @@ fn page_from_value(value: Value) -> Result<Page, Error> {
                 next,
             })
         }
-        _ => Err(Error::Decode("GET /v1/messages did not return JSON".into())),
+        _ => Err(Error::Decode("GET /v1/feed did not return JSON".into())),
     }
 }
 
