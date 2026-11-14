@@ -92,6 +92,19 @@ Mail.unread(): Promise<Record<accountId, number>>  // unread count of each accou
 Mail.refresh(): Promise<void>
 Mail.on(listener: (e: MailEvent) => void): () => void   // newMail / changed / syncState / syncProgress / error / outbox
 Push.setToken(token): Promise<void>                // FCM token from the Android host (§5), registered with the server in cloud mode
+// The notification inbox (notification-inbox.md §4): the feed beside the mailboxes.
+Mail.sources(): Promise<Source[]>
+Mail.feed(q: { source?, text, unread, before?, limit }): Promise<FeedPage>   // { items, counts, unread, more }
+Mail.markRead(ids: string[], read: boolean): Promise<void>
+Mail.archive(ids: string[]): Promise<void>
+Mail.createSource(input: NewSource): Promise<CreatedSource>   // its ingest URL rides along, and is shown only then
+Mail.updateSource(source: Source): Promise<Source>            // pause, resume, rename, colour, min priority
+Mail.deleteSource(id): Promise<void>
+Mail.rotateSourceToken(id): Promise<CreatedSource>            // a new ingest URL; the old one stops working
+Mail.testSource(id): Promise<void>
+Mail.apiKeys(): Promise<ApiKey[]>
+Mail.createApiKey(input: NewApiKey): Promise<CreatedApiKey>   // its token rides along, and is shown only then
+Mail.revokeApiKey(id): Promise<void>
 ```
 
 A message id is the local store's stable string id; in cloud mode it is the server's id. Unified inbox = every account's INBOX merged, newest first. Every `Summary` carries its `threadId`; a `Thread` is `{id, subject, latest: Summary, count, unread, participants, hasAttachments, flagged}`.

@@ -9,11 +9,13 @@ import icon from "./assets/tray.svg";
 import linuxIcon from "./assets/tray-linux.png";
 import { displayName } from "./lib/format";
 import { notificationsEnabled, onNewMail } from "./store";
+import { announceable, mailSourceId, modeFor, onNewNotifications, sourceById } from "./notify";
 
 const PREFIX = "message:";
+const NOTE_PREFIX = "notification:";
 
 /** Call once while the root renders: tray, close-to-tray and notifications. */
-export function stayResident(openFromNotification: (id: string) => void) {
+export function stayResident(openFromNotification: (id: string) => void, openNote: (id: string) => void) {
   // Only a component's render may ask for its window: keep it for later.
   const win: WindowRef | null = isAvailable ? currentWindow() : null;
   /** The window is shown and has the keyboard, or (phones, web) the app is in front. */
@@ -36,15 +38,26 @@ export function stayResident(openFromNotification: (id: string) => void) {
   }
 
   onNewMail((s: Summary) => {
-    if (!notificationsEnabled() || inFront()) return;
+    // Mail is a source too: its rules say whether its notifications reach the device.
+    if (!notificationsEnabled() || inFront() || modeFor(mailSourceId(s.accountId), 4) !== "notify") return;
     void Notifications.show({ id: `${PREFIX}${s.id}`, title: displayName(s.from), body: s.subject || t("reader.noSubject") }).catch(() => undefined);
+  });
+  onNewNotifications((added) => {
+    if (inFront()) return;
+    // At most three at once: a burst is one glance, not a stack of banners.
+    for (const n of announceable(added).slice(0, 3)) {
+      void Notifications.show({ id: `${NOTE_PREFIX}${n.id}`, title: n.sender || sourceById(n.sourceId)?.name || "", body: n.title }).catch(() => undefined);
+    }
   });
   try {
     cleanup(
       Notifications.on("press", ({ id }) => {
-        if (!id.startsWith(PREFIX)) return;
         win?.focus();
-        openFromNotification(id.slice(PREFIX.length));
+        if (id.startsWith(NOTE_PREFIX)) {
+          openNote(id.slice(NOTE_PREFIX.length));
+          return;
+        }
+        if (id.startsWith(PREFIX)) openFromNotification(id.slice(PREFIX.length));
       }),
     );
   } catch {

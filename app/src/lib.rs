@@ -10,6 +10,7 @@ mod drop;
 #[cfg(not(target_arch = "wasm32"))]
 mod local;
 mod mail;
+mod notify;
 mod push;
 mod types;
 
@@ -19,6 +20,10 @@ pub use crate::{
     backend::{Backend, Events, MailFuture},
     drop::PageDrop,
     mail::Mail,
+    notify::{
+        ApiKey, CreatedApiKey, CreatedSource, FeedPage, FeedQuery, NewApiKey, NewSource,
+        Notification, Source, SourceKind,
+    },
     push::{Push, TokenSink, on_token},
     types::Js,
 };

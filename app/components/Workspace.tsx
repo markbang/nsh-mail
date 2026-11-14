@@ -7,7 +7,9 @@ import { t } from "nsh/i18n";
 import { Button, Empty, Fab, IconButton, LoadingIndicator, Pane, Panes } from "../ui";
 import { MailboxList, mailboxTitle, resultCount } from "./Mailbox";
 import { MailboxRail } from "./Mailboxes";
+import { NotificationsView } from "./NotificationsView";
 import { Reader } from "./Reader";
+import { notificationsSection } from "../notify";
 import { SearchField } from "./SearchField";
 import { conversation, current, listStatus, openRow, refresh, searchActive, searchQuery, searchResults, selectedId, shownMessage } from "../store";
 import type { ComposeMode } from "../lib/format";
@@ -16,6 +18,8 @@ export interface WorkspaceProps {
   onCompose: (mode: ComposeMode) => void;
   onSettings: () => void;
   onAddAccount: () => void;
+  onAddSource: () => void;
+  onSources: () => void;
   searchRef: (ref: InputRef) => void;
 }
 
@@ -34,6 +38,14 @@ export function Workspace(props: WorkspaceProps) {
       <View class={expanded() ? "w-[256px]" : "w-24"}>
         <MailboxRail expanded={expanded()} fab={fab()} onSettings={props.onSettings} />
       </View>
+      <If when={notificationsSection()} else={mailPanes()}>
+        <NotificationsView onAddSource={props.onAddSource} onOpenSources={props.onSources} />
+      </If>
+    </View>
+  );
+
+  function mailPanes() {
+    return (
       <Panes label={t("layout.resize")} class="py-3 pe-3">
         <Pane size={400} minSize={320} maxSize={560} fixed first>
           <View class="flex-1 overflow-hidden rounded-large bg-surface">
@@ -100,6 +112,6 @@ export function Workspace(props: WorkspaceProps) {
           </View>
         </Pane>
       </Panes>
-    </View>
-  );
+    );
+  }
 }

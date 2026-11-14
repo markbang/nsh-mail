@@ -4,10 +4,21 @@
 // dialog with a stack of its own.
 import { context, signal } from "nsh";
 import { createNavStack, type NavStackState } from "nsh/base";
+import type { ApiKey, Source, SourceKind } from "nsh-mail/native";
 import type { ComposeInit } from "./lib/format";
 
 export type Route =
   | { name: "inbox" }
+  | { name: "notifications" }
+  | { name: "notification"; id: string }
+  | { name: "sources" }
+  | { name: "addSource" }
+  | { name: "sourceForm"; kind: SourceKind }
+  | { name: "sourceIngest"; source: Source; url: string; created: boolean }
+  | { name: "apiKeys" }
+  | { name: "newKey" }
+  | { name: "keyCreated"; key: ApiKey; token: string }
+  | { name: "notifyRules" }
   | { name: "message"; id: string }
   | { name: "compose"; init: ComposeInit }
   | { name: "search" }
@@ -76,8 +87,11 @@ function stackNavigator(stack: NavStackState<Route>): Navigator {
   return { stack, close: () => stack.pop(), done: () => stack.popToRoot(), modal: false };
 }
 
+/** The tabs' positions, as the screens switch between them. */
+export const TAB = { mail: 0, notifications: 1, search: 2, folders: 3, settings: 4 } as const;
+
 /** The tab bar's sections in order, each with its own stack, so each keeps its pages and scroll position. */
-export const tabs = (["mail", "search", "folders", "settings"] as const).map((name) => {
+export const tabs = (["mail", "notifications", "search", "folders", "settings"] as const).map((name) => {
   const stack = name === "mail" ? phoneStack : createNavStack<Route>([{ name }]);
   return { name, stack, navigator: name === "mail" ? phoneNavigator : stackNavigator(stack) };
 });

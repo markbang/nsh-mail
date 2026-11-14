@@ -9,10 +9,32 @@ One design language everywhere: Material 3 Expressive. Layouts follow M3's windo
 
 | Family | Layout | Sizes |
 | --- | --- | --- |
-| Linux, Windows, web from 840pt (expanded, large) | Navigation rail (collapsed 96pt; expanded 256pt from 1200pt, with sections and counts) and two panes on surface-container, 12pt apart with M3's drag handle: the list (fixed, 320–560pt) and the reader (flexible). The reader's actions float in a toolbar at its bottom. Compose, settings and adding an account open in a dialog with its own stack | M3 sizes: 40pt buttons and icon buttons, 56pt fields and search bar, list rows about 80pt |
-| Android phones | Material 3 Expressive (below): a `NavStack` per tab (Mail with the unread count, Search, Mailboxes, Settings) over M3E's short navigation bar; tab roots draw their own top app bar (search bar + emphasized headline), pushed pages the system toolbar and cover the bar; the FAB menu (New message, Add account) over Mail; the reader's floating toolbar | Controls 40dp with 48dp targets, body 16sp |
+| Linux, Windows, web from 840pt (expanded, large) | Navigation rail (collapsed 96pt; expanded 256pt from 1200pt, with sections and counts) and two panes on surface-container, 12pt apart with M3's drag handle: the list (fixed, 320–560pt) and the reader (flexible). The rail's first destination is Notifications, above the Mail section. The reader's actions float in a toolbar at its bottom. Compose, settings and adding an account open in a dialog with its own stack | M3 sizes: 40pt buttons and icon buttons, 56pt fields and search bar, list rows about 80pt |
+| Android phones | Material 3 Expressive (below): a `NavStack` per tab (Mail with the unread count, Notifications with its own, Search, Mailboxes, Settings) over M3E's short navigation bar; tab roots draw their own top app bar (search bar + emphasized headline), pushed pages the system toolbar and cover the bar; the FAB menu (New message, Add account) over Mail; the reader's floating toolbar | Controls 40dp with 48dp targets, body 16sp |
 | iOS phones | The same tabs on the system tab bar (`nsh/mobile` `TabBar`), a reply bar under the message | Controls 44pt+, body 16pt |
-| Web below 840pt (compact, medium) | M3's navigation bar (Mail with the unread count, Search, Mailboxes, Settings) over a `NavStack` per section; the FAB menu (compose, add an account) over Mail; pushed pages cover the bar, the reader keeps its floating toolbar | 48pt targets |
+| Web below 840pt (compact, medium) | M3's navigation bar (Mail with the unread count, Notifications with its own, Search, Mailboxes, Settings) over a `NavStack` per section; the FAB menu (compose, add an account) over Mail; pushed pages cover the bar, the reader keeps its floating toolbar | 48pt targets |
+
+## The notification inbox
+
+The feed is the mail list's sibling, not a second design: the same `List`, rows and swipe gestures, the same type
+roles and state layers.
+
+- **Rows** lead with the source's mark — its icon on a 15% tint of its chart role, in a 40pt rounded square (32pt
+  in dense rows). Then the sender and the source's name in label-large, the relative time and the unread dot;
+  the title in body-large (bold until read) with the high priority's error dot before it; one line of the body; the
+  tags as outlined pills in label-small. A link's notification ends with an external-link icon. A day's heading
+  (Today, Yesterday, the weekday, the date) sits between groups, in label-large on-surface-variant.
+- **Filter chips** are one horizontally scrolling row above the search bar: All first, then each source with its
+  unread count as a quiet count (`Badge quiet`). Selected chips fill with secondary-container, as everywhere.
+- **The reader** is the notification whole: source mark and name, the full date, the title in headline-small, the
+  sender, the priority, the tags, the actions (Open link as a tonal button, Open in Mail as text, then mark
+  read/unread and archive as icon buttons) and the body in body-large, selectable.
+- **Settings** reuse `Card` + `ListItem` rows: Sources, API keys and the rules. A source's row shows its mark, name
+  and kind (and "Paused"); its menu holds Send a test message, Show ingest URL, Pause/Resume and Delete. The ingest
+  URL and a key's token appear on their own page, in a selectable box on surface-container-highest, with the copy
+  button and the "shown only once" card in tertiary-container.
+- Sources take their colour from the chart roles only, so light and dark come from the same token; a new source
+  picks one of the five swatches.
 
 ## Tokens
 
@@ -61,6 +83,7 @@ Every list, the reader and a form show what they are doing, rather than an empty
 | Search | Before typing: the hint. Nothing found: the words, a hint and Clear search | The loading indicator while it runs | The reason from the engine and Try again (`components/SearchEmpty.tsx`) |
 | Sync | — | The rail's footnote instead of the status | `components/SyncBanner.tsx` over the list, an `alert` with the reason and a retry, until a sync succeeds |
 | The reader | No message selected, with how to reach one | The indicator in place of the message | `Empty` with the hint and Try again, on the wide reader and on the phone's page |
+| The feed | No sources: how to add the first; no notifications: what lands here and the test message; a filter or search that found nothing: Clear filters | The loading indicator in the list's middle | `Empty` with the hint and Try again |
 | Signing in, adding an IMAP account, saving | — | The button's loading indicator | A red text by the form's action; a refused IMAP sign-in (`ERR_AUTH`) also explains app passwords with the provider's link |
 
 Failures that answer a press (sending, archiving, attachments) are the snackbar, with Undo or the reason; failures that leave a screen without content are that screen's own state with a retry. Copy comes from `errors.*` by the engine's code (`errorInfoText`), never a raw code.

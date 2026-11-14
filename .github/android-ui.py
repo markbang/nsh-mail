@@ -138,6 +138,25 @@ def back():
     time.sleep(0.8)
 
 
+def scroll_up_to(key, tries=4, timeout=3):
+    """A row above the fold: swipes the page down until `key` shows."""
+    for _ in range(tries):
+        if find(key, timeout):
+            return True
+        adb("shell", "input", "swipe", str(w // 2), str(h * 4 // 10), str(w // 2), str(h * 8 // 10), "300")
+        time.sleep(0.6)
+    return bool(find(key, timeout))
+
+
+def back_to(key, tries=3, timeout=6):
+    """Back until `key` shows: a page's keyboard takes the first Back, the page the next."""
+    for _ in range(tries):
+        if find(key, timeout):
+            return True
+        back()
+    return bool(find(key, timeout))
+
+
 def prop(name):
     return adb("shell", "getprop", name, check=False).strip()
 
@@ -165,6 +184,16 @@ def booted(timeout=240):
             break
         time.sleep(5)
     print("booted, load", load, "on", cpus, "cpus", flush=True)
+
+
+def scroll_to(key, tries=4, timeout=3):
+    """A row below the fold: swipes the page up until `key` shows."""
+    for _ in range(tries):
+        if find(key, timeout):
+            return True
+        adb("shell", "input", "swipe", str(w // 2), str(h * 8 // 10), str(w // 2), str(h * 4 // 10), "300")
+        time.sleep(0.6)
+    return bool(find(key, timeout))
 
 
 def focused():
@@ -368,6 +397,30 @@ for mode in ("light", "dark"):
         if tap("Mailboxes") and tap("id:mailbox-all"):
             wait("id:messages", 15)
 
+    # The notification inbox: the feed, a chip, a notification, its sources.
+    if tap("Notifications"):
+        wait("id:notify-list", 20)
+        shot(f"{mode}-notifications")
+        if tap("id:notify-more"):
+            time.sleep(0.6)
+            shot(f"{mode}-notifications-menu")
+            if tap("Sources"):
+                wait("id:sources", 15)
+                shot(f"{mode}-sources")
+                if tap("id:sources-add-top"):
+                    wait("id:add-source", 10)
+                    shot(f"{mode}-source-kinds")
+                    back_to("id:sources")
+                back_to("id:notifications")
+            else:
+                back()
+        # A notification opens on its own page; Back returns to the feed.
+        if tap("id:notify-[nm][0-9]+"):
+            wait("id:notify-reader", 15)
+            shot(f"{mode}-notification")
+            back()
+        wait("id:notify-list", 15)
+
     if tap("Settings"):
         wait("id:settings")
         shot(f"{mode}-settings")
@@ -385,6 +438,21 @@ for mode in ("light", "dark"):
                     break
             else:
                 fail("the signature page never closed")
+        # The notification settings: the keys agents read the feed with, and the rules.
+        if scroll_to("id:settings-keys"):
+            if tap("id:settings-keys"):
+                wait("id:api-keys", 15)
+                shot(f"{mode}-api-keys")
+                if tap("id:keys-add-top"):
+                    wait("id:new-key", 10)
+                    shot(f"{mode}-new-key")
+                    back_to("id:api-keys")
+                back_to("id:settings")
+        if scroll_to("id:settings-rules"):
+            if tap("id:settings-rules"):
+                wait("id:notify-rules", 15)
+                shot(f"{mode}-notify-rules")
+                back_to("id:settings")
 
     if tap("Mail"):
         wait("id:messages")
@@ -408,19 +476,32 @@ for mode in ("light", "dark"):
     # draw, so the whole step is tried again rather than failing the run on its timing.
     if tap("Settings"):
         for attempt in range(1, 4):
+            # A dialog left open by an attempt that missed covers the page under it.
+            open_cancel = next((n for n in nodes() if n.get("text", "") == "Cancel"), None)
+            if open_cancel is not None:
+                x, y = centre(open_cancel)
+                adb("shell", "input", "tap", str(x), str(y))
+                time.sleep(0.5)
+            # The notifications screens left Settings scrolled down; Sign out is above them.
+            scroll_up_to("id:sign-out")
             tap("id:sign-out")
             time.sleep(1)
             if attempt == 1:
                 shot(f"{mode}-sign-out-dialog")
-            # The dialog's own button: the one on Cancel's row, not the page's under the dialog.
+            # The dialog's own button: the system alert's positive button, not the page's under it.
             nodes_now = nodes()
-            cancel = next((n for n in nodes_now if n.get("text", "") == "Cancel"), None)
-            choices = [n for n in nodes_now if n.get("text", "").lower() == "sign out"]
-            if choices:
-                pick = min(choices, key=lambda n: abs(centre(n)[1] - centre(cancel)[1])) if cancel is not None else choices[-1]
-                x, y = centre(pick)
+            positive = next((n for n in nodes_now if n.get("resource-id") == "android:id/button1"), None)
+            if positive is not None:
+                x, y = centre(positive)
                 adb("shell", "input", "tap", str(x), str(y))
-            if find("id:onboarding", 10):
+            else:
+                cancel = next((n for n in nodes_now if n.get("text", "") == "Cancel"), None)
+                choices = [n for n in nodes_now if n.get("text", "").lower() == "sign out"]
+                if choices:
+                    pick = min(choices, key=lambda n: abs(centre(n)[1] - centre(cancel)[1])) if cancel is not None else choices[-1]
+                    x, y = centre(pick)
+                    adb("shell", "input", "tap", str(x), str(y))
+            if find("id:onboarding", 15):
                 shot(f"{mode}-onboarding")
                 break
             print(f"sign out {attempt} did not show the onboarding", flush=True)

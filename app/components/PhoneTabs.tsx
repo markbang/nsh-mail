@@ -6,18 +6,20 @@ import { BackHandler, TabBar } from "nsh/mobile";
 import { NavStack } from "nsh/base";
 import { t } from "nsh/i18n";
 import { Fab, FabMenu, material, NavBar, transition, type IconName } from "../ui";
-import { NavContext, selectedTab, selectTab, tabs, type Route } from "../nav";
+import { NavContext, selectedTab, selectTab, tabs, TAB, type Route } from "../nav";
+import { unreadNotifications } from "../notify";
 import { picking, toast, unreadCount } from "../store";
 import { Toasts } from "./Toasts";
 
 // Android: framework drawables (an APK made by `nsh package` has none of its own); iOS: SF Symbols.
 const icons = {
   mail: platform.select({ ios: "tray", android: "android:stat_notify_email_generic" }),
+  notifications: platform.select({ ios: "bell", android: "android:ic_notifications_24dp" }),
   search: platform.select({ ios: "magnifyingglass", android: "android:ic_search_api_material" }),
   folders: platform.select({ ios: "folder", android: "android:ic_folder_24dp" }),
   settings: platform.select({ ios: "gearshape", android: "android:ic_settings_24dp" }),
 } as const;
-const navIcons = { mail: "inbox", search: "search", folders: "inboxes", settings: "settings" } as const satisfies Record<string, IconName>;
+const navIcons = { mail: "inbox", notifications: "bell", search: "search", folders: "inboxes", settings: "settings" } as const satisfies Record<string, IconName>;
 
 export function PhoneTabs(props: { page: (route: Route) => JSX.Element; onCompose: () => void; onAddAccount: () => void }) {
   const menu = signal(false);
@@ -28,8 +30,8 @@ export function PhoneTabs(props: { page: (route: Route) => JSX.Element; onCompos
       menu.set(false);
       return true;
     }
-    if (selectedTab() === 0 || depth() > 1) return false;
-    selectTab(0);
+    if (selectedTab() === TAB.mail || depth() > 1) return false;
+    selectTab(TAB.mail);
     return true;
   });
   const choose = (index: number) => {
@@ -39,6 +41,7 @@ export function PhoneTabs(props: { page: (route: Route) => JSX.Element; onCompos
     selectTab(index);
   };
   const unread = () => unreadCount(null);
+  const unreadFeed = () => unreadNotifications();
   // A tab's stack starts the first time it shows (Search focuses its field then), and stays.
   const opened = signal<Record<number, boolean>>({ 0: true });
   effect(() => {
@@ -62,7 +65,7 @@ export function PhoneTabs(props: { page: (route: Route) => JSX.Element; onCompos
             </View>
           )}
         </Each>
-        <If when={selectedTab() === 0 && depth() === 1 && !picking()}>
+        <If when={selectedTab() === TAB.mail && depth() === 1 && !picking()}>
           <If
             when={material}
             else={
@@ -113,7 +116,7 @@ export function PhoneTabs(props: { page: (route: Route) => JSX.Element; onCompos
             items={tabs.map((tab, i) => ({
               title: t(`tabs.${tab.name}`),
               icon: navIcons[tab.name],
-              badge: i === 0 && unread() > 0 ? (unread() > 999 ? "999+" : String(unread())) : undefined,
+              badge: i === TAB.mail ? (unread() > 0 ? (unread() > 999 ? "999+" : String(unread())) : undefined) : i === TAB.notifications && unreadFeed() > 0 ? (unreadFeed() > 999 ? "999+" : String(unreadFeed())) : undefined,
               testID: `tab-${tab.name}-button`,
             }))}
             selected={selectedTab()}

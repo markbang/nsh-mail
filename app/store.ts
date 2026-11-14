@@ -269,10 +269,20 @@ export function errorText(e: unknown): string {
   return errorInfoText({ code: (e as { code?: string })?.code ?? "", message: e instanceof Error ? e.message : String(e) });
 }
 
-let sessionListener: (() => void) | undefined;
-/** Who reloads with each session (the outbox). */
+const sessionListeners: (() => void)[] = [];
+/** Who reloads with each session (the outbox, the feed). */
 export function onSession(listener: () => void) {
-  sessionListener = listener;
+  sessionListeners.push(listener);
+}
+
+const feedListeners: (() => void)[] = [];
+/** Who reloads when something reaches the app (the notification feed): new mail, a webhook. */
+export function onFeedChanged(listener: () => void) {
+  feedListeners.push(listener);
+}
+
+function feedChanged() {
+  for (const listener of feedListeners) listener();
 }
 
 let newMailListener: ((s: Summary) => void) | undefined;
@@ -294,6 +304,7 @@ function heard(e: MailEvent) {
   if (e.type === "changed" || e.type === "newMail") {
     status.set(Mail.status());
     if (status().mode === "none") return;
+    feedChanged();
     void loadAccounts();
     syncArrived();
     void loadUnread();
@@ -342,7 +353,7 @@ export async function start() {
     await reload();
     void loadUnread();
   }
-  sessionListener?.();
+  for (const listener of sessionListeners) listener();
   started.set(true);
 }
 
@@ -737,5 +748,5 @@ export async function sessionChanged() {
     await reload();
     void loadUnread();
   }
-  sessionListener?.();
+  for (const listener of sessionListeners) listener();
 }

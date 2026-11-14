@@ -5,6 +5,7 @@ import { Text, View, type JSX } from "nsh";
 import { t } from "nsh/i18n";
 import { AccountMark, IconButton, LoadingIndicator, NavigationRail, type IconName, type RailItem } from "../ui";
 import { waiting } from "../outbox";
+import { notificationsSection, showMail, showNotifications, unreadNotifications } from "../notify";
 import { accountName, accounts, clearSearch, mailbox, mailStatus, openMailbox, refresh, unreadCount, type Mailbox } from "../store";
 
 const folders: { folder: Mailbox["folder"]; icon: IconName }[] = [
@@ -19,7 +20,8 @@ const keyOf = (account: string | null, folder: Mailbox["folder"]) => `${account 
 
 function items(): RailItem[] {
   return [
-    { key: keyOf(null, "inbox"), label: t("mailbox.allInboxes"), icon: "inboxes", badge: unreadCount(null), testID: "mailbox-all" },
+    { key: "notifications", label: t("notify.allTitle"), icon: "bell", badge: unreadNotifications(), testID: "rail-notifications" },
+    { key: keyOf(null, "inbox"), label: t("mailbox.allInboxes"), icon: "inboxes", badge: unreadCount(null), section: t("mailbox.mail"), testID: "mailbox-all" },
     ...accounts().map((a, i) => ({
       key: keyOf(a.id, "inbox"),
       label: accountName(a.id) ?? a.email,
@@ -39,9 +41,16 @@ function items(): RailItem[] {
 }
 
 function choose(key: string) {
+  if (key === "notifications") {
+    showNotifications();
+    return;
+  }
+  showMail();
   const [account, folder] = key.split("/");
   openMailbox({ account: account === "*" ? null : account, folder: folder as Mailbox["folder"] });
 }
+
+const selected = () => (notificationsSection() ? "notifications" : keyOf(mailbox().account, mailbox().folder));
 
 /** Sync status, refresh and settings: the rail's footer. */
 function Status(props: { expanded: boolean; onSettings?: () => void }) {
@@ -74,7 +83,7 @@ export function MailboxRail(props: { expanded: boolean; fab: JSX.Element; onSett
       label={t("mailbox.choose")}
       expanded={props.expanded}
       items={items()}
-      selected={keyOf(mailbox().account, mailbox().folder)}
+      selected={selected()}
       onSelect={(key) => {
         // The list pane shows search results over the mailbox: choosing a mailbox leaves the search.
         clearSearch();
@@ -94,7 +103,7 @@ export function Mailboxes(props: { onChosen?: () => void; onSettings?: () => voi
       label={t("mailbox.choose")}
       expanded
       items={items()}
-      selected={keyOf(mailbox().account, mailbox().folder)}
+      selected={selected()}
       onSelect={(key) => {
         choose(key);
         props.onChosen?.();

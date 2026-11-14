@@ -4,7 +4,7 @@ import { t } from "nsh/i18n";
 import { AppBar, Page } from "../ui";
 import { Mailboxes } from "../components/Mailboxes";
 import { PageHeader } from "../components/PageHeader";
-import { selectTab, tabs } from "../nav";
+import { selectTab, TAB, tabs } from "../nav";
 
 export function FoldersPage() {
   return (
@@ -12,7 +12,7 @@ export function FoldersPage() {
       <Mailboxes
         onChosen={() => {
           tabs[0].stack.popToRoot();
-          selectTab(0);
+          selectTab(TAB.mail);
         }}
       />
     </Page>

@@ -882,3 +882,448 @@ empty.loadFailed:
 empty.loadFailedHint:
   en: Check your connection, then try again.
   zh-CN: 请检查网络后重试。
+
+date.now:
+  en: Now
+  zh-CN: 刚刚
+date.today:
+  en: Today
+  zh-CN: 今天
+time.minutes:
+  en: "%{count}m"
+  zh-CN: "%{count} 分钟前"
+time.hours:
+  en: "%{count}h"
+  zh-CN: "%{count} 小时前"
+time.days:
+  en: "%{count}d"
+  zh-CN: "%{count} 天前"
+
+common.done:
+  en: Done
+  zh-CN: 完成
+
+errors.clipboard:
+  en: "Couldn't copy: the clipboard is not available here."
+  zh-CN: 复制失败：当前环境无法访问剪贴板。
+errors.storage:
+  en: Couldn't save that setting.
+  zh-CN: 无法保存该设置。
+
+tabs.notifications:
+  en: Notifications
+  zh-CN: 通知
+mailbox.mail:
+  en: Mail
+  zh-CN: 邮件
+
+notify.title:
+  en: Notifications
+  zh-CN: 通知
+notify.all:
+  en: All
+  zh-CN: 全部
+notify.allTitle:
+  en: All notifications
+  zh-CN: 全部通知
+notify.search:
+  en: Search notifications
+  zh-CN: 搜索通知
+notify.searchPlaceholder:
+  en: Search notifications
+  zh-CN: 搜索通知
+notify.list:
+  en: Notifications
+  zh-CN: 通知
+notify.highPriority:
+  en: high priority
+  zh-CN: 高优先级
+notify.archivedOne:
+  en: Notification archived
+  zh-CN: 已归档 1 条通知
+notify.archived:
+  en: "%{count} notifications archived"
+  zh-CN: 已归档 %{count} 条通知
+notify.loading:
+  en: Loading notifications…
+  zh-CN: 正在加载通知…
+notify.noSources:
+  en: No sources yet
+  zh-CN: 还没有来源
+notify.noSourcesHint:
+  en: A webhook, Gotify, ntfy or a chat bot writes into this feed. Add a source to start.
+  zh-CN: Webhook、Gotify、ntfy 或聊天机器人都会写进这个收件箱。先添加一个来源。
+notify.empty:
+  en: No notifications
+  zh-CN: 没有通知
+notify.emptyHint:
+  en: New ones appear here as their services send them. A test message from a source is the quickest way to see one.
+  zh-CN: 服务发来消息时会出现在这里。从来源发送一条测试消息最快。
+notify.nothing:
+  en: Nothing matches
+  zh-CN: 没有匹配的通知
+notify.nothingHint:
+  en: Try other words, or clear the filter to see every source.
+  zh-CN: 换个关键词，或清除筛选查看全部来源。
+notify.clearFilters:
+  en: Clear filters
+  zh-CN: 清除筛选
+notify.failed:
+  en: Couldn't load notifications
+  zh-CN: 无法加载通知
+notify.failedHint:
+  en: Check the connection, then try again.
+  zh-CN: 请检查网络后重试。
+notify.noSelection:
+  en: Pick a notification
+  zh-CN: 选择一条通知
+notify.noSelectionHint:
+  en: Its sender, tags and body show here.
+  zh-CN: 这里会显示发送者、标签和正文。
+notify.openLink:
+  en: Open link
+  zh-CN: 打开链接
+notify.openMail:
+  en: Open in Mail
+  zh-CN: 在邮件中打开
+notify.actions:
+  en: More
+  zh-CN: 更多
+notify.gone:
+  en: Notification gone
+  zh-CN: 通知已不存在
+notify.goneHint:
+  en: It was archived, or its source was deleted.
+  zh-CN: 它已被归档，或来源已删除。
+
+priority.all:
+  en: Everything
+  zh-CN: 全部
+priority.normal:
+  en: Normal and above
+  zh-CN: 普通及以上
+priority.high:
+  en: High only
+  zh-CN: 仅高优先级
+
+band.high:
+  en: High
+  zh-CN: 高
+band.normal:
+  en: Normal
+  zh-CN: 普通
+band.low:
+  en: Low
+  zh-CN: 低
+
+notifyMode.notify:
+  en: Notify
+  zh-CN: 通知
+notifyMode.silent:
+  en: Silent
+  zh-CN: 静默
+notifyMode.off:
+  en: "Off"
+  zh-CN: 关闭
+
+rules.title:
+  en: Per source and priority
+  zh-CN: 按来源与优先级
+rules.summary:
+  en: Which sources reach your devices, and which only the feed.
+  zh-CN: 哪些来源推送到设备，哪些只留在收件箱。
+rules.intro:
+  en: A notification can show on your devices, wait in the feed only, or be dropped. The switch above turns all of them off at once.
+  zh-CN: 通知可以推送到设备、只留在收件箱，或被丢弃。上面的开关会一次关闭全部。
+rules.label:
+  en: "%{source}, %{priority}"
+  zh-CN: "%{source}，%{priority}"
+rules.empty:
+  en: "Add a source first: its rules show here."
+  zh-CN: 先添加一个来源，它的规则会显示在这里。
+
+source.kind.mail:
+  en: Mail
+  zh-CN: 邮件
+source.kind.webhook:
+  en: Webhook
+  zh-CN: Webhook
+source.kind.gotify:
+  en: Gotify
+  zh-CN: Gotify
+source.kind.ntfy:
+  en: ntfy
+  zh-CN: ntfy
+source.kind.telegram:
+  en: Telegram
+  zh-CN: Telegram
+source.kind.discord:
+  en: Discord
+  zh-CN: Discord
+source.kind.slack:
+  en: Slack
+  zh-CN: Slack
+source.kind.feishu:
+  en: Feishu
+  zh-CN: 飞书
+source.kind.dingtalk:
+  en: DingTalk
+  zh-CN: 钉钉
+source.kind.wecom:
+  en: WeCom
+  zh-CN: 企业微信
+source.hint.webhook:
+  en: "Any service that can POST JSON: GitHub, Sentry, Grafana, Uptime Kuma."
+  zh-CN: 任何能发送 JSON POST 的服务：GitHub、Sentry、Grafana、Uptime Kuma。
+source.hint.gotify:
+  en: Keep your Gotify apps and curl scripts; only the URL changes.
+  zh-CN: 现有的 Gotify 应用和 curl 脚本照用，只换地址。
+source.hint.ntfy:
+  en: Keep using ntfy publish; only the server changes.
+  zh-CN: 继续用 ntfy publish，只换服务器地址。
+source.send.webhook:
+  en: POST JSON or a form to this URL. Its title, body, priority and tags fill the feed.
+  zh-CN: 向这个地址发送 JSON 或表单，其中的标题、正文、优先级和标签会进入收件箱。
+source.send.gotify:
+  en: "POST Gotify's /message body here, with the token in the URL: existing scripts work unchanged."
+  zh-CN: 向这里 POST Gotify 的 /message 请求体，token 已包含在地址中，现有脚本无需改动。
+source.send.ntfy:
+  en: PUT or POST the body to this URL; ntfy's clients and scripts work unchanged.
+  zh-CN: 向这个地址 PUT 或 POST 正文，ntfy 的客户端和脚本无需改动。
+
+sources.title:
+  en: Sources
+  zh-CN: 通知来源
+sources.add:
+  en: Add source
+  zh-CN: 添加来源
+sources.new:
+  en: New source
+  zh-CN: 新来源
+sources.list:
+  en: Your sources
+  zh-CN: 已连接的来源
+sources.intro:
+  en: "Anything that can send a message lands in the feed: a webhook, Gotify, ntfy or a chat bot. Mail accounts are sources too."
+  zh-CN: 任何能发消息的服务都会进入收件箱：Webhook、Gotify、ntfy 或聊天机器人。邮箱账号也算来源。
+sources.empty:
+  en: No sources yet
+  zh-CN: 还没有来源
+sources.emptyHint:
+  en: Add a webhook and paste its URL into the service that should reach you.
+  zh-CN: 添加一个 Webhook，把地址填到要给你发消息的服务里。
+sources.chooseKind:
+  en: What kind of source?
+  zh-CN: 选择来源类型
+sources.comingSoon:
+  en: Coming in the next release
+  zh-CN: 下个版本支持
+sources.name:
+  en: Name
+  zh-CN: 名称
+sources.nameHint:
+  en: How it appears in the feed, for example GitHub.
+  zh-CN: 在收件箱里显示的名字，例如 GitHub。
+sources.nameRequired:
+  en: Name the source.
+  zh-CN: 请填写名称。
+sources.color:
+  en: Colour
+  zh-CN: 颜色
+sources.icon:
+  en: Icon
+  zh-CN: 图标
+sources.minPriority:
+  en: Push from
+  zh-CN: 推送起点
+sources.minPriorityHint:
+  en: Notifications below it stay in the feed but never reach your devices.
+  zh-CN: 低于该优先级的通知只留在收件箱，不会推送到设备。
+sources.create:
+  en: Create source
+  zh-CN: 创建来源
+sources.added:
+  en: "%{name} added."
+  zh-CN: 已添加 %{name}。
+sources.test:
+  en: Send a test message
+  zh-CN: 发送测试消息
+sources.testSent:
+  en: Test message sent from %{name}.
+  zh-CN: 已从 %{name} 发送测试消息。
+sources.showUrl:
+  en: Show ingest URL
+  zh-CN: 查看接收地址
+sources.onlyOnce:
+  en: "Copy it now: the URL is shown only once. Showing it again replaces it, and the old one stops working."
+  zh-CN: 现在复制：这个地址只显示一次。再次查看会生成新地址，旧的立即失效。
+sources.url:
+  en: Ingest URL
+  zh-CN: 接收地址
+sources.ingest:
+  en: Ingest URL
+  zh-CN: 接收地址
+sources.copy:
+  en: Copy
+  zh-CN: 复制
+sources.copied:
+  en: URL copied
+  zh-CN: 地址已复制
+sources.pause:
+  en: Pause
+  zh-CN: 暂停
+sources.resume:
+  en: Resume
+  zh-CN: 恢复
+sources.paused:
+  en: Paused
+  zh-CN: 已暂停
+sources.resumed:
+  en: "%{name} resumed."
+  zh-CN: 已恢复 %{name} 的推送。
+sources.fromPriority:
+  en: pushes from %{priority}
+  zh-CN: 从%{priority}起推送
+sources.delete:
+  en: Delete
+  zh-CN: 删除
+sources.deleteTitle:
+  en: Delete %{name}?
+  zh-CN: 删除 %{name}？
+sources.deleteBody:
+  en: Its notifications leave the feed too. This cannot be undone.
+  zh-CN: 它的通知也会从收件箱移除，且无法撤销。
+sources.deleted:
+  en: "%{name} deleted."
+  zh-CN: 已删除 %{name}。
+sources.actions:
+  en: "%{name} actions"
+  zh-CN: "%{name} 的操作"
+
+keys.title:
+  en: API keys
+  zh-CN: API 密钥
+keys.create:
+  en: Create key
+  zh-CN: 创建密钥
+keys.new:
+  en: New API key
+  zh-CN: 新建 API 密钥
+keys.list:
+  en: Your keys
+  zh-CN: 已有的密钥
+keys.intro:
+  en: "Agents read the feed with a key: the REST API, the event stream and MCP all take it as a Bearer token."
+  zh-CN: 智能体用密钥读取收件箱：REST 接口、事件流和 MCP 都用它作为 Bearer 令牌。
+keys.empty:
+  en: No keys yet
+  zh-CN: 还没有密钥
+keys.emptyHint:
+  en: Create one for Claude Code, Codex, or a script of your own.
+  zh-CN: 为 Claude Code、Codex 或自己的脚本创建一个。
+keys.name:
+  en: Name
+  zh-CN: 名称
+keys.nameHint:
+  en: What uses it, for example Claude Code.
+  zh-CN: 谁在用它，例如 Claude Code。
+keys.nameRequired:
+  en: Name the key.
+  zh-CN: 请填写名称。
+keys.allowWrite:
+  en: Allow marking read and archive
+  zh-CN: 允许标记已读和归档
+keys.allowWriteDetail:
+  en: Otherwise the key only reads.
+  zh-CN: 否则只能读取。
+keys.sources:
+  en: Its sources
+  zh-CN: 可见来源
+keys.scope:
+  en: Which sources
+  zh-CN: 可见来源
+keys.allSources:
+  en: All sources
+  zh-CN: 全部来源
+keys.pickedSources:
+  en: Only those picked
+  zh-CN: 仅选中的来源
+keys.expiry:
+  en: Expires
+  zh-CN: 有效期
+keys.days30:
+  en: 30 days
+  zh-CN: 30 天
+keys.days90:
+  en: 90 days
+  zh-CN: 90 天
+keys.year:
+  en: 1 year
+  zh-CN: 1 年
+keys.never:
+  en: Never
+  zh-CN: 不过期
+keys.scopeWrite:
+  en: Read and write
+  zh-CN: 读写
+keys.scopeRead:
+  en: Read only
+  zh-CN: 只读
+keys.expires:
+  en: expires %{date}
+  zh-CN: "%{date} 到期"
+keys.noExpiry:
+  en: no expiry
+  zh-CN: 不过期
+keys.lastUsed:
+  en: last used %{date}
+  zh-CN: 最近使用 %{date}
+keys.neverUsed:
+  en: never used
+  zh-CN: 未使用
+keys.created:
+  en: Key created
+  zh-CN: 密钥已创建
+keys.onlyOnce:
+  en: "Copy it now: this key is shown only once. If you lose it, revoke it and create another."
+  zh-CN: 现在复制：密钥只显示一次。丢失后请撤销并重新创建。
+keys.copy:
+  en: Copy key
+  zh-CN: 复制密钥
+keys.copied:
+  en: Key copied
+  zh-CN: 密钥已复制
+keys.usage:
+  en: "REST: curl -H \"Authorization: Bearer …\" <server>/v1/messages · MCP: nsh-notify-mcp --key …"
+  zh-CN: "REST：curl -H \"Authorization: Bearer …\" <server>/v1/messages · MCP：nsh-notify-mcp --key …"
+keys.revoke:
+  en: Revoke
+  zh-CN: 撤销
+keys.revokeTitle:
+  en: Revoke %{name}?
+  zh-CN: 撤销 %{name}？
+keys.revokeBody:
+  en: Agents using it stop at once. Create another key for them.
+  zh-CN: 使用它的智能体会立即失效，请为它们新建密钥。
+keys.revoked:
+  en: "%{name} revoked."
+  zh-CN: 已撤销 %{name}。
+keys.actions:
+  en: "%{name} actions"
+  zh-CN: "%{name} 的操作"
+keys.loadFailed:
+  en: Couldn't load keys
+  zh-CN: 无法加载密钥
+keys.loadFailedHint:
+  en: Check the connection, then try again.
+  zh-CN: 请检查网络后重试。
+
+settings.inbox:
+  en: Notification inbox
+  zh-CN: 通知收件箱
+settings.sourcesDetail:
+  en: "%{count} sources, mail included"
+  zh-CN: "%{count} 个来源，包含邮件"
+settings.keysDetail:
+  en: Keys for agents, scripts and MCP
+  zh-CN: 供智能体、脚本和 MCP 使用的密钥

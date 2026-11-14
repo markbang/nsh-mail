@@ -4,6 +4,7 @@ import { AlertDialog } from "nsh/base";
 import { t } from "nsh/i18n";
 import { Mail, type Account } from "nsh-mail/native";
 import { AccountMark, AppBar, Button, Card, Choice, Divider, Icon, IconButton, ListItem, Menu, Page, SectionLabel, Switch, systemHeader, touch } from "../ui";
+import { sources } from "../notify";
 import { PageHeader, PageScroll } from "../components/PageHeader";
 import { NavContext } from "../nav";
 import { providerName as named } from "../lib/format";
@@ -140,6 +141,29 @@ export function SettingsPage() {
         </View>
 
         <View class="gap-1">
+          <SectionLabel label={t("settings.inbox")} class="px-1" />
+          <Card>
+            <ListItem
+              icon="bell"
+              headline={t("sources.title")}
+              supporting={t("settings.sourcesDetail", { count: sources().length })}
+              onPress={() => nav.stack.push({ name: "sources" })}
+              trailing={<Icon name="chevronRight" tone="on-surface-variant" />}
+              testID="settings-sources"
+            />
+            <Divider inset />
+            <ListItem
+              icon="key"
+              headline={t("keys.title")}
+              supporting={t("settings.keysDetail")}
+              onPress={() => nav.stack.push({ name: "apiKeys" })}
+              trailing={<Icon name="chevronRight" tone="on-surface-variant" />}
+              testID="settings-keys"
+            />
+          </Card>
+        </View>
+
+        <View class="gap-1">
           <SectionLabel label={t("settings.reading")} class="px-1" />
           <Card class="px-4 py-3">
             <Switch
@@ -171,13 +195,24 @@ export function SettingsPage() {
 
         <View class="gap-1">
           <SectionLabel label={t("settings.notifications")} class="px-1" />
-          <Card class="px-4 py-3">
-            <Switch
-              checked={notificationsEnabled()}
-              onChange={(on) => void toggleNotifications(on)}
-              label={t("settings.newMailNotifications")}
-              description={t("settings.notificationsDetail")}
-              testID="notifications"
+          <Card>
+            <View class="px-4 py-3">
+              <Switch
+                checked={notificationsEnabled()}
+                onChange={(on) => void toggleNotifications(on)}
+                label={t("settings.newMailNotifications")}
+                description={t("settings.notificationsDetail")}
+                testID="notifications"
+              />
+            </View>
+            <Divider inset />
+            <ListItem
+              icon="filter"
+              headline={t("rules.title")}
+              supporting={t("rules.summary")}
+              onPress={() => nav.stack.push({ name: "notifyRules" })}
+              trailing={<Icon name="chevronRight" tone="on-surface-variant" />}
+              testID="settings-rules"
             />
           </Card>
         </View>
