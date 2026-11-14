@@ -6,9 +6,10 @@ publish = false
 
 [workspace]
 
-# The emulator job's demo build (.github/workflows/android-ui.yml).
+# The emulator job's demo builds (.github/workflows/android-ui.yml): the screenshots' mailbox, and the large
+# one the frame measurements scroll.
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(nshmail_demo)"] }
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(nshmail_demo)", "cfg(nshmail_demo_large)"] }
 
 [dependencies]
 nsh-core = "0.5.0"

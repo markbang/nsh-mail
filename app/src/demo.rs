@@ -3,7 +3,12 @@
 //! accounts behave as the real backends do; refreshing delivers a new
 //! message, and so does a timer while the app runs.
 
-use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Duration};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    rc::Rc,
+    time::Duration,
+};
 
 use mail_core::types::*;
 use nsh_core::{prelude::*, time::unix_ms};
@@ -101,27 +106,27 @@ impl Data {
                 .as_ref()
                 .is_none_or(|a| &m.summary.account_id == a)
         };
-        let listed: Vec<&str> = self
+        // A large mailbox lists thousands of conversations: group in one pass, by id.
+        let listed: HashSet<&str> = self
             .messages
             .iter()
             .filter(|m| m.summary.folder == query.folder && of_account(m))
             .map(|m| m.summary.thread_id.as_str())
             .collect();
-        let mut groups: Vec<(String, Vec<(Summary, Option<String>)>)> = Vec::new();
+        let mut groups: HashMap<&str, Vec<(Summary, Option<String>)>> = HashMap::new();
         for m in self.messages.iter().filter(|m| {
-            listed.contains(&m.summary.thread_id.as_str())
+            listed.contains(m.summary.thread_id.as_str())
                 && in_view(m.summary.folder, query.folder)
                 && of_account(m)
         }) {
-            let entry = (m.summary.clone(), m.message_id.clone());
-            match groups.iter_mut().find(|(id, _)| *id == m.summary.thread_id) {
-                Some((_, v)) => v.push(entry),
-                None => groups.push((m.summary.thread_id.clone(), vec![entry])),
-            }
+            groups
+                .entry(m.summary.thread_id.as_str())
+                .or_default()
+                .push((m.summary.clone(), m.message_id.clone()));
         }
         let mut threads: Vec<Thread> = groups
             .into_iter()
-            .filter_map(|(id, v)| Thread::of(id, &conversation(v)))
+            .filter_map(|(id, v)| Thread::of(id.to_owned(), &conversation(v)))
             .collect();
         threads.sort_by(|a, b| {
             b.latest
@@ -161,6 +166,17 @@ impl Default for DemoBackend {
     fn default() -> Self {
         Self {
             data: Rc::new(RefCell::new(seed(unix_ms()))),
+            staged: Staged::default(),
+        }
+    }
+}
+
+impl DemoBackend {
+    /// The demo mail at the size of a large mailbox (`nshmail.mode` = `demo-large`): 10,000 messages
+    /// in 2,000 conversations, for the performance tests and measurements.
+    pub fn large() -> Self {
+        Self {
+            data: Rc::new(RefCell::new(seed_large(unix_ms()))),
             staged: Staged::default(),
         }
     }
@@ -1525,7 +1541,8 @@ const SEEDS: &[Seed] = &[
     },
 ];
 
-fn seed(now: f64) -> Data {
+/// The three demo accounts.
+fn demo_accounts() -> Vec<Account> {
     let account = |id: &str,
                    email: &str,
                    name: &str,
@@ -1543,7 +1560,7 @@ fn seed(now: f64) -> Data {
         smtp: endpoint(smtp.0, smtp.1, smtp.2),
         signature: Signature::default(),
     };
-    let accounts = vec![
+    vec![
         account(
             "a-work",
             "lin.chen@northwind.dev",
@@ -1571,7 +1588,11 @@ fn seed(now: f64) -> Data {
             "outlook.office365.com",
             ("smtp.office365.com", 587, Security::StartTls),
         ),
-    ];
+    ]
+}
+
+fn seed(now: f64) -> Data {
+    let accounts = demo_accounts();
     let mut data = Data {
         accounts,
         ..Data::default()
@@ -1631,6 +1652,195 @@ fn seed(now: f64) -> Data {
     }
     data
 }
+
+// The large demo mailbox: a mailbox big enough that what a screen renders per update shows.
+const LARGE_MESSAGES: usize = 9_600;
+const LARGE_THREADS: usize = 2_000;
+/// The conversation opened to check the reader: 200 messages.
+const LARGE_THREAD: usize = 3;
+const LARGE_THREAD_SIZE: usize = 200;
+
+/// 10,000 messages in 2,000 conversations over the three accounts, one conversation of 200
+/// messages, the rest of a few each. Deterministic, so measurements compare run to run.
+fn seed_large(now: f64) -> Data {
+    let mut data = Data {
+        accounts: demo_accounts(),
+        ..Data::default()
+    };
+    let people = LARGE_PEOPLE;
+    let subjects = LARGE_SUBJECTS;
+    let mut rng = Large(0x5eed_cafe);
+    let mut counts: Vec<usize> = (0..LARGE_THREADS)
+        .map(|i| {
+            if i == LARGE_THREAD {
+                LARGE_THREAD_SIZE
+            } else {
+                1 + rng.below(8) as usize
+            }
+        })
+        .collect();
+    let sum: usize = counts.iter().sum();
+    if sum < LARGE_MESSAGES {
+        let last = LARGE_THREADS - 1;
+        counts[last] += LARGE_MESSAGES - sum;
+    }
+    for (i, count) in counts.iter().copied().enumerate() {
+        // A conversation's latest message six minutes after the one below it.
+        let latest = now - i as f64 * 6.0 * MINUTE;
+        let subject = format!("{} #{i}", subjects[rng.below(subjects.len() as u64) as usize]);
+        let long = i == LARGE_THREAD;
+        let mut parent: Option<String> = None;
+        for j in 0..count {
+            let account = data.accounts[(i + j) % data.accounts.len()].clone();
+            let (name, email) = people[rng.below(people.len() as u64) as usize];
+            let date = latest - (count - 1 - j) as f64 * 2.0 * MINUTE;
+            let text = if long {
+                format!(
+                    "Message {} of 200 in this conversation.\n\nThe plan is in the attachment; the \
+                     numbers moved a little since the last review, and the rest is unchanged.\n\n
+                     Say if the order works for you and I will book the room.",
+                    j + 1
+                )
+            } else {
+                format!(
+                    "{}
+\nKind regards,\n{name}",
+                    SUBJECT_BODY[rng.below(SUBJECT_BODY.len() as u64) as usize]
+                )
+            };
+            let id = data.id();
+            let subject = if j == 0 { subject.clone() } else { format!("Re: {subject}") };
+            let mut m = message(
+                id,
+                &account,
+                FolderKind::Inbox,
+                date,
+                (name, email),
+                &subject,
+                &text,
+            );
+            m.summary.thread_id = format!("t-large-{i}");
+            m.summary.seen = long && j + 1 < count || rng.below(100) >= 18;
+            m.summary.flagged = rng.below(100) < 2;
+            if rng.below(100) < 5 {
+                m.summary.has_attachments = true;
+                m.attachments = vec![Attachment {
+                    index: 0,
+                    filename: Some("agenda.pdf".into()),
+                    mime_type: "application/pdf".into(),
+                    size: 184_320,
+                    inline: false,
+                    content_id: None,
+                }];
+            }
+            if rng.below(100) < 10 {
+                m.html = Some(format!("<p>{text}</p>"));
+            }
+            if let Some(parent) = &parent {
+                m.in_reply_to = Some(parent.clone());
+                m.references = vec![parent.clone()];
+            }
+            parent = m.message_id.clone();
+            data.messages.push(m);
+        }
+    }
+    // Sent, Archive, Drafts and Trash hold the rest: 10,000 messages in all.
+    for (folder, count) in [
+        (FolderKind::Sent, 200),
+        (FolderKind::Archive, 150),
+        (FolderKind::Drafts, 20),
+        (FolderKind::Trash, 30),
+    ] {
+        for i in 0..count {
+            let account = data.accounts[i % data.accounts.len()].clone();
+            let (name, email) = people[i % people.len()];
+            let id = data.id();
+            let mut m = message(
+                id,
+                &account,
+                folder,
+                now - (LARGE_THREADS + i) as f64 * 3.0 * MINUTE,
+                (name, email),
+                &format!("{} #sent{i}", subjects[i % subjects.len()]),
+                SUBJECT_BODY[i % SUBJECT_BODY.len()],
+            );
+            m.summary.seen = true;
+            if matches!(folder, FolderKind::Sent | FolderKind::Drafts) {
+                m.summary.to = vec![Address {
+                    name: Some(name.into()),
+                    email: email.into(),
+                }];
+            }
+            data.messages.push(m);
+        }
+    }
+    data
+}
+
+/// A tiny xorshift: the large mailbox repeats from run to run.
+struct Large(u64);
+
+impl Large {
+    fn below(&mut self, n: u64) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0 % n.max(1)
+    }
+}
+
+const LARGE_PEOPLE: [(&str, &str); 24] = [
+    ("Priya Raman", "priya@northwind.dev"),
+    ("Jonas Weber", "jonas@northwind.dev"),
+    ("Maya Patel", "maya@northwind.dev"),
+    ("Tobias Falk", "tobias@northwind.dev"),
+    ("Ana Albers", "ana@lumen.example"),
+    ("Bo Brandt", "bo@lumen.example"),
+    ("Chen Yu", "chen.yu@lumen.example"),
+    ("Dana Dorn", "dana@lumen.example"),
+    ("Emil Ebert", "emil@lumen.example"),
+    ("Fatima Gross", "fatima@lumen.example"),
+    ("Gao Lei", "gao.lei@lumen.example"),
+    ("Hana Heller", "hana@lumen.example"),
+    ("Ivo Ibarra", "ivo@lumen.example"),
+    ("Jun Jansen", "jun@lumen.example"),
+    ("Kai Keller", "kai@lumen.example"),
+    ("Lena Lorenz", "lena@lumen.example"),
+    ("Mira Mertens", "mira@lumen.example"),
+    ("Nils Novak", "nils@lumen.example"),
+    ("Omar Ortiz", "omar@lumen.example"),
+    ("Pia Peters", "pia@lumen.example"),
+    ("Ravi Quirin", "ravi@lumen.example"),
+    ("Sofia Ritter", "sofia@lumen.example"),
+    ("Tomas Sauer", "tomas@lumen.example"),
+    ("Wen Zhou", "wen.zhou@lumen.example"),
+];
+
+const LARGE_SUBJECTS: [&str; 12] = [
+    "Weekly sync notes",
+    "Invoice for October",
+    "Deployment window",
+    "Lunch on Thursday?",
+    "New design review",
+    "Quarterly report draft",
+    "Access request",
+    "Release changelog",
+    "Travel booking",
+    "Reminder: timesheet",
+    "项目周报",
+    "会议纪要",
+];
+
+const SUBJECT_BODY: [&str; 8] = [
+    "Short update: everything is on track, the numbers are in the doc.",
+    "Attaching the notes from this morning; tell me what I missed.",
+    "Can we move this to the afternoon? The morning is full.",
+    "The invoice is paid, no action needed.",
+    "Deployed to staging, the window is clear for tomorrow.",
+    "Review is scheduled for Thursday; the deck is nearly done.",
+    "Thanks for the quick turnaround, that closed it.",
+    "预算已经确认，附件是明细。",
+];
 
 #[cfg(test)]
 mod tests {

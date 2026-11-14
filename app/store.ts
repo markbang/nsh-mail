@@ -295,11 +295,32 @@ function heard(e: MailEvent) {
     status.set(Mail.status());
     if (status().mode === "none") return;
     void loadAccounts();
-    void reload();
+    syncArrived();
     void loadUnread();
     if (query().trim()) void runSearch(query());
     if (conversation()) conversation.refetch();
   }
+}
+
+// A sync reports each folder it touched, in bursts: the list follows them once, a moment later.
+let syncTimer: ReturnType<typeof setTimeout> | undefined;
+
+function syncArrived() {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => void followSync(), SYNC_MS);
+}
+
+const SYNC_MS = 300;
+/** Above this many rows the list takes a sync's changes in its first page instead of loading again. */
+const MERGE_ABOVE = 200;
+
+/** New mail and changes elsewhere reach the list: a short list loads again whole (a row a sync took
+ * out of the view goes too); a long one merges its first page, so a sync costs the same however far
+ * the user scrolled, and the rows below keep their identity and their place. */
+async function followSync() {
+  if (listState() !== "idle") return;
+  if (items().length > MERGE_ABOVE) await mergeHead();
+  else await reload();
 }
 
 // The listener lives with the module: a hot update stops and adds it again.
@@ -348,6 +369,8 @@ async function loadUnread() {
 
 // Only the latest load of the list counts.
 let loadToken = 0;
+/** The most rows one page call returns: the server's own limit (`MAX_LIMIT`). */
+const CHUNK = 200;
 
 /** A page of older mail from the server, when the store ran out; null on failure (the list
  * still shows what is stored). */
@@ -372,23 +395,23 @@ export async function reload(state: "loading" | "refreshing" = "loading") {
     return;
   }
   listState.set(state);
+  const target = Math.max(PAGE, items().length);
   try {
-    const limit = Math.max(PAGE, items().length);
-    let page = await listPage({ folder, account, limit });
+    let page = await listUpTo({ folder, account }, target);
     // A short list may just be all that is stored: older mail waits on the server.
     let pending = false;
-    if (page.length < limit) {
+    if (page.length < target) {
       const older = await olderPage(folder, account);
       pending = older?.pending ?? false;
       if (older?.inserted) {
-        page = await listPage({ folder, account, limit });
+        page = await listUpTo({ folder, account }, target);
         if (token !== loadToken) return;
       }
     }
     if (token !== loadToken) return;
     batch(() => {
-      items.set(page);
-      more.set(page.length >= limit || pending);
+      items.set(merge(items(), page));
+      more.set(page.length >= target || pending);
       listState.set("idle");
     });
   } catch (e) {
@@ -401,6 +424,83 @@ export async function reload(state: "loading" | "refreshing" = "loading") {
 async function listPage(q: { folder: Folder; account: string | null; before?: string; limit: number }): Promise<Row[]> {
   if (threadsOn()) return (await Mail.threads(q)).map(threadRow);
   return (await Mail.list(q)).map(messageRow);
+}
+
+/** The mailbox's first `limit` rows, in pages of [`CHUNK`]. */
+async function listUpTo(q: { folder: Folder; account: string | null }, limit: number): Promise<Row[]> {
+  const rows: Row[] = [];
+  while (rows.length < limit) {
+    const want = Math.min(CHUNK, limit - rows.length);
+    const page = await listPage({ ...q, before: rows[rows.length - 1]?.key, limit: want });
+    rows.push(...page);
+    if (page.length < want) break;
+  }
+  return rows;
+}
+
+const sameAddress = (a: Address | null | undefined, b: Address | null | undefined) => a?.email === b?.email && a?.name === b?.name;
+
+const sameMessage = (a: Summary, b: Summary) =>
+  a.id === b.id &&
+  a.date === b.date &&
+  a.folder === b.folder &&
+  a.seen === b.seen &&
+  a.flagged === b.flagged &&
+  a.hasAttachments === b.hasAttachments &&
+  a.subject === b.subject &&
+  a.snippet === b.snippet &&
+  sameAddress(a.from, b.from) &&
+  a.to.length === b.to.length &&
+  a.to.every((address, i) => sameAddress(address, b.to[i]));
+
+/** What a row shows, for telling a row a load brought back from the one on screen. */
+const sameRow = (a: Row, b: Row) =>
+  a.key === b.key &&
+  a.count === b.count &&
+  a.unread === b.unread &&
+  a.flagged === b.flagged &&
+  a.hasAttachments === b.hasAttachments &&
+  a.subject === b.subject &&
+  a.participants.length === b.participants.length &&
+  sameMessage(a.latest, b.latest);
+
+/** `fresh` with the rows `old` already shows kept as they are: unchanged rows keep their identity,
+ * so the list repaints only what a load changed. */
+function merge(old: Row[], fresh: Row[]): Row[] {
+  if (!old.length) return fresh;
+  const before = new Map(old.map((r) => [r.key, r]));
+  return fresh.map((row) => {
+    const known = before.get(row.key);
+    return known && sameRow(known, row) ? known : row;
+  });
+}
+
+/** The first page, merged into the rows already loaded: new rows go where their date puts them. */
+async function mergeHead() {
+  const { account, folder } = box();
+  if (folder === "scheduled") return;
+  const token = loadToken;
+  try {
+    const page = await listPage({ folder, account, limit: PAGE });
+    if (token !== loadToken || listState() !== "idle") return;
+    items.update((list) => {
+      const fresh = new Map(page.map((r) => [r.key, r]));
+      const rows = list.map((row) => {
+        const next = fresh.get(row.key);
+        if (!next) return row;
+        fresh.delete(row.key);
+        return sameRow(row, next) ? row : next;
+      });
+      // What the page has and the list does not arrived since: kept in newest-first order.
+      for (const row of fresh.values()) {
+        const at = rows.findIndex((r) => r.latest.date < row.latest.date || (r.latest.date === row.latest.date && r.key < row.key));
+        rows.splice(at < 0 ? rows.length : at, 0, row);
+      }
+      return rows;
+    });
+  } catch {
+    // A hint only: the rows stay as they were, and a refresh loads them again.
+  }
 }
 
 export async function loadMore() {
@@ -422,7 +522,10 @@ export async function loadMore() {
     }
     if (token !== loadToken) return;
     batch(() => {
-      items.update((list) => [...list, ...page.filter((r) => !list.some((l) => l.key === r.key))]);
+      items.update((list) => {
+        const known = new Set(list.map((r) => r.key));
+        return [...list, ...page.filter((r) => !known.has(r.key))];
+      });
       more.set(page.length >= PAGE || pending);
       listState.set("idle");
     });

@@ -57,7 +57,7 @@ export function Workspace(props: WorkspaceProps) {
                   )}
                 </If>
               </If>
-              <If when={listStatus() === "refreshing"} else={<IconButton icon="refresh" label={t("actions.refresh")} onPress={() => void refresh()} />}>
+              <If when={listStatus() === "refreshing"} else={<IconButton icon="refresh" label={t("actions.refresh")} onPress={() => void refresh()} testID="refresh" />}>
                 <LoadingIndicator label={t("sync.running")} size={40} testID="refreshing" />
               </If>
             </View>

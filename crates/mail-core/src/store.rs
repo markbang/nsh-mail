@@ -1967,4 +1967,129 @@ mod tests {
         );
         assert!(!hits.is_empty());
     }
+
+    /// A message of conversation `thread`, `reply`-th in it, as a sync stores it.
+    fn thread_message(thread: usize, reply: usize, date: i64) -> NewMessage {
+        let root = format!("<thread-{thread}@test>");
+        NewMessage {
+            uid: u32::try_from(thread * 3 + reply + 1).unwrap(),
+            date,
+            from: Some(Address {
+                name: None,
+                email: format!("person{thread}@test.local"),
+            }),
+            to: vec![Address {
+                name: None,
+                email: "a@test.local".into(),
+            }],
+            cc: Vec::new(),
+            subject: if reply == 0 {
+                format!("Conversation {thread}")
+            } else {
+                format!("Re: Conversation {thread}")
+            },
+            snippet: format!("Body of conversation {thread}, message {reply}"),
+            message_id: Some(if reply == 0 {
+                root
+            } else {
+                format!("<thread-{thread}-{reply}@test>")
+            }),
+            in_reply_to: (reply > 0).then(|| format!("<thread-{thread}@test>")),
+            references: if reply > 0 {
+                vec![format!("<thread-{thread}@test>")]
+            } else {
+                Vec::new()
+            },
+            seen: true,
+            flagged: false,
+            has_attachments: false,
+            size: 0,
+            body: None,
+            index_text: None,
+            gmail_thread: None,
+        }
+    }
+
+    /// A client pages a mailbox of 2,000 conversations to its end: every conversation once, in the
+    /// listing's order, and every message once, whatever page size it asks for.
+    #[test]
+    fn conversations_page_to_the_end() {
+        const CONVERSATIONS: usize = 2_000;
+        const EACH: usize = 3;
+        let dir = tempfile::tempdir().unwrap();
+        let (_db, store, folder_id) = seeded_db(&dir);
+        let state = FolderRow {
+            id: folder_id,
+            kind: FolderKind::Inbox,
+            name: "INBOX".into(),
+            uidvalidity: Some(1),
+            uidnext: None,
+            catchup_seq: None,
+            backfill_seq: None,
+            highestmodseq: None,
+        };
+        // Oldest first, in pages, as a sync inserts a mailbox.
+        let mut date = 1_500_000_000_000;
+        for batch in 0..CONVERSATIONS / 100 {
+            let mut messages = Vec::with_capacity(100 * EACH);
+            for thread in batch * 100..(batch + 1) * 100 {
+                for reply in 0..EACH {
+                    date += 60_000;
+                    messages.push(thread_message(thread, reply, date));
+                }
+            }
+            store
+                .insert_page(folder_id, &messages, Some(&state))
+                .unwrap();
+        }
+
+        let query = |limit: u32, before: Option<String>| ListQuery {
+            folder: FolderKind::Inbox,
+            account: None,
+            before,
+            limit,
+        };
+        let mut threads = Vec::new();
+        let mut before = None;
+        loop {
+            let page = store.threads(&query(30, before)).unwrap();
+            if page.is_empty() {
+                break;
+            }
+            before = Some(page.last().unwrap().id.clone());
+            threads.extend(page);
+        }
+        assert_eq!(threads.len(), CONVERSATIONS);
+        let ids: std::collections::HashSet<&str> = threads.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids.len(), CONVERSATIONS, "a conversation listed twice");
+        assert!(
+            threads.iter().all(|t| t.count == EACH as u32),
+            "a conversation lost a message"
+        );
+        assert!(
+            threads
+                .windows(2)
+                .all(|w| w[0].latest.date >= w[1].latest.date),
+            "out of listing order"
+        );
+        assert_eq!(
+            threads[0].latest.date, date,
+            "the newest conversation first"
+        );
+
+        // The same for plain messages, 200 a page as the client asks for them.
+        let mut messages = Vec::new();
+        let mut before = None;
+        loop {
+            let page = store.list(&query(200, before)).unwrap();
+            if page.is_empty() {
+                break;
+            }
+            before = Some(page.last().unwrap().id.clone());
+            messages.extend(page);
+        }
+        assert_eq!(messages.len(), CONVERSATIONS * EACH);
+        let ids: std::collections::HashSet<&str> = messages.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids.len(), CONVERSATIONS * EACH, "a message listed twice");
+    }
 }
