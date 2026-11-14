@@ -406,8 +406,10 @@ for mode in ("light", "dark"):
         nodes_now = nodes()
         cancel = next((n for n in nodes_now if n.get("text", "") == "Cancel"), None)
         choices = [n for n in nodes_now if n.get("text", "").lower() == "sign out"]
-        if cancel and choices:
-            x, y = mid(min(choices, key=lambda n: abs(mid(n)[1] - mid(cancel)[1])))
+        if choices:
+            # An Element is falsy when it has no children, so ask for None.
+            pick = min(choices, key=lambda n: abs(mid(n)[1] - mid(cancel)[1])) if cancel is not None else choices[-1]
+            x, y = mid(pick)
             adb("shell", "input", "tap", str(x), str(y))
         wait("id:onboarding")
         shot(f"{mode}-onboarding")
