@@ -45,6 +45,9 @@ pub struct Source {
     pub color: Option<String>,
     /// Paused sources keep their history and take nothing new.
     pub enabled: bool,
+    /// Its kind's settings; a mail source names the account it mirrors (`accountId`).
+    #[serde(default)]
+    pub config: Option<serde_json::Value>,
     /// Notifications below it are stored but not pushed (0–10, Gotify's scale).
     pub min_priority: u8,
     /// When it was added (ms since the epoch).
@@ -184,6 +187,7 @@ pub const DECLARATIONS: &[(&str, &str)] = &[
          /** An icon from the app's set; the kind's when null. */\n  icon?: string | null;\n  \
          /** A theme colour (`chart-1` … `chart-5`); the first when null. */\n  color?: string | null;\n  \
          /** Paused sources keep their history and take nothing new. */\n  enabled: boolean;\n  \
+         /** Its kind's settings; a mail source names the account it mirrors. */\n  config?: { accountId?: string } | null;\n  \
          /** Notifications below it are stored but not pushed (0–10). */\n  minPriority: number;\n  \
          /** When it was added (ms since the epoch). */\n  createdAt: number;\n}",
     ),

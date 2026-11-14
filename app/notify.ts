@@ -88,6 +88,11 @@ export function notifyMode(notification: Notification): NotifyMode {
   return modeFor(notification.sourceId, notification.priority);
 }
 
+/** The source a mail account is (the server names it `src_m_<account>`; the demo `src-mail-…`). */
+export function mailSourceId(accountId: string): string {
+  return sourceList().find((s) => s.kind === "mail" && s.config?.accountId === accountId)?.id ?? `src-mail-${accountId}`;
+}
+
 /** A source's rule for a priority, without its pause: mail has its own way in. */
 export function modeFor(sourceId: string, priority: number): NotifyMode {
   const source = sourceById(sourceId);

@@ -9,7 +9,7 @@ import icon from "./assets/tray.svg";
 import linuxIcon from "./assets/tray-linux.png";
 import { displayName } from "./lib/format";
 import { notificationsEnabled, onNewMail } from "./store";
-import { announceable, modeFor, onNewNotifications, sourceById } from "./notify";
+import { announceable, mailSourceId, modeFor, onNewNotifications, sourceById } from "./notify";
 
 const PREFIX = "message:";
 const NOTE_PREFIX = "notification:";
@@ -39,7 +39,7 @@ export function stayResident(openFromNotification: (id: string) => void, openNot
 
   onNewMail((s: Summary) => {
     // Mail is a source too: its rules say whether its notifications reach the device.
-    if (!notificationsEnabled() || inFront() || modeFor(`src-mail-${s.accountId}`, 4) !== "notify") return;
+    if (!notificationsEnabled() || inFront() || modeFor(mailSourceId(s.accountId), 4) !== "notify") return;
     void Notifications.show({ id: `${PREFIX}${s.id}`, title: displayName(s.from), body: s.subject || t("reader.noSubject") }).catch(() => undefined);
   });
   onNewNotifications((added) => {
