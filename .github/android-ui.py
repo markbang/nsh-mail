@@ -138,6 +138,16 @@ def back():
     time.sleep(0.8)
 
 
+def scroll_up_to(key, tries=4, timeout=3):
+    """A row above the fold: swipes the page down until `key` shows."""
+    for _ in range(tries):
+        if find(key, timeout):
+            return True
+        adb("shell", "input", "swipe", str(w // 2), str(h * 4 // 10), str(w // 2), str(h * 8 // 10), "300")
+        time.sleep(0.6)
+    return bool(find(key, timeout))
+
+
 def back_to(key, tries=3, timeout=6):
     """Back until `key` shows: a page's keyboard takes the first Back, the page the next."""
     for _ in range(tries):
@@ -466,6 +476,8 @@ for mode in ("light", "dark"):
     # draw, so the whole step is tried again rather than failing the run on its timing.
     if tap("Settings"):
         for attempt in range(1, 4):
+            # The notifications screens left Settings scrolled down; Sign out is above them.
+            scroll_up_to("id:sign-out")
             tap("id:sign-out")
             time.sleep(1)
             if attempt == 1:
