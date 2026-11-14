@@ -1,12 +1,13 @@
 // Settings: the accounts, where mail comes from, reading, sending, notifications, signing out.
-import { Notifications, platform, Text, View } from "nsh";
+import { appInfo, keymap, Notifications, platform, Text, View } from "nsh";
 import { AlertDialog } from "nsh/base";
 import { t } from "nsh/i18n";
 import { Mail, type Account } from "nsh-mail/native";
-import { AccountMark, AppBar, Button, Card, Choice, Divider, Icon, IconButton, Menu, Page, SectionLabel, Switch, systemHeader, touch } from "../ui";
+import { AccountMark, AppBar, Button, Card, Choice, Divider, Icon, IconButton, ListItem, Menu, Page, SectionLabel, Switch, systemHeader, touch } from "../ui";
 import { PageHeader, PageScroll } from "../components/PageHeader";
 import { NavContext } from "../nav";
 import { providerName as named } from "../lib/format";
+import { shortcutsOpen } from "../lib/shortcuts";
 import { setUndoDelay, UNDO_DELAYS, undoDelay } from "../outbox";
 import {
   accounts,
@@ -181,7 +182,23 @@ export function SettingsPage() {
           </Card>
         </View>
 
-        <Text class="text-center text-body-small tracking-body-small text-on-surface-variant">{t("settings.about")}</Text>
+        <View class="gap-1">
+          <SectionLabel label={t("settings.help")} class="px-1" />
+          <Card>
+            <ListItem
+              icon="keyboard"
+              headline={t("shortcuts.title")}
+              supporting={t("shortcuts.summary")}
+              onPress={() => shortcutsOpen.set(true)}
+              trailing={<Text class="text-label-large text-on-surface-variant">{keymap.label("shift+/")}</Text>}
+              testID="open-shortcuts"
+            />
+          </Card>
+        </View>
+
+        <Text class="text-center text-body-small tracking-body-small text-on-surface-variant">
+          {t("settings.about", { version: appInfo().version ?? "" })}
+        </Text>
       </PageScroll>
     </Page>
   );

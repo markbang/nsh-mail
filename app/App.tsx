@@ -6,6 +6,7 @@ import { NavStack } from "nsh/base";
 import { Dialog, systemHeader } from "./ui";
 import { Toasts } from "./components/Toasts";
 import { PhoneTabs } from "./components/PhoneTabs";
+import { ShortcutsDialog } from "./components/ShortcutsDialog";
 import { WebTabs } from "./components/WebTabs";
 import { Workspace } from "./components/Workspace";
 import { wide } from "./layout";
@@ -23,6 +24,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { listenForPushToken } from "./push";
 import { stayResident } from "./resident";
 import { current, isStarted, mailStatus, moveOpen, openMessage, selectedId, start, stepMessage } from "./store";
+import { shortcutsOpen } from "./lib/shortcuts";
 import type { ComposeMode } from "./lib/format";
 
 function page(route: Route) {
@@ -76,6 +78,8 @@ function Main() {
       "shift+3": key(() => wide() && selectedId() && moveOpen("trash")),
       j: key(() => wide() && stepMessage(1)),
       k: key(() => wide() && stepMessage(-1)),
+      // "?": the list of shortcuts, as Gmail and its neighbours have it.
+      "shift+/": key(() => shortcutsOpen.set(true)),
     },
     { when: "notEditing" },
   );
@@ -120,6 +124,10 @@ function App() {
         <If when={mailStatus().mode !== "none"} else={<Onboarding />}>
           <Main />
         </If>
+      </If>
+      {/* Over every layout: ? opens it from the wide window and from a narrow one. */}
+      <If when={isStarted() && mailStatus().mode !== "none"}>
+        <ShortcutsDialog open={shortcutsOpen()} onClose={() => shortcutsOpen.set(false)} />
       </If>
       {/* Phones show it over the tab's content (PhoneTabs). */}
       <If when={!(systemHeader && !wide() && isStarted() && mailStatus().mode !== "none")}>

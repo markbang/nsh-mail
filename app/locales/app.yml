@@ -215,6 +215,12 @@ actions.flag:
 actions.unflag:
   en: Remove flag
   zh-CN: 取消旗标
+actions.nextMessage:
+  en: Next message
+  zh-CN: 下一封
+actions.previousMessage:
+  en: Previous message
+  zh-CN: 上一封
 
 list.unread:
   en: Unread
@@ -234,6 +240,9 @@ list.refreshing:
 list.loadingMore:
   en: Loading more
   zh-CN: 正在加载更多
+list.conversations:
+  en: Conversations
+  zh-CN: 会话列表
 
 empty.inbox.title:
   en: No messages
@@ -566,6 +575,9 @@ search.count:
 search.countMore:
   en: "%{count}+ results"
   zh-CN: "%{count}+ 封"
+search.results:
+  en: Search results
+  zh-CN: 搜索结果
 
 settings.title:
   en: Settings
@@ -633,9 +645,12 @@ settings.notificationsDetail:
 settings.notificationsDenied:
   en: Notifications are turned off for nsh-mail in your system settings.
   zh-CN: 系统设置中已关闭 nsh-mail 的通知。
+settings.help:
+  en: Help
+  zh-CN: 帮助
 settings.about:
-  en: nsh-mail 0.1
-  zh-CN: nsh-mail 0.1
+  en: nsh-mail %{version}
+  zh-CN: nsh-mail %{version}
 
 accounts.add:
   en: Add account
@@ -676,6 +691,25 @@ accounts.removeBody:
 accounts.removed:
   en: Removed %{email}
   zh-CN: 已移除 %{email}
+
+shortcuts.title:
+  en: Keyboard shortcuts
+  zh-CN: 键盘快捷键
+shortcuts.summary:
+  en: Every action works from the keyboard.
+  zh-CN: 所有操作都可以用键盘完成。
+shortcuts.mail:
+  en: Mail
+  zh-CN: 邮件
+shortcuts.composing:
+  en: Writing
+  zh-CN: 写信
+shortcuts.closeDialog:
+  en: Close a dialog
+  zh-CN: 关闭对话框
+shortcuts.help:
+  en: Press ? to see this list at any time.
+  zh-CN: 随时按 ? 查看此列表。
 
 signature.menu:
   en: Signature…
@@ -738,9 +772,6 @@ imap.incoming:
 imap.outgoing:
   en: Outgoing (SMTP)
   zh-CN: 发件服务器（SMTP）
-imap.host:
-  en: Server
-  zh-CN: 服务器
 imap.port:
   en: Port
   zh-CN: 端口
@@ -750,15 +781,9 @@ imap.security:
 imap.imapHost:
   en: IMAP server
   zh-CN: IMAP 服务器
-imap.imapSecurity:
-  en: IMAP encryption
-  zh-CN: IMAP 加密方式
 imap.smtpHost:
   en: SMTP server
   zh-CN: SMTP 服务器
-imap.smtpSecurity:
-  en: SMTP encryption
-  zh-CN: SMTP 加密方式
 imap.tls:
   en: SSL/TLS
   zh-CN: SSL/TLS

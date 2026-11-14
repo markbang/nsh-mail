@@ -137,6 +137,7 @@ export function MailboxList(props: {
               loadingMore={listStatus() === "more"}
               showAccount={mailbox().account === null}
               showRecipients={mailbox().folder === "sent" || mailbox().folder === "drafts"}
+              label={t("list.conversations")}
               testID="messages"
               onArchive={props.touchActions && folder() !== "archive" && folder() !== "trash" ? move("archive") : undefined}
               onDelete={props.touchActions && folder() !== "trash" ? move("trash") : undefined}
@@ -154,6 +155,7 @@ export function MailboxList(props: {
           onOpen={open(() => searchResults() ?? [])}
           showAccount
           highlight={searchQuery()}
+          label={t("search.results")}
           testID="results"
           empty={<SearchEmpty />}
         />

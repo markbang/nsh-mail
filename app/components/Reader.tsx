@@ -90,10 +90,10 @@ export function PhoneReaderActions(props: { message: Message; conversation?: Sum
         <IconButton icon="trash" label={t("actions.delete")} onPress={() => move(x(), "trash", props.onLeave)} testID="delete" />
       </If>
       <IconButton
-        icon="mail"
-        label={t("actions.markUnread")}
+        icon={seen(x()) ? "mail" : "mailOpen"}
+        label={seen(x()) ? t("actions.markUnread") : t("actions.markRead")}
         onPress={() => {
-          mark(x(), { seen: false });
+          mark(x(), { seen: !seen(x()) });
           props.onLeave();
         }}
         testID="toggle-seen"

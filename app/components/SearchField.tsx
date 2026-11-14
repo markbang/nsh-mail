@@ -1,4 +1,4 @@
-// The search bar over a list: searches as the user types, Escape clears.
+// The search bar over a list: searches as the user types; the clear button empties it.
 import type { InputRef } from "nsh";
 import { t } from "nsh/i18n";
 import { IconButton, TextField } from "../ui";

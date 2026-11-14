@@ -5,8 +5,10 @@
 import { createAnimatedValue, Image, reduceMotion, Shader, shadersAvailable, Text, token, View, type AnimatedNode, type JSX } from "nsh";
 import { Icon, type IconName } from "./icon";
 import { tip } from "./tooltip";
-import type { ColorRole } from "./tokens";
+import { focusRing, type ColorRole } from "./tokens";
 import { springs, transition } from "./material";
+// Inside a pill or a large target the ring sits on the edge: no offset, so it stays visible.
+const rowFocus = "focus-visible:outline-3 focus-visible:outline-secondary focus-visible:-outline-offset-3";
 
 // The loading indicator's shapes from the M3E shape library, as polar outlines: a cookie of
 // `lobes` lobes (x, y) or an ellipse (z, w). In the spec's order: soft burst, 9-sided cookie,
@@ -129,7 +131,7 @@ export function NavBar(props: { items: NavBarItem[]; selected: number; onChange:
                 accessibilityState={{ selected: on() }}
                 onPress={() => props.onChange(index())}
                 testID={item().testID}
-                class="flex-1 items-center justify-center gap-1 pt-1.5 pb-2"
+                class={`flex-1 items-center justify-center gap-1 rounded-medium pt-1.5 pb-2 ${rowFocus}`}
               >
                 <View class="h-8 w-14 items-center justify-center" android={{ ripple: { color: `${token("on-surface").slice(0, 7)}1f`, borderless: true, radius: 28 } }}>
                   <View class={`absolute inset-0 rounded-full bg-secondary-container ${transition.fastSpatial} ${on() ? "scale-100 opacity-100" : "scale-x-50 opacity-0"}`} />
@@ -186,7 +188,7 @@ export function FabMenu(props: { icon: IconName; label: string; closeLabel: stri
               }}
               testID={x().item.testID}
               android={{ ripple: { color: `${token("on-primary-container").slice(0, 7)}1f` }, elevation: 3 }}
-              class="h-14 flex-row items-center gap-2 overflow-hidden rounded-full bg-primary-container ps-6 pe-6"
+              class={`h-14 flex-row items-center gap-2 overflow-hidden rounded-full bg-primary-container ps-6 pe-6 ${focusRing}`}
               style={{
                 pointerEvents: props.open ? "auto" : "none",
                 opacity: value,
@@ -206,7 +208,7 @@ export function FabMenu(props: { icon: IconName; label: string; closeLabel: stri
         onPress={() => toggle(!props.open)}
         testID={props.testID}
         android={{ ripple: { color: `${token("on-primary-container").slice(0, 7)}1f` }, elevation: 3 }}
-        class={`mt-1 size-14 items-center justify-center overflow-hidden ${transition.fastSpatial} ${props.open ? "rounded-full bg-primary" : "rounded-large bg-primary-container active:rounded-medium"}`}
+        class={`mt-1 size-14 items-center justify-center overflow-hidden ${transition.fastSpatial} ${props.open ? "rounded-full bg-primary" : "rounded-large bg-primary-container active:rounded-medium"} ${focusRing}`}
       >
         <Icon name={props.open ? "close" : props.icon} class={props.open ? "tint-on-primary" : "tint-on-primary-container"} />
       </View>
@@ -242,7 +244,7 @@ export function ToolbarButton(props: { icon: IconName; label: string; onPress: (
       onPress={props.onPress}
       testID={props.testID}
       android={{ ripple: { color: `${token("on-surface").slice(0, 7)}1f` } }}
-      class={`size-12 items-center justify-center overflow-hidden rounded-full ${transition.fastSpatial} active:rounded-medium ${props.emphasized ? (props.vibrant ? "bg-surface-container" : "bg-secondary-container") : ""}`}
+      class={`size-12 items-center justify-center overflow-hidden rounded-full ${transition.fastSpatial} active:rounded-medium ${props.emphasized ? (props.vibrant ? "bg-surface-container" : "bg-secondary-container") : ""} ${focusRing}`}
     >
       <Icon name={props.icon} class={ink()} />
     </View>
@@ -257,7 +259,7 @@ export function AppBar(props: { title: string; search?: { label: string; onPress
       <If when={props.search}>
         {(search) => (
           <View class="mx-4 mt-2 h-14 flex-row items-center gap-1 rounded-full bg-surface-container-high ps-4 pe-1">
-            <View role="search" accessibilityLabel={search().label} onPress={search().onPress} class="h-14 flex-1 flex-row items-center gap-3" testID="search-bar">
+            <View role="search" accessibilityLabel={search().label} onPress={search().onPress} class={`h-14 flex-1 flex-row items-center gap-3 rounded-full ${focusRing}`} testID="search-bar">
               <Icon name="search" class="tint-on-surface-variant" />
               <Text class="flex-1 text-body-large text-on-surface-variant">{search().label}</Text>
             </View>
