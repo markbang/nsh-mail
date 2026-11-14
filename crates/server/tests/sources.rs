@@ -150,7 +150,7 @@ async fn sources_crud_tokens_and_test_message() {
 
     // Someone else's session sees nothing and cannot touch it.
     let (_, list) = server.send("GET", &bob, "/sources", None).await;
-    assert_eq!(list, json!([]));
+    assert_eq!(list["sources"], json!([]));
     let (status, _) = server
         .send(
             "PATCH",
@@ -162,8 +162,8 @@ async fn sources_crud_tokens_and_test_message() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 
     let (_, list) = server.send("GET", &alice, "/sources", None).await;
-    assert_eq!(list.as_array().unwrap().len(), 1);
-    assert!(list[0].get("token").is_none());
+    assert_eq!(list["sources"].as_array().unwrap().len(), 1);
+    assert!(list["sources"][0].get("token").is_none());
 
     let (status, updated) = server
         .send(
@@ -226,7 +226,7 @@ async fn sources_crud_tokens_and_test_message() {
         .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     let (_, list) = server.send("GET", &alice, "/sources", None).await;
-    assert_eq!(list, json!([]));
+    assert_eq!(list["sources"], json!([]));
     // Its messages go with it.
     let db = rusqlite::Connection::open(server.data_dir.join("server.sqlite")).unwrap();
     let n: i64 = db
@@ -303,11 +303,12 @@ async fn migration_projects_mail_written_before_the_feed() {
     let server = start(dir.clone()).await;
     let (status, list) = server.send("GET", "session-token", "/sources", None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(list.as_array().unwrap().len(), 1, "{list}");
-    assert_eq!(list[0]["kind"], "mail");
-    assert_eq!(list[0]["name"], "inbox@test.local");
-    assert_eq!(list[0]["config"]["accountId"], "acct1");
-    assert_eq!(list[0]["hasToken"], false);
+    let sources = &list["sources"];
+    assert_eq!(sources.as_array().unwrap().len(), 1, "{list}");
+    assert_eq!(sources[0]["kind"], "mail");
+    assert_eq!(sources[0]["name"], "inbox@test.local");
+    assert_eq!(sources[0]["config"]["accountId"], "acct1");
+    assert_eq!(sources[0]["hasToken"], false);
 
     let db = rusqlite::Connection::open(dir.join("server.sqlite")).unwrap();
     let counts = |db: &rusqlite::Connection| -> (i64, i64) {
@@ -328,7 +329,7 @@ async fn migration_projects_mail_written_before_the_feed() {
     drop(db);
     let server = start(dir.clone()).await;
     let (_, list) = server.send("GET", "session-token", "/sources", None).await;
-    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list["sources"].as_array().unwrap().len(), 1);
     let db = rusqlite::Connection::open(dir.join("server.sqlite")).unwrap();
     assert_eq!(counts(&db), (2, 1));
 

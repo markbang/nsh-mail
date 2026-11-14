@@ -33,7 +33,9 @@ pub async fn list_sources(
     State(s): State<Arc<AppState>>,
     user: AuthUser,
 ) -> ApiResult<impl IntoResponse> {
-    Ok(Json(s.mail_db.feed(user.id).sources()?))
+    Ok(Json(
+        json!({ "sources": s.mail_db.feed(user.id).sources()? }),
+    ))
 }
 
 pub async fn get_source(
