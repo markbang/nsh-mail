@@ -342,6 +342,9 @@ reader.savedTo:
 thread.more:
   en: "%{count} more"
   zh-CN: 还有 %{count} 封
+thread.less:
+  en: Show less
+  zh-CN: 收起
 thread.draft:
   en: Draft
   zh-CN: 草稿

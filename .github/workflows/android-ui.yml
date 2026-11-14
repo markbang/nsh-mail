@@ -6,10 +6,15 @@ name: Android UI
 # reader also go to main/ on the `screenshots` branch, where README.md links them.
 on:
   workflow_dispatch:
+    inputs:
+      perf_only:
+        description: "Only measure frames: skip the screenshots."
+        default: "false"
   pull_request:
     paths: &paths
       - app/**
       - .github/android-ui.py
+      - .github/android-perf.py
       - .github/workflows/android-ui.yml
   push:
     branches: [main]
@@ -61,7 +66,12 @@ jobs:
           [ -x ~/.nsh/bin/nsh ] || curl -fsSL https://nsh.dev/install.sh | sh
           echo "$HOME/.nsh/bin" >> "$GITHUB_PATH"
       - name: Package for the emulator (x86_64, demo mailbox)
-        run: RUSTFLAGS="--cfg nshmail_demo" nsh package App.tsx --target android --abi x86_64 --out .nsh/ui
+        run: |
+          RUSTFLAGS="--cfg nshmail_demo" nsh package App.tsx --target android --abi x86_64 --out .nsh/ui
+          # The frame measurements scroll the large mailbox (10,000 messages, 2,000 conversations).
+          mv .nsh/ui/nsh-mail.apk .nsh/ui/nsh-mail-demo.apk
+          RUSTFLAGS="--cfg nshmail_demo --cfg nshmail_demo_large" nsh package App.tsx --target android --abi x86_64 --out .nsh/perf
+          mv .nsh/ui/nsh-mail-demo.apk .nsh/ui/nsh-mail.apk
       - uses: actions/cache/save@v6
         if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
         with:
@@ -88,7 +98,10 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           working-directory: .
-          script: python3 .github/android-ui.py app/.nsh/ui screens
+          script: |
+            # The frame measurement first, so a flaky screenshot step cannot keep it out of the log.
+            python3 .github/android-perf.py app/.nsh/perf || true
+            if [ "${{ inputs.perf_only }}" != "true" ]; then python3 .github/android-ui.py app/.nsh/ui screens; fi
       - uses: actions/upload-artifact@v7
         if: always()
         with:

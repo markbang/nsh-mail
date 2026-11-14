@@ -42,8 +42,8 @@ export interface ReaderProps {
 
 // Per message: the reader chose to load its images.
 const imagesShown = signal<Record<string, boolean>>({});
-// Per conversation: every older message listed, not only the first and the last.
-const allShown = signal<Record<string, boolean>>({});
+// Per conversation: how many of its messages are listed past the first and the last.
+const revealed = signal<Record<string, number>>({});
 
 /** What the actions act on: the conversation shown, or the message alone. */
 export interface Target {
@@ -205,36 +205,49 @@ function Collapsed(props: { message: Summary; loading: boolean; pad: string }) {
   );
 }
 
-/** Collapsed messages, as many as fit: past three, the first, how many more, and the last. */
+/** How many messages one press of More adds: a long conversation stays a bounded amount of work. */
+const REVEAL = 25;
+
+/** Collapsed messages: past three, the first, how many more, and the last; More reveals the rest
+ * nearest the message on screen, a page at a time, and Less puts them back. */
 function CollapsedList(props: { messages: Summary[]; threadId: string; pad: string; testID: string }) {
-  const all = () => !!allShown()[props.threadId] || props.messages.length <= 3;
+  const total = () => props.messages.length;
+  const extra = () => revealed()[props.threadId] ?? 0;
+  const shown = () => Math.min(total(), 3 + extra());
+  const hidden = () => total() - shown();
   const loading = (s: Summary) => selectedId() === s.id;
   const row = (s: () => Summary) => <Collapsed message={s()} loading={loading(s())} pad={props.pad} />;
+  const set = (count: number) => revealed.update((r) => ({ ...r, [props.threadId]: count }));
   return (
     <View testID={props.testID}>
       <If
-        when={all()}
+        when={hidden() > 0}
         else={
-          <>
-            {row(() => props.messages[0])}
-            <View class={`flex-row items-center gap-3 py-1 ${props.pad}`}>
-              <Divider class="flex-1" />
-              <Button
-                size="xs"
-                variant="tonal"
-                label={t("thread.more", { count: props.messages.length - 2 })}
-                onPress={() => allShown.update((a) => ({ ...a, [props.threadId]: true }))}
-                testID="thread-more"
-              />
-              <Divider class="flex-1" />
-            </View>
-            {row(() => props.messages[props.messages.length - 1])}
-          </>
+          <Each of={props.messages} key={(s) => s.id}>
+            {(s) => row(s)}
+          </Each>
         }
       >
-        <Each of={props.messages} key={(s) => s.id}>
+        {row(() => props.messages[0])}
+        <View class={`flex-row items-center gap-3 py-1 ${props.pad}`}>
+          <Divider class="flex-1" />
+          <Button
+            size="xs"
+            variant="tonal"
+            label={t("thread.more", { count: hidden() })}
+            onPress={() => set(extra() + REVEAL)}
+            testID="thread-more"
+          />
+          <Divider class="flex-1" />
+        </View>
+        <Each of={props.messages.slice(total() - shown() + 1)} key={(s) => s.id}>
           {(s) => row(s)}
         </Each>
+      </If>
+      <If when={total() > 3 && hidden() === 0}>
+        <View class={`flex-row items-center justify-center py-1 ${props.pad}`}>
+          <Button size="xs" variant="text" label={t("thread.less")} onPress={() => set(0)} testID="thread-less" />
+        </View>
       </If>
     </View>
   );

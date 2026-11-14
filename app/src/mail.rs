@@ -108,13 +108,17 @@ fn changed(account_id: String, folder: FolderKind) {
 }
 
 /// The backend of local mode. The in-memory demo backs the UI tests
-/// (`nshmail.mode` = `demo`) and the emulator's screenshots (a release build
-/// with `--cfg nshmail_demo`, where it is the mode until one is chosen);
-/// other release builds have no demo.
-fn local_backend(demo: bool) -> Result<Rc<dyn Backend>, JsError> {
+/// (`nshmail.mode` = `demo`), a large one the performance checks (`demo-large`), and the
+/// emulator's screenshots (a release build with `--cfg nshmail_demo`, where it is the mode until
+/// one is chosen); other release builds have no demo.
+fn local_backend(demo: Option<bool>) -> Result<Rc<dyn Backend>, JsError> {
     #[cfg(any(debug_assertions, nshmail_demo))]
-    if demo {
-        return Ok(Rc::new(crate::demo::DemoBackend::default()));
+    if let Some(large) = demo {
+        return Ok(Rc::new(if large {
+            crate::demo::DemoBackend::large()
+        } else {
+            crate::demo::DemoBackend::default()
+        }));
     }
     let _ = demo;
     #[cfg(not(target_arch = "wasm32"))]
@@ -210,14 +214,24 @@ impl Mail {
         #[cfg(target_arch = "wasm32")]
         crate::cloud::finish_oauth();
         let server = Storage::get_item(SERVER_KEY);
-        let mode =
-            Storage::get_item(MODE_KEY).or_else(|| cfg!(nshmail_demo).then(|| "demo".to_owned()));
+        let mode = Storage::get_item(MODE_KEY).or_else(|| {
+            cfg!(nshmail_demo).then(|| {
+                if cfg!(nshmail_demo_large) {
+                    "demo-large".to_owned()
+                } else {
+                    "demo".to_owned()
+                }
+            })
+        });
         match (mode.as_deref(), server) {
             (Some("local"), _) if cfg!(not(target_arch = "wasm32")) => {
-                open(Mode::Local, None, None, local_backend(false)?).await?
+                open(Mode::Local, None, None, local_backend(None)?).await?
             }
             (Some("demo"), _) if cfg!(any(debug_assertions, nshmail_demo)) => {
-                open(Mode::Local, None, None, local_backend(true)?).await?
+                open(Mode::Local, None, None, local_backend(Some(false))?).await?
+            }
+            (Some("demo-large"), _) if cfg!(any(debug_assertions, nshmail_demo)) => {
+                open(Mode::Local, None, None, local_backend(Some(true))?).await?
             }
             (Some("cloud"), Some(server)) => {
                 match CloudBackend::restore(server.clone(), sys)
@@ -251,7 +265,7 @@ impl Mail {
                 "a browser cannot connect to mail servers: use an nsh-mail server",
             )));
         }
-        open(Mode::Local, None, None, local_backend(false)?).await?;
+        open(Mode::Local, None, None, local_backend(None)?).await?;
         remember(Some("local"), None, None);
         Ok(())
     }
