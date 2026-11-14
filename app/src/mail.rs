@@ -13,6 +13,9 @@ use nsh_core::{prelude::*, storage::Storage};
 use crate::{
     backend::{Backend, File, invalid, js},
     cloud::CloudBackend,
+    notify::{
+        ApiKey, CreatedApiKey, CreatedSource, FeedPage, FeedQuery, NewApiKey, NewSource, Source,
+    },
     types::Js,
 };
 
@@ -581,6 +584,70 @@ impl Mail {
     /// Syncs now.
     pub async fn refresh() -> Result<(), JsError> {
         backend()?.refresh().await.map_err(js)
+    }
+
+    // The notification inbox: the feed beside the mailboxes, its sources and
+    // the API keys agents read it with (docs/design/notification-inbox.md §4).
+
+    /// Every source, in the order they were added.
+    pub async fn sources() -> Result<Js<Vec<Source>>, JsError> {
+        backend()?.sources().await.map(Js).map_err(js)
+    }
+
+    /// A page of the unified feed: every source's notifications, mail included.
+    pub async fn feed(query: Js<FeedQuery>) -> Result<Js<FeedPage>, JsError> {
+        backend()?.feed(query.0).await.map(Js).map_err(js)
+    }
+
+    /// Marks notifications read or unread.
+    pub async fn mark_read(ids: Vec<String>, read: bool) -> Result<(), JsError> {
+        backend()?.mark_read(ids, read).await.map_err(js)
+    }
+
+    /// Takes notifications out of the feed.
+    pub async fn archive(ids: Vec<String>) -> Result<(), JsError> {
+        backend()?.archive(ids).await.map_err(js)
+    }
+
+    /// Adds a source; its ingest URL rides along, and is shown only then.
+    pub async fn create_source(input: Js<NewSource>) -> Result<Js<CreatedSource>, JsError> {
+        backend()?.create_source(input.0).await.map(Js).map_err(js)
+    }
+
+    /// Pauses or resumes a source, renames it, sets its colour and the
+    /// priority it pushes from.
+    pub async fn update_source(source: Js<Source>) -> Result<Js<Source>, JsError> {
+        backend()?.update_source(source.0).await.map(Js).map_err(js)
+    }
+
+    /// Deletes a source and its notifications.
+    pub async fn delete_source(id: String) -> Result<(), JsError> {
+        backend()?.delete_source(id).await.map_err(js)
+    }
+
+    /// A new ingest URL for a source; the one before stops working.
+    pub async fn rotate_source_token(id: String) -> Result<Js<CreatedSource>, JsError> {
+        backend()?.rotate_source_token(id).await.map(Js).map_err(js)
+    }
+
+    /// Sends a test notification through a source.
+    pub async fn test_source(id: String) -> Result<(), JsError> {
+        backend()?.test_source(id).await.map_err(js)
+    }
+
+    /// The keys agents read and write the feed with.
+    pub async fn api_keys() -> Result<Js<Vec<ApiKey>>, JsError> {
+        backend()?.api_keys().await.map(Js).map_err(js)
+    }
+
+    /// Creates a key; its token rides along, and is shown only then.
+    pub async fn create_api_key(input: Js<NewApiKey>) -> Result<Js<CreatedApiKey>, JsError> {
+        backend()?.create_api_key(input.0).await.map(Js).map_err(js)
+    }
+
+    /// Revokes a key; agents using it stop at once.
+    pub async fn revoke_api_key(id: String) -> Result<(), JsError> {
+        backend()?.revoke_api_key(id).await.map_err(js)
     }
 
     /// Calls `listener` with each event: `newMail`, `changed`, `syncState`,

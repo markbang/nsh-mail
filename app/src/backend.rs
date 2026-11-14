@@ -6,6 +6,15 @@ use std::{cell::RefCell, collections::HashMap, future::Future, pin::Pin, rc::Rc}
 use mail_core::types::*;
 use nsh_core::prelude::JsError;
 
+use crate::notify::{
+    ApiKey, CreatedApiKey, CreatedSource, FeedPage, FeedQuery, NewApiKey, NewSource, Source,
+};
+
+/// The answer of a backend without a feature: `ERR_UNSUPPORTED` with `what`.
+pub fn unavailable<T: 'static>(what: &'static str) -> MailFuture<'static, T> {
+    Box::pin(async move { Err(crate::notify::unsupported(what)) })
+}
+
 /// A backend call: it runs on the engine thread, so it need not be `Send`.
 pub type MailFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + 'a>>;
 
@@ -72,6 +81,56 @@ pub trait Backend {
     /// Unread messages in each account's inbox.
     fn unread(&self) -> MailFuture<'_, HashMap<AccountId, u32>>;
     fn refresh(&self) -> MailFuture<'_, ()>;
+
+    // The notification inbox (docs/design/notification-inbox.md §3). A backend
+    // without it answers `ERR_UNSUPPORTED`; `DemoBackend` serves it in memory.
+
+    /// Every source, in the order they were added.
+    fn sources(&self) -> MailFuture<'_, Vec<Source>> {
+        unavailable("this build has no notification sources")
+    }
+    /// A page of the unified feed, and the counts its filter chips show.
+    fn feed(&self, _query: FeedQuery) -> MailFuture<'_, FeedPage> {
+        unavailable("this build has no notification feed")
+    }
+    /// Read or unread for every notification in `ids`.
+    fn mark_read(&self, _ids: Vec<String>, _read: bool) -> MailFuture<'_, ()> {
+        unavailable("this build has no notification feed")
+    }
+    /// Takes notifications out of the feed, keeping them for the record.
+    fn archive(&self, _ids: Vec<String>) -> MailFuture<'_, ()> {
+        unavailable("this build has no notification feed")
+    }
+    /// Adds a source; its ingest URL is in the answer, shown only here.
+    fn create_source(&self, _input: NewSource) -> MailFuture<'_, CreatedSource> {
+        unavailable("this build has no notification sources")
+    }
+    /// Pauses or resumes a source, renames it, sets its colour and the
+    /// priority it pushes from.
+    fn update_source(&self, _source: Source) -> MailFuture<'_, Source> {
+        unavailable("this build has no notification sources")
+    }
+    fn delete_source(&self, _id: String) -> MailFuture<'_, ()> {
+        unavailable("this build has no notification sources")
+    }
+    /// A new ingest URL for a source; the one before stops working.
+    fn rotate_source_token(&self, _id: String) -> MailFuture<'_, CreatedSource> {
+        unavailable("this build has no notification sources")
+    }
+    /// Sends a test notification through the source.
+    fn test_source(&self, _id: String) -> MailFuture<'_, ()> {
+        unavailable("this build has no notification sources")
+    }
+    fn api_keys(&self) -> MailFuture<'_, Vec<ApiKey>> {
+        unavailable("this build has no API keys")
+    }
+    /// Creates a key; its token is in the answer, shown only here.
+    fn create_api_key(&self, _input: NewApiKey) -> MailFuture<'_, CreatedApiKey> {
+        unavailable("this build has no API keys")
+    }
+    fn revoke_api_key(&self, _id: String) -> MailFuture<'_, ()> {
+        unavailable("this build has no API keys")
+    }
 }
 
 pub fn invalid(message: impl Into<String>) -> Error {

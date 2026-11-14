@@ -72,7 +72,7 @@ impl<T: Ts> Ts for Option<T> {
 
 impl<T: Ts + Serialize + DeserializeOwned + 'static> JsValue for Js<T> {
     fn ts_type(types: &mut TsTypes) -> String {
-        for (name, declaration) in DECLARATIONS {
+        for (name, declaration) in DECLARATIONS.iter().chain(crate::notify::DECLARATIONS) {
             types.declare(name, |_| (*declaration).to_owned());
         }
         T::ts()

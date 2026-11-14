@@ -15,7 +15,7 @@ root = Path(__file__).resolve().parent.parent
 app = root / "app"
 LOCALES = {"en", "zh-CN"}
 # Names, formats and placeholders that read the same in both languages.
-SAME_ALLOWED = {"provider.", "imap.tls", "imap.starttls", "compose.uploading", "settings.about"}
+SAME_ALLOWED = {"provider.", "imap.tls", "imap.starttls", "compose.uploading", "settings.about", "source.kind."}
 
 def parse(path):
     keys, current = {}, None

@@ -14,6 +14,10 @@ use mail_core::types::*;
 use nsh_core::{prelude::*, time::unix_ms};
 
 use crate::backend::{Backend, Events, File, MailFuture, Progress, Staged, invalid, rename_upload};
+use crate::notify::{
+    ApiKey, CreatedApiKey, CreatedSource, FeedPage, FeedQuery, NewApiKey, NewSource, Notification,
+    Source, SourceKind,
+};
 
 const MINUTE: f64 = 60_000.0;
 const HOUR: f64 = 60.0 * MINUTE;
@@ -25,7 +29,12 @@ const ARRIVAL: Duration = Duration::from_secs(90);
 struct Data {
     accounts: Vec<Account>,
     messages: Vec<Message>,
+    sources: Vec<Source>,
+    feed: Vec<Notification>,
+    keys: Vec<ApiKey>,
     next_id: u64,
+    next_source: u64,
+    next_key: u64,
     arrivals: usize,
     events: Option<Events>,
     outbox: Vec<(Outgoing, Vec<(String, Rc<File>)>)>,
@@ -50,6 +59,85 @@ impl Data {
             .ok_or_else(|| not_found("account"))
     }
 
+    /// The mail source of an account (`src-mail-…`), added with the account.
+    fn mail_source(&self, account: &str) -> Option<&str> {
+        self.sources
+            .iter()
+            .find(|s| s.kind == SourceKind::Mail && s.id == format!("src-mail-{account}"))
+            .map(|s| s.id.as_str())
+    }
+
+    /// The feed's view of a mail message: mail keeps its own rows, and the
+    /// feed reads a projection of the inbox's (one row per message).
+    fn project(&mut self, m: &Message) {
+        let Some(source) = self.mail_source(&m.summary.account_id).map(str::to_owned) else {
+            return;
+        };
+        if m.summary.folder != FolderKind::Inbox {
+            return;
+        }
+        let from = m.summary.from.clone();
+        let sender = from
+            .as_ref()
+            .map(|a| a.name.clone().unwrap_or_else(|| a.email.clone()))
+            .unwrap_or_default();
+        let n = Notification {
+            id: m.summary.id.clone(),
+            source_id: source,
+            sender,
+            title: m.summary.subject.clone(),
+            body: m.text.clone().unwrap_or_else(|| m.summary.snippet.clone()),
+            link: None,
+            received_at: m.summary.date,
+            priority: 4,
+            tags: Vec::new(),
+            read: m.summary.seen,
+            archived: false,
+            thread_id: Some(m.summary.thread_id.clone()),
+        };
+        self.feed.retain(|f| f.id != n.id);
+        self.feed.push(n);
+    }
+
+    fn add_source(&mut self, source: Source) {
+        self.sources.push(source);
+    }
+
+    /// A notification that arrives on its own, as a webhook or a bot's would.
+    fn deliver_notification(&mut self) -> Option<Notification> {
+        let (source, sender, title, body, priority, tags) = NOTICES[self.arrivals % NOTICES.len()];
+        self.arrivals += 1;
+        if self.sources.iter().all(|s| s.id != source) {
+            return None;
+        }
+        let n = Notification {
+            id: notif_id(self),
+            source_id: source.to_owned(),
+            sender: sender.to_owned(),
+            title: title.to_owned(),
+            body: body.to_owned(),
+            link: None,
+            received_at: unix_ms() as i64,
+            priority,
+            tags: tags.iter().map(|t| (*t).to_owned()).collect(),
+            read: false,
+            archived: false,
+            thread_id: None,
+        };
+        self.feed.push(n.clone());
+        Some(n)
+    }
+
+    /// Unread notifications per source, and all of them.
+    fn unread_counts(&self) -> (HashMap<String, u32>, u32) {
+        let mut counts = HashMap::new();
+        for n in self.feed.iter().filter(|n| !n.read && !n.archived) {
+            *counts.entry(n.source_id.clone()).or_default() += 1;
+        }
+        let total = counts.values().sum();
+        (counts, total)
+    }
+
     fn add_account(&mut self, mut account: Account) -> Result<Account> {
         account.email = account.email.trim().to_lowercase();
         if self.accounts.iter().any(|a| a.email == account.email) {
@@ -72,6 +160,28 @@ impl Data {
             "Your account is connected",
             &text,
         );
+        let source = Source {
+            id: format!("src-mail-{}", account.id),
+            kind: SourceKind::Mail,
+            name: account
+                .provider
+                .as_deref()
+                .map(|p| match p {
+                    "gmail" => "Gmail",
+                    "outlook" => "Outlook",
+                    "fastmail" => "Fastmail",
+                    _ => "Mail",
+                })
+                .unwrap_or("Mail")
+                .to_owned(),
+            icon: None,
+            color: "chart-3".to_owned(),
+            enabled: true,
+            min_priority: 0,
+            created_at: unix_ms() as i64,
+        };
+        self.add_source(source);
+        self.project(&m);
         self.messages.push(m);
         Ok(account)
     }
@@ -94,6 +204,7 @@ impl Data {
             text,
         );
         let summary = m.summary.clone();
+        self.project(&m);
         self.messages.push(m);
         Some(summary)
     }
@@ -154,6 +265,57 @@ impl Data {
         });
         found
     }
+
+    /// A page of the feed: the source and text filters, newest first, and the
+    /// unread counts the filter chips show.
+    fn feed_page(&self, query: &FeedQuery) -> FeedPage {
+        let (counts, unread) = self.unread_counts();
+        let words: Vec<String> = query
+            .text
+            .split_whitespace()
+            .map(str::to_lowercase)
+            .collect();
+        let mut found: Vec<&Notification> = self
+            .feed
+            .iter()
+            .filter(|n| {
+                !n.archived
+                    && query.source.as_ref().is_none_or(|s| &n.source_id == s)
+                    && (!query.unread || !n.read)
+                    && (words.is_empty() || {
+                        let hay =
+                            format!("{} {} {} {}", n.sender, n.title, n.body, n.tags.join(" "))
+                                .to_lowercase();
+                        words.iter().all(|w| hay.contains(w))
+                    })
+            })
+            .collect();
+        found.sort_by(|a, b| {
+            b.received_at
+                .cmp(&a.received_at)
+                .then_with(|| b.id.cmp(&a.id))
+        });
+        let start = match &query.before {
+            Some(before) => found
+                .iter()
+                .position(|n| &n.id == before)
+                .map_or(found.len(), |at| at + 1),
+            None => 0,
+        };
+        let page: Vec<Notification> = found
+            .iter()
+            .skip(start)
+            .take(query.limit.max(1) as usize)
+            .map(|n| (*n).clone())
+            .collect();
+        let more = found.len() > start + page.len();
+        FeedPage {
+            items: page,
+            counts,
+            unread,
+            more,
+        }
+    }
 }
 
 /// In-memory mail (see the module's docs).
@@ -184,6 +346,48 @@ impl DemoBackend {
 
 fn not_found(what: &str) -> Error {
     Error::new(ErrorCode::NotFound, format!("{what} not found"))
+}
+
+/// An id for a notification that is not mail's projection of a message.
+fn notif_id(data: &mut Data) -> String {
+    data.next_id += 1;
+    format!("n{}", data.next_id)
+}
+
+/// A source's ingest token: 48 hex characters, as the server's 32 random bytes hexed.
+fn token(seed: u64) -> String {
+    let mut h = seed ^ 0x243f_6a88_85a3_08d3;
+    let mut out = String::new();
+    for _ in 0..6 {
+        h = h
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        out.push_str(&format!("{:08x}", (h >> 16) as u32));
+    }
+    out
+}
+
+fn now_hex(data: &Data) -> u64 {
+    unix_ms() as u64 ^ (data.next_source as u64).wrapping_mul(0x9e37_79b9)
+}
+
+/// Where a source's token is sent: the design's three ingest shapes.
+fn ingest_url(kind: SourceKind, token: &str) -> Option<String> {
+    let base = "https://mail-api.bangwu.me";
+    match kind {
+        SourceKind::Webhook => Some(format!("{base}/hooks/{token}")),
+        SourceKind::Gotify => Some(format!("{base}/message?token={token}")),
+        SourceKind::Ntfy => Some(format!("{base}/{token}")),
+        _ => None,
+    }
+}
+
+/// Something arrived in the feed: the shell reloads it as it reloads the mailboxes.
+fn notification_event() -> MailEvent {
+    MailEvent::Changed {
+        account_id: String::new(),
+        folder: FolderKind::Inbox,
+    }
 }
 
 fn ok<'a, T: 'a>(value: Result<T>) -> MailFuture<'a, T> {
@@ -225,6 +429,9 @@ impl Backend for DemoBackend {
                             account_id,
                             folder: FolderKind::Inbox,
                         });
+                    }
+                    if data.deliver_notification().is_some() {
+                        data.emit(notification_event());
                     }
                 }
             })
@@ -756,6 +963,188 @@ impl Backend for DemoBackend {
                     folder: FolderKind::Inbox,
                 });
             }
+            // A webhook or a bot wrote to the feed too.
+            if data.deliver_notification().is_some() {
+                data.emit(notification_event());
+            }
+            Ok(())
+        })
+    }
+
+    fn sources(&self) -> MailFuture<'_, Vec<Source>> {
+        ok(Ok(self.data.borrow().sources.clone()))
+    }
+
+    fn feed(&self, query: FeedQuery) -> MailFuture<'_, FeedPage> {
+        Box::pin(async move {
+            latency(120).await;
+            Ok(self.data.borrow().feed_page(&query))
+        })
+    }
+
+    fn mark_read(&self, ids: Vec<String>, read: bool) -> MailFuture<'_, ()> {
+        let mut data = self.data.borrow_mut();
+        for n in data.feed.iter_mut().filter(|n| ids.contains(&n.id)) {
+            n.read = read;
+        }
+        // Mail keeps its own flags: the projection follows them.
+        for m in data
+            .messages
+            .iter_mut()
+            .filter(|m| ids.contains(&m.summary.id))
+        {
+            m.summary.seen = read;
+        }
+        ok(Ok(()))
+    }
+
+    fn archive(&self, ids: Vec<String>) -> MailFuture<'_, ()> {
+        let mut data = self.data.borrow_mut();
+        for n in data.feed.iter_mut().filter(|n| ids.contains(&n.id)) {
+            n.archived = true;
+            n.read = true;
+        }
+        // Archiving mail's notification archives the message, as the server does in one transaction.
+        for m in data
+            .messages
+            .iter_mut()
+            .filter(|m| ids.contains(&m.summary.id) && m.summary.folder == FolderKind::Inbox)
+        {
+            m.summary.folder = FolderKind::Archive;
+            m.summary.seen = true;
+        }
+        ok(Ok(()))
+    }
+
+    fn create_source(&self, input: NewSource) -> MailFuture<'_, CreatedSource> {
+        Box::pin(async move {
+            if input.name.trim().is_empty() {
+                return Err(invalid("name the source"));
+            }
+            latency(300).await;
+            let mut data = self.data.borrow_mut();
+            data.next_source += 1;
+            let source = Source {
+                id: format!("src-new-{}", data.next_source),
+                kind: input.kind,
+                name: input.name.trim().to_owned(),
+                icon: input.icon.filter(|i| !i.trim().is_empty()),
+                color: if input.color.is_empty() {
+                    "chart-1".to_owned()
+                } else {
+                    input.color
+                },
+                enabled: true,
+                min_priority: input.min_priority.min(10),
+                created_at: unix_ms() as i64,
+            };
+            let url = ingest_url(source.kind, &token(now_hex(&data)));
+            data.sources.push(source.clone());
+            drop(data);
+            Ok(CreatedSource { source, url })
+        })
+    }
+
+    fn update_source(&self, source: Source) -> MailFuture<'_, Source> {
+        let mut data = self.data.borrow_mut();
+        let found = data.sources.iter_mut().find(|s| s.id == source.id);
+        ok(found.ok_or_else(|| not_found("source")).map(|s| {
+            *s = source;
+            s.clone()
+        }))
+    }
+
+    fn delete_source(&self, id: String) -> MailFuture<'_, ()> {
+        let mut data = self.data.borrow_mut();
+        let before = data.sources.len();
+        data.sources.retain(|s| s.id != id);
+        data.feed.retain(|n| n.source_id != id);
+        ok(if data.sources.len() == before {
+            Err(not_found("source"))
+        } else {
+            Ok(())
+        })
+    }
+
+    fn rotate_source_token(&self, id: String) -> MailFuture<'_, CreatedSource> {
+        let mut data = self.data.borrow_mut();
+        let Some(source) = data.sources.iter().find(|s| s.id == id).cloned() else {
+            return ok(Err(not_found("source")));
+        };
+        if !source.kind.ingest() {
+            return ok(Err(invalid("this source has no ingest URL")));
+        }
+        data.next_source += 1;
+        let url = ingest_url(source.kind, &token(now_hex(&data)));
+        ok(Ok(CreatedSource { source, url }))
+    }
+
+    fn test_source(&self, id: String) -> MailFuture<'_, ()> {
+        let mut data = self.data.borrow_mut();
+        let Some(source) = data.sources.iter().find(|s| s.id == id).cloned() else {
+            return ok(Err(not_found("source")));
+        };
+        let n = Notification {
+            id: notif_id(&mut data),
+            source_id: source.id.clone(),
+            sender: source.name.clone(),
+            title: "Test message".to_owned(),
+            body: format!(
+                "If this is in the feed, {} is connected. Messages sent to it land here.",
+                source.name
+            ),
+            link: None,
+            received_at: unix_ms() as i64,
+            priority: 5,
+            tags: vec!["test".to_owned()],
+            read: false,
+            archived: false,
+            thread_id: None,
+        };
+        data.feed.push(n.clone());
+        drop(data);
+        ok(Ok(()))
+    }
+
+    fn api_keys(&self) -> MailFuture<'_, Vec<ApiKey>> {
+        ok(Ok(self.data.borrow().keys.clone()))
+    }
+
+    fn create_api_key(&self, input: NewApiKey) -> MailFuture<'_, CreatedApiKey> {
+        Box::pin(async move {
+            if input.name.trim().is_empty() {
+                return Err(invalid("name the key"));
+            }
+            latency(200).await;
+            let mut data = self.data.borrow_mut();
+            data.next_key += 1;
+            let raw = format!("nb_{:032x}", data.next_key as u128 * 0x9e3779b97f4a7c15u128);
+            let now = unix_ms() as i64;
+            let key = ApiKey {
+                id: format!("key-{}", data.next_key),
+                name: input.name.trim().to_owned(),
+                prefix: raw.chars().take(11).collect(),
+                read: true,
+                write: input.write,
+                source_ids: input.source_ids,
+                created_at: now,
+                last_used_at: None,
+                expires_at: input
+                    .expires_days
+                    .map(|days| now + i64::from(days) * 86_400_000),
+            };
+            data.keys.push(key.clone());
+            Ok(CreatedApiKey { key, token: raw })
+        })
+    }
+
+    fn revoke_api_key(&self, id: String) -> MailFuture<'_, ()> {
+        let mut data = self.data.borrow_mut();
+        let before = data.keys.len();
+        data.keys.retain(|k| k.id != id);
+        ok(if data.keys.len() == before {
+            Err(not_found("key"))
+        } else {
             Ok(())
         })
     }
@@ -1541,6 +1930,267 @@ const SEEDS: &[Seed] = &[
     },
 ];
 
+/// The sources the demo's feed comes from, besides the mail accounts.
+const SOURCE_SEEDS: &[(&str, SourceKind, &str, &str, Option<&str>, bool, u8)] = &[
+    (
+        "src-github",
+        SourceKind::Webhook,
+        "GitHub",
+        "chart-1",
+        Some("bolt"),
+        true,
+        0,
+    ),
+    (
+        "src-kuma",
+        SourceKind::Webhook,
+        "Uptime Kuma",
+        "chart-2",
+        Some("activity"),
+        false,
+        0,
+    ),
+    (
+        "src-sonarr",
+        SourceKind::Gotify,
+        "Sonarr",
+        "chart-5",
+        None,
+        true,
+        2,
+    ),
+    (
+        "src-backup",
+        SourceKind::Ntfy,
+        "Backup script",
+        "chart-4",
+        Some("terminal"),
+        true,
+        0,
+    ),
+    (
+        "src-telegram",
+        SourceKind::Telegram,
+        "Team bot",
+        "chart-3",
+        None,
+        true,
+        0,
+    ),
+    (
+        "src-slack",
+        SourceKind::Slack,
+        "Northwind HQ",
+        "chart-1",
+        None,
+        true,
+        3,
+    ),
+    (
+        "src-discord",
+        SourceKind::Discord,
+        "Game night",
+        "chart-2",
+        None,
+        true,
+        0,
+    ),
+];
+
+/// Notifications in the feed besides mail's.
+const NOTICE_SEEDS: &[(&str, f64, &str, &str, &str, u8, &[&str], bool, Option<&str>)] = &[
+    (
+        "src-github",
+        4.0 * MINUTE,
+        "northwind/atlas",
+        "CI failed on main",
+        "Workflow Linux: 3 checks failed.\n\nerror[E0433]: failed to resolve: use of undeclared crate or module `nsh`\nin app/src/notify.rs:12:5",
+        7,
+        &["ci", "main"],
+        false,
+        Some("https://github.com/northwind/atlas/actions"),
+    ),
+    (
+        "src-github",
+        23.0 * MINUTE,
+        "maya-patel",
+        "Review requested: #56 feat(app): notification feed",
+        "@maya-patel requested your review on #56: notification feed, sources and API keys.\n\n+2,140 −12 across 41 files.",
+        5,
+        &["review"],
+        false,
+        Some("https://github.com/northwind/atlas/pull/56"),
+    ),
+    (
+        "src-sonarr",
+        52.0 * MINUTE,
+        "Sonarr",
+        "Downloaded: Slow Horses S04E02",
+        "1080p WEB-DL · 2.1 GB · ready in Plex.",
+        3,
+        &["download"],
+        true,
+        None,
+    ),
+    (
+        "src-slack",
+        1.1 * HOUR,
+        "Priya Raman",
+        "Priya mentioned you in #app",
+        "can you look at the FTS index before the release? the second table is missing from the migration",
+        5,
+        &["mention"],
+        false,
+        None,
+    ),
+    (
+        "src-telegram",
+        1.4 * HOUR,
+        "Maya Patel",
+        "The venue confirmed",
+        "The river venue confirmed 12–14 March. I'll send the contract tomorrow morning.",
+        4,
+        &["team"],
+        false,
+        None,
+    ),
+    (
+        "src-backup",
+        3.2 * HOUR,
+        "Backup script",
+        "Backup finished",
+        "snapshot-2026-11-14 (42 GB) uploaded to B2 in 6m 12s. 30 snapshots kept.",
+        2,
+        &["backup", "nightly"],
+        true,
+        None,
+    ),
+    (
+        "src-github",
+        5.0 * HOUR,
+        "northwind/atlas",
+        "Deploy failed: production",
+        "Deploy nsh-mail-server to mail-api.bangwu.me failed at the health check.\n\nThe container restarted 3 times in 90s.",
+        9,
+        &["deploy", "production"],
+        false,
+        Some("https://github.com/northwind/atlas/actions"),
+    ),
+    (
+        "src-discord",
+        6.5 * HOUR,
+        "Daniel Okafor",
+        "Saturday raid",
+        "We're four short for Saturday, still in? Same time as last week.",
+        2,
+        &["game-night"],
+        true,
+        None,
+    ),
+    (
+        "src-github",
+        1.4 * DAY,
+        "northwind/atlas",
+        "Release v0.0.3 published",
+        "Notes: keyboard and screen-reader pass, empty and failure states, paged sync.",
+        4,
+        &["release"],
+        true,
+        Some("https://github.com/northwind/atlas/releases/tag/v0.0.3"),
+    ),
+    (
+        "src-backup",
+        2.4 * DAY,
+        "nas",
+        "Disk almost full",
+        "/volume1 is 91% full: 8.2 TB of 9 TB. The oldest snapshots go first, then the mirror waits.",
+        8,
+        &["warning"],
+        false,
+        None,
+    ),
+    (
+        "src-kuma",
+        2.6 * DAY,
+        "Uptime Kuma",
+        "api.bangwu.me is up",
+        "Response 200 in 214 ms, after 3 minutes down.",
+        1,
+        &["uptime"],
+        true,
+        None,
+    ),
+    (
+        "src-sonarr",
+        3.1 * DAY,
+        "Sonarr",
+        "Downloaded: Dune Part Two",
+        "2160p HDR · 24.8 GB · ready in Plex.",
+        2,
+        &["download"],
+        true,
+        None,
+    ),
+    (
+        "src-telegram",
+        3.4 * DAY,
+        "Jonas Weber",
+        "Standup notes",
+        "Porto booked, the agenda is in the shared folder. Add your session ideas by Wednesday.",
+        3,
+        &["team"],
+        true,
+        None,
+    ),
+    (
+        "src-slack",
+        4.2 * DAY,
+        "Northwind HQ",
+        "Weekly digest: 12 threads you follow",
+        "#app: 404 is retried twice before failing; #design: the empty states shipped.",
+        1,
+        &["digest"],
+        true,
+        None,
+    ),
+];
+
+/// What refresh delivers after the first few: a source writing to the feed.
+const NOTICES: &[(&str, &str, &str, &str, u8, &[&str])] = &[
+    (
+        "src-github",
+        "northwind/atlas",
+        "CI passed on main",
+        "All checks have passed on main: core, server, linux, windows, web.",
+        3,
+        &["ci"],
+    ),
+    (
+        "src-backup",
+        "Backup script",
+        "Backup started",
+        "snapshot-2026-11-14 at 03:00, 41 GB so far.",
+        2,
+        &["backup"],
+    ),
+    (
+        "src-slack",
+        "Maya Patel",
+        "Maya mentioned you in #design",
+        "the new source colours look right in dark mode, ship it",
+        5,
+        &["mention"],
+    ),
+    (
+        "src-telegram",
+        "Team bot",
+        "Deploy finished",
+        "mail-api.bangwu.me runs v0.0.4, health check green.",
+        4,
+        &["deploy"],
+    ),
+];
+
 /// The three demo accounts.
 fn demo_accounts() -> Vec<Account> {
     let account = |id: &str,
@@ -1589,6 +2239,26 @@ fn demo_accounts() -> Vec<Account> {
             ("smtp.office365.com", 587, Security::StartTls),
         ),
     ]
+}
+
+/// A source for each demo account: the feed's mail side.
+fn seed_mail_sources(data: &mut Data, now: f64) {
+    for (account, name, color) in [
+        ("a-work", "Fastmail", "chart-1"),
+        ("a-gmail", "Gmail", "chart-2"),
+        ("a-outlook", "Outlook", "chart-3"),
+    ] {
+        data.sources.push(Source {
+            id: format!("src-mail-{account}"),
+            kind: SourceKind::Mail,
+            name: name.to_owned(),
+            icon: None,
+            color: color.to_owned(),
+            enabled: true,
+            min_priority: 0,
+            created_at: (now - 60.0 * DAY) as i64,
+        });
+    }
 }
 
 fn seed(now: f64) -> Data {
@@ -1650,6 +2320,69 @@ fn seed(now: f64) -> Data {
         }
         data.messages.push(m);
     }
+
+    seed_mail_sources(&mut data, now);
+    for (n, (id, kind, name, color, icon, enabled, min_priority)) in SOURCE_SEEDS.iter().enumerate()
+    {
+        data.sources.push(Source {
+            id: (*id).to_owned(),
+            kind: *kind,
+            name: (*name).to_owned(),
+            icon: icon.map(str::to_owned),
+            color: (*color).to_owned(),
+            enabled: *enabled,
+            min_priority: *min_priority,
+            created_at: (now - (30.0 - n as f64) * DAY) as i64,
+        });
+    }
+
+    let projected: Vec<Message> = data.messages.clone();
+    for m in &projected {
+        data.project(m);
+    }
+
+    for (source, ago, sender, title, body, priority, tags, read, link) in NOTICE_SEEDS {
+        let n = Notification {
+            id: notif_id(&mut data),
+            source_id: (*source).to_owned(),
+            sender: (*sender).to_owned(),
+            title: (*title).to_owned(),
+            body: (*body).to_owned(),
+            link: link.map(str::to_owned),
+            received_at: (now - ago) as i64,
+            priority: *priority,
+            tags: tags.iter().map(|t| (*t).to_owned()).collect(),
+            read: *read,
+            archived: false,
+            thread_id: None,
+        };
+        data.feed.push(n);
+    }
+
+    data.keys = vec![
+        ApiKey {
+            id: "key-1".to_owned(),
+            name: "Claude Code".to_owned(),
+            prefix: "nb_7c41a9e2".to_owned(),
+            read: true,
+            write: true,
+            source_ids: Vec::new(),
+            created_at: (now - 22.0 * DAY) as i64,
+            last_used_at: Some((now - 12.0 * MINUTE) as i64),
+            expires_at: None,
+        },
+        ApiKey {
+            id: "key-2".to_owned(),
+            name: "Home assistant".to_owned(),
+            prefix: "nb_1f8b30dd".to_owned(),
+            read: true,
+            write: false,
+            source_ids: vec!["src-backup".to_owned(), "src-github".to_owned()],
+            created_at: (now - 9.0 * DAY) as i64,
+            last_used_at: Some((now - 2.0 * DAY) as i64),
+            expires_at: Some((now + 21.0 * DAY) as i64),
+        },
+    ];
     data
 }
 
@@ -1687,7 +2420,10 @@ fn seed_large(now: f64) -> Data {
     for (i, count) in counts.iter().copied().enumerate() {
         // A conversation's latest message six minutes after the one below it.
         let latest = now - i as f64 * 6.0 * MINUTE;
-        let subject = format!("{} #{i}", subjects[rng.below(subjects.len() as u64) as usize]);
+        let subject = format!(
+            "{} #{i}",
+            subjects[rng.below(subjects.len() as u64) as usize]
+        );
         let long = i == LARGE_THREAD;
         let mut parent: Option<String> = None;
         for j in 0..count {
@@ -1709,7 +2445,11 @@ fn seed_large(now: f64) -> Data {
                 )
             };
             let id = data.id();
-            let subject = if j == 0 { subject.clone() } else { format!("Re: {subject}") };
+            let subject = if j == 0 {
+                subject.clone()
+            } else {
+                format!("Re: {subject}")
+            };
             let mut m = message(
                 id,
                 &account,
@@ -1744,6 +2484,8 @@ fn seed_large(now: f64) -> Data {
             data.messages.push(m);
         }
     }
+    // The feed has its sources; this demo's thousands of messages are not projected into it.
+    seed_mail_sources(&mut data, now);
     // Sent, Archive, Drafts and Trash hold the rest: 10,000 messages in all.
     for (folder, count) in [
         (FolderKind::Sent, 200),

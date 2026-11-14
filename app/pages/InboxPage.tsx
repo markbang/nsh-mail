@@ -8,7 +8,7 @@ import { t } from "nsh/i18n";
 import { AppBar, IconButton, Menu, Page, systemHeader } from "../ui";
 import { MailboxList, mailboxTitle } from "../components/Mailbox";
 import { PageHeader } from "../components/PageHeader";
-import { NavContext, selectTab } from "../nav";
+import { NavContext, selectTab, TAB } from "../nav";
 import { clearPicked, mailbox, moveMessages, openRow, pickedIds, picking, refresh, rows, setFlags, setThreadFlags, type Row } from "../store";
 
 export function InboxPage() {
@@ -45,7 +45,7 @@ export function InboxPage() {
       trigger={<IconButton icon="more" label={t("actions.more")} testID="inbox-more" />}
       actions={[
         { id: "refresh", label: t("actions.refresh"), icon: "refresh", onSelect: () => void refresh() },
-        { id: "settings", label: t("settings.title"), icon: "settings", onSelect: () => selectTab(3) },
+        { id: "settings", label: t("settings.title"), icon: "settings", onSelect: () => selectTab(TAB.settings) },
       ]}
     />
   );
@@ -70,7 +70,7 @@ export function InboxPage() {
       when={picking()}
       else={
         <>
-          <IconButton icon="search" label={t("search.label")} onPress={() => selectTab(1)} testID="open-search" />
+          <IconButton icon="search" label={t("search.label")} onPress={() => selectTab(TAB.search)} testID="open-search" />
           {more()}
         </>
       }
@@ -83,7 +83,7 @@ export function InboxPage() {
   const appBar = () => (
     <If
       when={picking()}
-      else={<AppBar title={mailboxTitle()} search={{ label: t("search.placeholder"), onPress: () => selectTab(1), end: more() }} testID="app-bar" />}
+      else={<AppBar title={mailboxTitle()} search={{ label: t("search.placeholder"), onPress: () => selectTab(TAB.search), end: more() }} testID="app-bar" />}
     >
       <View class="bg-surface-container pt-[env(safe-area-inset-top)]">
         <View class="h-16 flex-row items-center gap-1 px-2">

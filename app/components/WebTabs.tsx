@@ -6,10 +6,11 @@ import { effect, signal, untracked, View, type JSX } from "nsh";
 import { NavStack } from "nsh/base";
 import { t } from "nsh/i18n";
 import { FabMenu, NavBar } from "../ui";
-import { NavContext, selectedTab, selectTab, tabs, type Route } from "../nav";
+import { NavContext, selectedTab, selectTab, tabs, TAB, type Route } from "../nav";
+import { unreadNotifications } from "../notify";
 import { unreadCount } from "../store";
 
-const icons = { mail: "inbox", search: "search", folders: "inboxes", settings: "settings" } as const;
+const icons = { mail: "inbox", notifications: "bell", search: "search", folders: "inboxes", settings: "settings" } as const;
 
 export function WebTabs(props: { page: (route: Route) => JSX.Element; onCompose: () => void; onAddAccount: () => void }) {
   const depth = () => tabs[selectedTab()].stack.routes().length;
@@ -25,6 +26,7 @@ export function WebTabs(props: { page: (route: Route) => JSX.Element; onCompose:
   });
   const fab = signal(false);
   const unread = () => unreadCount(null);
+  const unreadFeed = () => unreadNotifications();
   return (
     <View class="flex-1 bg-surface">
       <View class="flex-1">
@@ -41,7 +43,7 @@ export function WebTabs(props: { page: (route: Route) => JSX.Element; onCompose:
             </View>
           )}
         </Each>
-        <If when={selectedTab() === 0 && depth() === 1}>
+        <If when={selectedTab() === TAB.mail && depth() === 1}>
           <View class="absolute bottom-4 end-4" style={{ pointerEvents: "box-none" }}>
             <FabMenu
               icon="compose"
@@ -66,7 +68,16 @@ export function WebTabs(props: { page: (route: Route) => JSX.Element; onCompose:
           items={tabs.map((tab) => ({
             title: t(`tabs.${tab.name}`),
             icon: icons[tab.name],
-            badge: tab.name === "mail" && unread() > 0 ? (unread() > 999 ? "999+" : String(unread())) : undefined,
+            badge:
+              tab.name === "mail" && unread() > 0
+                ? unread() > 999
+                  ? "999+"
+                  : String(unread())
+                : tab.name === "notifications" && unreadFeed() > 0
+                  ? unreadFeed() > 999
+                    ? "999+"
+                    : String(unreadFeed())
+                  : undefined,
             testID: `nav-${tab.name}`,
           }))}
         />

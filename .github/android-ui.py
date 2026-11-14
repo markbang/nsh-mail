@@ -167,6 +167,16 @@ def booted(timeout=240):
     print("booted, load", load, "on", cpus, "cpus", flush=True)
 
 
+def scroll_to(key, tries=4, timeout=3):
+    """A row below the fold: swipes the page up until `key` shows."""
+    for _ in range(tries):
+        if find(key, timeout):
+            return True
+        adb("shell", "input", "swipe", str(w // 2), str(h * 8 // 10), str(w // 2), str(h * 4 // 10), "300")
+        time.sleep(0.6)
+    return bool(find(key, timeout))
+
+
 def focused():
     for line in adb("shell", "dumpsys", "window", check=False).splitlines():
         if "mCurrentFocus" in line:
@@ -368,6 +378,31 @@ for mode in ("light", "dark"):
         if tap("Mailboxes") and tap("id:mailbox-all"):
             wait("id:messages", 15)
 
+    # The notification inbox: the feed, a chip, a notification, its sources.
+    if tap("Notifications"):
+        wait("id:notify-list", 20)
+        shot(f"{mode}-notifications")
+        if tap("id:notify-more"):
+            time.sleep(0.6)
+            shot(f"{mode}-notifications-menu")
+            if tap("Sources"):
+                wait("id:sources", 15)
+                shot(f"{mode}-sources")
+                if tap("id:sources-add-top"):
+                    wait("id:add-source", 10)
+                    shot(f"{mode}-source-kinds")
+                    back()
+                wait("id:sources", 10)
+                back()
+            else:
+                back()
+        # A notification opens on its own page; Back returns to the feed.
+        if tap("id:notify-[nm][0-9]+"):
+            wait("id:notify-reader", 15)
+            shot(f"{mode}-notification")
+            back()
+        wait("id:notify-list", 15)
+
     if tap("Settings"):
         wait("id:settings")
         shot(f"{mode}-settings")
@@ -385,6 +420,22 @@ for mode in ("light", "dark"):
                     break
             else:
                 fail("the signature page never closed")
+        # The notification settings: the keys agents read the feed with, and the rules.
+        if scroll_to("id:settings-keys"):
+            if tap("id:settings-keys"):
+                wait("id:api-keys", 15)
+                shot(f"{mode}-api-keys")
+                if tap("id:keys-add-top"):
+                    wait("id:new-key", 10)
+                    shot(f"{mode}-new-key")
+                    back()
+                wait("id:api-keys", 10)
+                back()
+        if scroll_to("id:settings-rules"):
+            if tap("id:settings-rules"):
+                wait("id:notify-rules", 15)
+                shot(f"{mode}-notify-rules")
+                back()
 
     if tap("Mail"):
         wait("id:messages")

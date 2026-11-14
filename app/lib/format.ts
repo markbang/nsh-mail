@@ -17,6 +17,36 @@ export function listDate(ms: number, now = Date.now()): string {
   return new Intl.DateTimeFormat(locale(), sameYear ? { month: "short", day: "numeric" } : { year: "numeric", month: "short", day: "numeric" }).format(d);
 }
 
+/** The feed's time: now, minutes, hours, days, then the date. */
+export function relativeDate(ms: number, now = Date.now()): string {
+  const diff = Math.max(0, now - ms);
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return t("date.now");
+  if (minutes < 60) return t("time.minutes", { count: minutes });
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return t("time.hours", { count: hours });
+  const days = Math.floor(hours / 24);
+  if (days < 7) return t("time.days", { count: days });
+  return listDate(ms, now);
+}
+
+/** A day's heading in the feed: Today, Yesterday, the weekday this week, else the date. */
+export function dayLabel(ms: number, now = Date.now()): string {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  if (ms >= start.getTime()) return t("date.today");
+  if (ms >= start.getTime() - DAY) return t("date.yesterday");
+  if (ms >= start.getTime() - 6 * DAY) return new Intl.DateTimeFormat(locale(), { weekday: "long" }).format(new Date(ms));
+  return new Intl.DateTimeFormat(locale(), { year: "numeric", month: "long", day: "numeric" }).format(new Date(ms));
+}
+
+/** The day a feed row belongs under: its local midnight. */
+export function dayOf(ms: number): number {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
 /** When a message will go: the weekday, date and time ("Mon, Nov 16, 8:00 AM"). */
 export function sendDate(ms: number): string {
   return new Intl.DateTimeFormat(locale(), { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(ms));
