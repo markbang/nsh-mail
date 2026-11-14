@@ -96,8 +96,8 @@ fn deliver(host: &str, to: &str, subject: &str) {
     });
 }
 
-/// The attachments of the message `subject` in Alice's inbox: names and bytes.
-fn received(host: &str, to: &str, subject: &str) -> Vec<(String, Vec<u8>)> {
+/// The message `subject` in Alice's inbox, and its attachments: names and bytes.
+fn received(host: &str, to: &str, subject: &str) -> (Message, Vec<(String, Vec<u8>)>) {
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let (engine, alice) = alice(host, to).await;
         engine.sync(&alice.id).await.unwrap();
@@ -120,7 +120,7 @@ fn received(host: &str, to: &str, subject: &str) -> Vec<(String, Vec<u8>)> {
             let (meta, data) = engine.attachment(&m.summary.id, a.index).await.unwrap();
             out.push((meta.filename.unwrap_or_default(), data));
         }
-        out
+        (m, out)
     })
 }
 
@@ -162,27 +162,73 @@ fn local_mode_reads_replies_and_searches_real_mail() {
     step(&mut app, |a| a.press("id:onboarding-go"));
     step(&mut app, |a| a.wait_for_within("id:open-settings", WAIT));
 
-    // Add Bob's account with GreenMail's servers.
-    step(&mut app, |a| a.press("id:open-settings"));
-    step(&mut app, |a| a.press("id:add-account"));
-    step(&mut app, |a| a.press("id:add-imap"));
-    step(&mut app, |a| a.type_text("id:imap-email", &bob));
-    step(&mut app, |a| a.press("id:imap-continue"));
-    step(&mut app, |a| a.wait_for_within("id:imap-password", WAIT));
-    for (field, value) in [
-        ("id:imap-host", host.as_str()),
-        ("id:imap-port", "3993"),
-        ("id:smtp-host", host.as_str()),
-        ("id:smtp-port", "3465"),
-        ("id:imap-password", "secret"),
-    ] {
-        step(&mut app, |a| a.clear(field));
-        step(&mut app, |a| a.type_text(field, value));
+    // Add Bob's and Carol's accounts with GreenMail's servers.
+    let carol = format!("carol{}@test.local", std::process::id());
+    for (name, email) in [("Bob", &bob), ("Carol", &carol)] {
+        step(&mut app, |a| a.press("id:open-settings"));
+        step(&mut app, |a| a.press("id:add-account"));
+        step(&mut app, |a| a.press("id:add-imap"));
+        step(&mut app, |a| a.type_text("id:imap-email", email));
+        step(&mut app, |a| a.type_text("id:imap-name", name));
+        step(&mut app, |a| a.press("id:imap-continue"));
+        step(&mut app, |a| a.wait_for_within("id:imap-password", WAIT));
+        for (field, value) in [
+            ("id:imap-host", host.as_str()),
+            ("id:imap-port", "3993"),
+            ("id:smtp-host", host.as_str()),
+            ("id:smtp-port", "3465"),
+            ("id:imap-password", "secret"),
+        ] {
+            step(&mut app, |a| a.clear(field));
+            step(&mut app, |a| a.type_text(field, value));
+        }
+        step(&mut app, |a| a.press("id:imap-add"));
+        step(&mut app, |a| {
+            a.wait_for_within(&format!("text:Added {email}"), WAIT)
+        });
+        step(&mut app, |a| a.wait_for_gone("id:modal", WAIT));
     }
-    step(&mut app, |a| a.press("id:imap-add"));
+
+    // Bob signs his mail; Carol does not.
+    step(&mut app, |a| a.press("id:open-settings"));
+    step(&mut app, |a| a.press("id:account-more-0"));
+    step(&mut app, |a| a.press("text:Signature…"));
     step(&mut app, |a| {
-        a.wait_for_within(&format!("text:Added {bob}"), WAIT)
+        a.type_text(
+            "id:signature-text",
+            "**Bob**\n[bob.example](https://bob.example)",
+        )
     });
+    step(&mut app, |a| a.press("id:signature-save"));
+    step(&mut app, |a| {
+        a.wait_for_within("text:Signature saved", WAIT)
+    });
+    step(&mut app, |a| a.press("id:header-back"));
+    step(&mut app, |a| a.wait_for_gone("id:modal", WAIT));
+    let signature = "-- \nBob\nbob.example <https://bob.example>";
+    let body = |a: &Headless| {
+        a.screen()
+            .input_text("id:compose-body")
+            .unwrap()
+            .unwrap_or_default()
+            .to_string()
+    };
+
+    // A new message takes the From account's signature, and another account's when From changes.
+    step(&mut app, |a| a.press("id:compose"));
+    step(&mut app, |a| a.wait_for_within("id:compose-body", WAIT));
+    assert_eq!(body(&app), format!("\n\n{signature}"));
+    step(&mut app, |a| {
+        a.press(&format!("id:compose-from >> text:Bob <{bob}>"))
+    });
+    step(&mut app, |a| a.press(&format!("text:Carol <{carol}>")));
+    assert_eq!(body(&app), "");
+    step(&mut app, |a| {
+        a.press(&format!("id:compose-from >> text:Carol <{carol}>"))
+    });
+    step(&mut app, |a| a.press(&format!("text:Bob <{bob}>")));
+    assert_eq!(body(&app), format!("\n\n{signature}"));
+    step(&mut app, |a| a.press("id:compose-discard"));
     step(&mut app, |a| a.wait_for_gone("id:modal", WAIT));
 
     // The inbox syncs Alice's message; open it and reply.
@@ -200,8 +246,25 @@ fn local_mode_reads_replies_and_searches_real_mail() {
     });
     step(&mut app, |a| a.press("id:reply"));
     step(&mut app, |a| a.wait_for_within("id:compose-subject", WAIT));
+    // The signature goes above the quote.
+    let reply = body(&app);
+    assert!(
+        reply.starts_with(&format!("\n\n{signature}\n\nOn ")),
+        "{reply:?}"
+    );
     step(&mut app, |a| a.press("id:send"));
     step(&mut app, |a| a.wait_for_within("text:Message sent", WAIT));
+    let (sent, _) = received(&host, &bob, "Re: Lunch on Friday?");
+    let text = sent.text.unwrap_or_default();
+    let (sig, quote) = (
+        text.find(signature)
+            .expect("the signature in the text part"),
+        text.find("> Shall we try").expect("the quote"),
+    );
+    assert!(sig < quote, "{text:?}");
+    let html = sent.html.expect("an HTML part");
+    assert!(html.contains("<b>Bob</b>"), "{html}");
+    assert!(html.contains(r#"href="https://bob.example""#), "{html}");
 
     // Forward it to Alice: the menu stays, the map goes, a picked report and
     // a pasted screenshot join.
@@ -232,7 +295,7 @@ fn local_mode_reads_replies_and_searches_real_mail() {
     step(&mut app, |a| a.press("id:send"));
     step(&mut app, |a| a.wait_for_within("text:Message sent", WAIT));
     assert_eq!(
-        received(&host, &bob, "Fwd: Lunch on Friday?"),
+        received(&host, &bob, "Fwd: Lunch on Friday?").1,
         vec![
             ("菜单.pdf".to_string(), MENU.to_vec()),
             ("报告 2026.pdf".to_string(), REPORT.to_vec()),

@@ -5,7 +5,7 @@ import { batch, resource, signal, Storage } from "nsh";
 import { t } from "nsh/i18n";
 import { fileSize } from "./lib/format";
 import { clearDrafts, loadDrafts } from "./drafts";
-import { Mail, type Account, type Address, type Flags, type Folder, type MailEvent, type Status, type Summary, type Thread } from "nsh-mail/native";
+import { Mail, type Account, type Address, type Flags, type Folder, type MailEvent, type Signature, type Status, type Summary, type Thread } from "nsh-mail/native";
 
 const PAGE = 30;
 /** The most results a search shows. */
@@ -322,6 +322,12 @@ async function loadAccounts() {
   } catch (e) {
     showToast(errorText(e), "error");
   }
+}
+
+/** Keeps an account's signature; rejects with the reason. */
+export async function setSignature(id: string, signature: Signature) {
+  const account = await Mail.setSignature(id, signature);
+  accountList.update((list) => list.map((a) => (a.id === id ? account : a)));
 }
 
 // The counts are a hint next to the mailboxes: a failure keeps the last ones.

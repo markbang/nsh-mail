@@ -93,8 +93,11 @@ export function SettingsPage() {
                     </View>
                     <Menu
                       label={t("accounts.actions", { email: a().email })}
-                      trigger={<IconButton icon="more" label={t("accounts.actions", { email: a().email })} />}
-                      actions={[{ id: "remove", label: t("accounts.removeMenu"), icon: "trash", destructive: true, onSelect: () => void remove(a()) }]}
+                      trigger={<IconButton icon="more" label={t("accounts.actions", { email: a().email })} testID={`account-more-${index()}`} />}
+                      actions={[
+                        { id: "signature", label: t("signature.menu"), icon: "compose", onSelect: () => nav.stack.push({ name: "signature", account: a().id }) },
+                        { id: "remove", label: t("accounts.removeMenu"), icon: "trash", destructive: true, onSelect: () => void remove(a()) },
+                      ]}
                     />
                   </View>
                 </>

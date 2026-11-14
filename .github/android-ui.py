@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drives nsh-mail on a running emulator with adb and screenshots each screen,
 in light and dark mode: inbox, swipe to archive and Undo, selection, pull to
-refresh, reader, a conversation, compose, Schedule send, search, mailboxes, Scheduled, settings, a tab switch that must
+refresh, reader, a conversation, compose, Schedule send, search, mailboxes, Scheduled, settings, a signature, a tab switch that must
 keep the inbox's scroll position; then larger text and a tablet-sized screen.
 
 Usage: android-ui.py <dir with the APK> <screenshot dir>
@@ -271,10 +271,30 @@ for mode in ("light", "dark"):
     if tap("Settings"):
         wait("id:settings")
         shot(f"{mode}-settings")
+        # The first account's signature, then a new message that carries it.
+        if tap("id:account-more-0") and tap("Signature…") and tap("id:signature-text"):
+            adb("shell", "input", "text", "'**Lin%sChen**'")
+            adb("shell", "input", "keyevent", "66")
+            adb("shell", "input", "text", "'Northwind%s-%s[northwind.dev](https://northwind.dev)'")
+            back()  # the keyboard
+            wait("id:signature-preview")
+            shot(f"{mode}-signature")
+            # The first tap may only take the focus from the field.
+            for _ in range(2):
+                if tap("id:signature-save") and find("id:settings", 8):
+                    break
+            else:
+                fail("the signature page never closed")
 
     if tap("Mail"):
         wait("id:messages")
         shot(f"{mode}-tab-back-to-mail")
+        if tap("id:fab-menu") and tap("id:compose"):
+            wait("id:compose-to")
+            shot(f"{mode}-compose-signature")
+            back()
+            back()
+            wait("id:messages")
 
     # The appearance changes while the app runs.
     other = "light" if mode == "dark" else "dark"

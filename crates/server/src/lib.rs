@@ -118,7 +118,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/auth/logout", post(api::logout))
         .route("/me", get(api::me).patch(api::update_me))
         .route("/accounts", get(api::list_accounts).post(api::add_account))
-        .route("/accounts/{id}", delete(api::delete_account))
+        .route(
+            "/accounts/{id}",
+            delete(api::delete_account).patch(api::patch_account),
+        )
         .route("/detect", get(api::detect))
         .route("/sync", post(api::sync))
         .route("/oauth/{provider}/start", get(oauth::start))

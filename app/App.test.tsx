@@ -291,6 +291,46 @@ test("a draft outlives the composer and a restart; only Discard deletes it, afte
   expect(Object.keys(JSON.parse(again.storage()["nshmail.drafts"]))).not.toContain("new");
 });
 
+test("a signature per account: under new messages, above the quote, swapped with From", async () => {
+  const app = await open("./App.tsx", { ...desktop, ...demo });
+  await app.waitFor("id:open-settings");
+  await app.press("id:open-settings");
+  await app.press("id:account-more-0");
+  await app.press("text:Signature…");
+  await app.type("id:signature-text", "**Lin Chen**\nNorthwind · [northwind.dev](https://northwind.dev)");
+  await app.waitFor("id:signature-preview");
+  await app.press("id:signature-save");
+  await app.waitFor("text:Signature saved");
+  await app.press("id:header-back");
+  await app.waitFor("id:modal", { state: "gone" });
+  const signature = "-- \nLin Chen\nNorthwind · northwind.dev <https://northwind.dev>";
+
+  await app.press("id:compose");
+  await app.waitFor("id:compose-body");
+  expect(app.value("id:compose-body")).toBe(`\n\n${signature}`);
+  await app.press("id:compose-from >> text:Lin Chen <lin.chen@northwind.dev>");
+  await app.press("text:Lin Chen <linchen.mail@gmail.com>");
+  expect(app.value("id:compose-body")).toBe("");
+  await app.press("id:compose-from >> text:Lin Chen <linchen.mail@gmail.com>");
+  await app.press("text:Lin Chen <lin.chen@northwind.dev>");
+  expect(app.value("id:compose-body")).toBe(`\n\n${signature}`);
+  // Changed by hand, it stays when the account changes.
+  await app.type("id:compose-body", " (Berlin)");
+  await app.press("id:compose-from >> text:Lin Chen <lin.chen@northwind.dev>");
+  await app.press("text:Lin Chen <linchen.mail@gmail.com>");
+  expect(app.value("id:compose-body")).toBe(`\n\n${signature} (Berlin)`);
+  await app.press("id:compose-discard");
+  await app.press("id:confirm-discard");
+  await app.waitFor("id:modal", { state: "gone" });
+
+  await app.press("text:Q4 roadmap draft");
+  await app.press("id:reply");
+  await app.waitFor("id:compose-body");
+  expect(app.value("id:compose-body")).toMatch(/^\n\n-- \nLin Chen\nNorthwind · northwind\.dev <https:\/\/northwind\.dev>\n\nOn .*wrote:\n> Attached/);
+  await app.press("id:send");
+  await app.waitFor("text:Message sent");
+});
+
 test("phones: back keeps the draft, Discard asks the system's alert", async () => {
   const app = await open("./App.tsx", { platform: "android", width: 390, height: 844, locale: "en-US", ...demo });
   await app.waitFor("text:Photos from the weekend");

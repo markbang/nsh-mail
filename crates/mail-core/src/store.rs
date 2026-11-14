@@ -852,6 +852,20 @@ impl Store {
         Ok(())
     }
 
+    pub fn update_account(&self, account: &Account) -> Result<()> {
+        let n = self.conn().execute(
+            "UPDATE accounts SET data = ?3 WHERE user_id = ?1 AND id = ?2",
+            params![self.user, account.id, serde_json::to_string(account)?],
+        )?;
+        if n == 0 {
+            return Err(err(
+                ErrorCode::NotFound,
+                format!("no account with id {}", account.id),
+            ));
+        }
+        Ok(())
+    }
+
     pub fn accounts(&self) -> Result<Vec<Account>> {
         let conn = self.conn();
         let mut stmt =

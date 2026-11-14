@@ -10,6 +10,7 @@ import { cleanup, effect, signal, Storage, untracked, type Signal } from "nsh";
 import type { Account, DraftAttachment } from "nsh-mail/native";
 import { createAttachments, type Attachments } from "./lib/attachments";
 import { draftFor, type ComposeInit, type DraftFields } from "./lib/format";
+import { signatureBlock, withSignature } from "./lib/signature";
 import { errorText, showToast } from "./store";
 
 const KEY = "nshmail.drafts";
@@ -30,7 +31,7 @@ interface Saved {
 }
 
 export interface Draft {
-  /** What a new composer for this context shows. */
+  /** The context's fields; `text` is without the signature (the quote, the forwarded message). */
   start: DraftFields;
   from: Signal<string | null>;
   to: Signal<string>;
@@ -90,6 +91,7 @@ function open(init: ComposeInit, accounts: Account[], defaultFrom: string | null
   if (kept) return kept;
   const start = draftFor(init, accounts.map((a) => a.email));
   const from = start.accountId ?? defaultFrom;
+  const fresh = init.mode === "edit" ? start.text : withSignature(start.text, signatureBlock(accounts.find((a) => a.id === from), init.mode));
   const s: Saved | undefined = saved[key];
   const outgoing = init.mode === "edit" ? init.outgoing : undefined;
   const files = outgoing
@@ -105,7 +107,7 @@ function open(init: ComposeInit, accounts: Account[], defaultFrom: string | null
     cc: signal(s?.cc ?? start.cc),
     bcc: signal(s?.bcc ?? ""),
     subject: signal(s?.subject ?? start.subject),
-    text: signal(s?.text ?? start.text),
+    text: signal(s?.text ?? fresh),
     files,
     edited: () =>
       files.edited() ||
@@ -114,7 +116,7 @@ function open(init: ComposeInit, accounts: Account[], defaultFrom: string | null
       d.cc() !== start.cc ||
       d.bcc() !== "" ||
       d.subject() !== start.subject ||
-      d.text() !== start.text,
+      d.text() !== fresh,
   };
   keys.set(d, key);
   live.set(key, d);

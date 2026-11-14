@@ -41,6 +41,7 @@ ts! {
     Message => "Message",
     Outgoing => "Outgoing",
     SendAt => "SendAt",
+    Signature => "Signature",
     OAuthProvider => "OAuthProvider",
     ServerSettings => "ServerSettings",
     Status => "Status",
@@ -155,7 +156,13 @@ const DECLARATIONS: &[(&str, &str)] = &[
         "/** A mail account. */\n\
          export interface Account {\n  id: string;\n  email: string;\n  name?: string | null;\n  \
          /** The preset's id (`gmail`, `outlook`, `qq`, ...), when known. */\n  provider?: string | null;\n  username: string;\n  \
-         auth: Auth;\n  imap: Endpoint;\n  smtp: Endpoint;\n}",
+         auth: Auth;\n  imap: Endpoint;\n  smtp: Endpoint;\n  signature: Signature;\n}",
+    ),
+    (
+        "Signature",
+        "/** What the composer adds under what the user writes. */\n\
+         export interface Signature {\n  /** Plain text with `**bold**`, `*italic*` and `[links](https://…)`; empty: none. */\n  text: string;\n  \
+         newMessages: boolean;\n  /** Replies and forwards. */\n  replies: boolean;\n}",
     ),
     (
         "Address",

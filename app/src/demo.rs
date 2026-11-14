@@ -269,6 +269,7 @@ impl Backend for DemoBackend {
                 imap: input.imap,
                 smtp: input.smtp,
                 id: String::new(),
+                signature: Signature::default(),
             })
         })
     }
@@ -291,6 +292,7 @@ impl Backend for DemoBackend {
                 auth: oauth(provider),
                 imap: settings.imap,
                 smtp: settings.smtp,
+                signature: Signature::default(),
             })
         })
     }
@@ -303,6 +305,15 @@ impl Backend for DemoBackend {
             data.messages.retain(|m| m.summary.account_id != id);
         }
         ok(result)
+    }
+
+    fn set_signature(&self, id: String, signature: Signature) -> MailFuture<'_, Account> {
+        let mut data = self.data.borrow_mut();
+        let found = data.accounts.iter_mut().find(|a| a.id == id);
+        ok(found.ok_or_else(|| not_found("account")).map(|a| {
+            a.signature = signature;
+            a.clone()
+        }))
     }
 
     fn list(&self, query: ListQuery) -> MailFuture<'_, Vec<Summary>> {
@@ -1525,6 +1536,7 @@ fn seed(now: f64) -> Data {
         auth,
         imap: endpoint(imap, 993, Security::Tls),
         smtp: endpoint(smtp.0, smtp.1, smtp.2),
+        signature: Signature::default(),
     };
     let accounts = vec![
         account(

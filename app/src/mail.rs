@@ -326,6 +326,18 @@ impl Mail {
         Ok(())
     }
 
+    /// Keeps the account's signature; the composer adds it.
+    pub async fn set_signature(
+        id: String,
+        signature: Js<Signature>,
+    ) -> Result<Js<Account>, JsError> {
+        backend()?
+            .set_signature(id, signature.0)
+            .await
+            .map(Js)
+            .map_err(js)
+    }
+
     /// A page of a folder, newest first.
     pub async fn list(query: Js<ListQuery>) -> Result<Js<Vec<Summary>>, JsError> {
         backend()?.list(query.0).await.map(Js).map_err(js)
