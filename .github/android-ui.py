@@ -121,6 +121,12 @@ def wait(key, timeout=30):
         fail(f"never showed: {key}")
 
 
+def mid(node):
+    """The middle of a uiautomator node."""
+    x1, y1, x2, y2 = map(int, re.findall(r"\d+", node.get("bounds")))
+    return (x1 + x2) // 2, (y1 + y2) // 2
+
+
 def fail(what):
     failures.append(f"[{mode}] {what}")
     print("FAIL", what, flush=True)
@@ -396,20 +402,13 @@ for mode in ("light", "dark"):
     if tap("Settings") and tap("id:sign-out"):
         time.sleep(1)
         shot(f"{mode}-sign-out-dialog")
-        # The dialog's own button, not the one the page draws under it.
+        # The dialog's own button: the one on Cancel's row, not the page's under the dialog.
         nodes_now = nodes()
-        frame = next((n for n in nodes_now if n.get("text", "") == "Sign out of nsh-mail?"), None)
-        if frame:
-            fx1, fy1, fx2, fy2 = map(int, re.findall(r"\d+", frame.get("bounds")))
-            inside = [
-                n for n in nodes_now
-                if n.get("text", "").lower() == "sign out"
-                and (b := list(map(int, re.findall(r"\d+", n.get("bounds") or "")))) and len(b) == 4
-                and fx1 <= (b[0] + b[2]) // 2 <= fx2 and fy1 <= (b[1] + b[3]) // 2 <= fy2
-            ]
-            if inside:
-                x1, y1, x2, y2 = map(int, re.findall(r"\d+", inside[-1].get("bounds")))
-                adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+        cancel = next((n for n in nodes_now if n.get("text", "") == "Cancel"), None)
+        choices = [n for n in nodes_now if n.get("text", "").lower() == "sign out"]
+        if cancel and choices:
+            x, y = mid(min(choices, key=lambda n: abs(mid(n)[1] - mid(cancel)[1])))
+            adb("shell", "input", "tap", str(x), str(y))
         wait("id:onboarding")
         shot(f"{mode}-onboarding")
 
