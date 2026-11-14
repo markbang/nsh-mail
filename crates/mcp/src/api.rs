@@ -17,27 +17,30 @@ pub const MAX_LIMIT: u32 = 50;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    // The server writes camelCase like the rest of `/v1`; the aliases keep a snake_case server
+    // (the shape first written down in the design) readable too.
+    #[serde(default, alias = "sourceId", skip_serializing_if = "Option::is_none")]
     pub source_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sender: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "bodyText", skip_serializing_if = "Option::is_none")]
     pub body_text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub received_at: Option<String>,
+    /// Milliseconds or RFC 3339: the tool output passes it through untouched.
+    #[serde(default, alias = "receivedAt", skip_serializing_if = "Option::is_none")]
+    pub received_at: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<i64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub read_at: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub archived_at: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "readAt", skip_serializing_if = "Option::is_none")]
+    pub read_at: Option<Value>,
+    #[serde(default, alias = "archivedAt", skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<Value>,
+    #[serde(default, alias = "threadId", skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<String>,
 }
 
@@ -50,7 +53,11 @@ pub struct Source {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "minPriority",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub min_priority: Option<i64>,
 }
 
@@ -264,7 +271,7 @@ impl NotifyApi {
                 received_at: None,
                 priority: None,
                 tags: Vec::new(),
-                read_at: Some(now()),
+                read_at: Some(Value::String(now())),
                 archived_at: None,
                 thread_id: None,
             });
@@ -380,5 +387,31 @@ fn now() -> String {
     match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
         Ok(d) => d.as_secs().to_string(),
         Err(_) => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The server writes camelCase like the rest of `/v1`; a snake_case server parses too.
+    #[test]
+    fn feed_json_in_both_cases() {
+        for doc in [
+            serde_json::json!({ "id": "msg_1", "sourceId": "src_1", "bodyText": "disk full",
+                                "receivedAt": 1_700_000_000_000i64, "readAt": null }),
+            serde_json::json!({ "id": "msg_1", "source_id": "src_1", "body_text": "disk full",
+                                "received_at": "2026-11-14T12:00:00Z", "read_at": null }),
+        ] {
+            let message: Message = serde_json::from_value(doc).unwrap();
+            assert_eq!(message.source_id.as_deref(), Some("src_1"));
+            assert_eq!(message.body_text.as_deref(), Some("disk full"));
+            assert!(message.received_at.is_some());
+        }
+        let source: Source = serde_json::from_value(serde_json::json!({
+            "id": "src_1", "kind": "webhook", "name": "CI", "enabled": true, "minPriority": 3
+        }))
+        .unwrap();
+        assert_eq!(source.min_priority, Some(3));
     }
 }

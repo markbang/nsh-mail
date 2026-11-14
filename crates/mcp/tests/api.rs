@@ -52,7 +52,10 @@ async fn get_mark_read_and_sources() {
     assert_eq!(message.priority, Some(7));
 
     let read = api.mark_read("msg_9").await.unwrap();
-    assert_eq!(read.read_at.as_deref(), Some("2026-11-14T11:00:00Z"));
+    assert_eq!(
+        read.read_at.as_ref().and_then(serde_json::Value::as_str),
+        Some("2026-11-14T11:00:00Z")
+    );
 
     let sources = api.sources().await.unwrap();
     assert_eq!(sources.len(), 2);
