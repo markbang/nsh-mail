@@ -142,9 +142,6 @@ sync.failed:
 sync.progress:
   en: "Checking for mail… %{count} so far"
   zh-CN: "正在收取邮件… 已收 %{count} 封"
-sync.older:
-  en: Loading older mail…
-  zh-CN: 正在加载更早的邮件…
 
 actions.new:
   en: New
