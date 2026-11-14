@@ -326,6 +326,13 @@ for mode in ("light", "dark"):
                     break
             else:
                 fail("the receipt never opened")
+        # A search that finds nothing says so, and clears back to the hint.
+        if tap("id:search"):
+            adb("shell", "input", "keyevent", "123", *["67"] * 10)
+            adb("shell", "input", "text", "zzzzqqq")
+            wait("id:search-empty", 15)
+            back()
+            shot(f"{mode}-search-none")
 
     if tap("Mailboxes"):
         wait("id:mailbox-all")
@@ -335,6 +342,19 @@ for mode in ("light", "dark"):
             shot(f"{mode}-scheduled")
             if tap("Mailboxes"):
                 tap("id:mailbox-all")
+        # An empty folder on the phone: the one draft is deleted, and Drafts says so with its next step.
+        if tap("Mailboxes") and tap("id:mailbox-drafts"):
+            wait("id:messages", 15)
+            row = settled("id:message-.*")
+            if row:
+                x1, y1, x2, y2 = row
+                adb("shell", "input", "swipe", str(x1 + 200), str((y1 + y2) // 2), str(x1 + 200), str((y1 + y2) // 2), "900")
+                time.sleep(0.5)
+                if tap("id:picked-delete"):
+                    wait("id:empty-compose", 15)
+                    shot(f"{mode}-empty-folder")
+        if tap("Mailboxes") and tap("id:mailbox-all"):
+            wait("id:messages", 15)
 
     if tap("Settings"):
         wait("id:settings")

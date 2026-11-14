@@ -235,9 +235,36 @@ list.loadingMore:
   en: Loading more
   zh-CN: 正在加载更多
 
-empty.mailbox:
+empty.inbox.title:
   en: No messages
   zh-CN: 没有邮件
+empty.inbox.hint:
+  en: New mail shows up here.
+  zh-CN: 新邮件会显示在这里。
+empty.sent.title:
+  en: No sent messages
+  zh-CN: 没有已发送邮件
+empty.sent.hint:
+  en: Messages you send appear here.
+  zh-CN: 你发送的邮件会显示在这里。
+empty.drafts.title:
+  en: No drafts
+  zh-CN: 没有草稿
+empty.drafts.hint:
+  en: Messages you start and don't send are kept here.
+  zh-CN: 写了但没发送的邮件会保存在这里。
+empty.archive.title:
+  en: Nothing archived
+  zh-CN: 没有归档邮件
+empty.archive.hint:
+  en: Messages you archive are kept here.
+  zh-CN: 归档的邮件会保存在这里。
+empty.trash.title:
+  en: Trash is empty
+  zh-CN: 废纸篓是空的
+empty.trash.hint:
+  en: Deleted messages wait here until they're removed.
+  zh-CN: 删除的邮件会先放在这里，直到被清除。
 empty.noAccounts:
   en: No accounts yet
   zh-CN: 还没有账号
@@ -257,6 +284,9 @@ reader.loading:
 reader.failed:
   en: Couldn't open this message
   zh-CN: 无法打开这封邮件
+reader.failedHint:
+  en: Check your connection, then try again.
+  zh-CN: 请检查网络后重试。
 reader.noSubject:
   en: (No subject)
   zh-CN: （无主题）
@@ -509,9 +539,21 @@ search.clear:
 search.hint:
   en: Search by sender, subject or text.
   zh-CN: 按发件人、主题或正文搜索。
+search.hintDetail:
+  en: Every account's mail at once.
+  zh-CN: 同时搜索所有账号的邮件。
+search.running:
+  en: Searching
+  zh-CN: 正在搜索
+search.failed:
+  en: Couldn't search your mail
+  zh-CN: 无法搜索邮件
 search.none:
   en: Nothing found for “%{query}”
   zh-CN: 没有找到“%{query}”
+search.noneHint:
+  en: Try another word, or check the spelling.
+  zh-CN: 换个词试试，或检查拼写。
 search.title:
   en: Results for “%{query}”
   zh-CN: “%{query}”的搜索结果
@@ -738,6 +780,9 @@ imap.appPasswordLink:
 imap.useOAuth:
   en: "%{provider} recommends signing in on its own page: go back and choose it above. An app password also works if your account has one."
   zh-CN: "%{provider} 推荐在官方页面登录：返回上一步选择对应按钮。如果账号已开启应用专用密码，也可以继续填写。"
+imap.authFailed:
+  en: The server didn't accept the sign-in. Most providers need an app password here, not your login password.
+  zh-CN: 服务器拒绝了登录。多数邮箱需要在这里填写应用专用密码，而不是登录密码。
 imap.needServers:
   en: Enter the IMAP and SMTP servers.
   zh-CN: 请填写 IMAP 和 SMTP 服务器。
@@ -803,3 +848,6 @@ tabs.settings:
 empty.loadFailed:
   en: Couldn't load this mailbox
   zh-CN: 无法加载此邮箱
+empty.loadFailedHint:
+  en: Check your connection, then try again.
+  zh-CN: 请检查网络后重试。

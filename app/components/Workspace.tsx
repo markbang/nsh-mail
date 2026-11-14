@@ -4,12 +4,12 @@
 // 1200pt wide.
 import { Text, View, windowSize, type InputRef } from "nsh";
 import { t } from "nsh/i18n";
-import { Empty, Fab, IconButton, LoadingIndicator, Pane, Panes } from "../ui";
+import { Button, Empty, Fab, IconButton, LoadingIndicator, Pane, Panes } from "../ui";
 import { MailboxList, mailboxTitle, resultCount } from "./Mailbox";
 import { MailboxRail } from "./Mailboxes";
 import { Reader } from "./Reader";
 import { SearchField } from "./SearchField";
-import { conversation, current, listStatus, openRow, refresh, searchQuery, searchResults, selectedId, shownMessage } from "../store";
+import { conversation, current, listStatus, openRow, refresh, searchActive, searchQuery, searchResults, selectedId, shownMessage } from "../store";
 import type { ComposeMode } from "../lib/format";
 
 export interface WorkspaceProps {
@@ -39,21 +39,23 @@ export function Workspace(props: WorkspaceProps) {
           <View class="flex-1 overflow-hidden rounded-large bg-surface">
             <View class="h-16 flex-row items-center gap-2 pe-2 ps-5">
               <If
-                when={searchResults()}
+                when={searchActive()}
                 else={
                   <Text role="header" class="line-clamp-1 flex-1 text-title-large tracking-title-large text-on-surface">
                     {mailboxTitle()}
                   </Text>
                 }
               >
-                {(found) => (
-                  <>
-                    <Text role="header" class="line-clamp-1 flex-1 text-title-large tracking-title-large text-on-surface" testID="results-title">
-                      {t("search.title", { query: searchQuery().trim() })}
+                <Text role="header" class="line-clamp-1 flex-1 text-title-large tracking-title-large text-on-surface" testID="results-title">
+                  {t("search.title", { query: searchQuery().trim() })}
+                </Text>
+                <If when={searchResults()}>
+                  {(found) => (
+                    <Text role="summary" class="text-label-large tabular-nums text-on-surface-variant" testID="result-count">
+                      {resultCount(found().length)}
                     </Text>
-                    <Text class="text-label-large tabular-nums text-on-surface-variant">{resultCount(found().length)}</Text>
-                  </>
-                )}
+                  )}
+                </If>
               </If>
               <If when={listStatus() === "refreshing"} else={<IconButton icon="refresh" label={t("actions.refresh")} onPress={() => void refresh()} />}>
                 <LoadingIndicator label={t("sync.running")} size={40} testID="refreshing" />
@@ -62,7 +64,7 @@ export function Workspace(props: WorkspaceProps) {
             <View class="px-3 pb-2">
               <SearchField ref={props.searchRef} />
             </View>
-            <MailboxList onOpen={openRow} onAddAccount={props.onAddAccount} highlight />
+            <MailboxList onOpen={openRow} onAddAccount={props.onAddAccount} onCompose={() => props.onCompose("new")} highlight />
           </View>
         </Pane>
         <Pane minSize={360} last>
@@ -70,10 +72,22 @@ export function Workspace(props: WorkspaceProps) {
             <If
               when={open()}
               else={
-                <If when={selectedId() && !current.error()} else={<Empty icon="mailOpen" title={t("reader.none")} description={t("reader.noneHint")} />}>
-                  <View class="flex-1 items-center justify-center">
-                    <LoadingIndicator label={t("reader.loading")} contained />
-                  </View>
+                <If
+                  when={current.error()}
+                  else={
+                    <If when={selectedId()} else={<Empty icon="mailOpen" title={t("reader.none")} description={t("reader.noneHint")} />}>
+                      <View class="flex-1 items-center justify-center">
+                        <LoadingIndicator label={t("reader.loading")} contained />
+                      </View>
+                    </If>
+                  }
+                >
+                  <Empty
+                    icon="alert"
+                    title={t("reader.failed")}
+                    description={t("reader.failedHint")}
+                    action={<Button variant="tonal" icon="refresh" label={t("actions.retry")} onPress={() => current.refetch()} testID="reader-retry" />}
+                  />
                 </If>
               }
             >

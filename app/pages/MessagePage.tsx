@@ -1,6 +1,6 @@
 // A message on its own page (phones and narrow windows).
 import { t } from "nsh/i18n";
-import { Empty, LoadingIndicator, Page, systemHeader } from "../ui";
+import { Button, Empty, LoadingIndicator, Page, systemHeader } from "../ui";
 import { PageHeader } from "../components/PageHeader";
 import { PhoneReaderActions, Reader } from "../components/Reader";
 import { NavContext } from "../nav";
@@ -21,8 +21,16 @@ export function MessagePage(props: { id: string }) {
       <If
         when={message()}
         else={
-          <If when={current.error()} else={<Empty icon="mail" title={t("reader.loading")} action={<LoadingIndicator label={t("reader.loading")} contained />} />}>
-            <Empty icon="mail" title={t("reader.failed")} />
+          <If
+            when={current.error()}
+            else={<Empty icon="mail" title={t("reader.loading")} action={<LoadingIndicator label={t("reader.loading")} contained />} />}
+          >
+            <Empty
+              icon="alert"
+              title={t("reader.failed")}
+              description={t("reader.failedHint")}
+              action={<Button variant="tonal" icon="refresh" label={t("actions.retry")} onPress={() => current.refetch()} testID="reader-retry" />}
+            />
           </If>
         }
       >
