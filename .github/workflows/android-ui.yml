@@ -6,10 +6,15 @@ name: Android UI
 # reader also go to main/ on the `screenshots` branch, where README.md links them.
 on:
   workflow_dispatch:
+    inputs:
+      perf_only:
+        description: "Only measure frames: skip the screenshots."
+        default: "false"
   pull_request:
     paths: &paths
       - app/**
       - .github/android-ui.py
+      - .github/android-perf.py
       - .github/workflows/android-ui.yml
   push:
     branches: [main]
@@ -96,7 +101,7 @@ jobs:
           script: |
             # The frame measurement first, so a flaky screenshot step cannot keep it out of the log.
             python3 .github/android-perf.py app/.nsh/perf || true
-            python3 .github/android-ui.py app/.nsh/ui screens
+            if [ "${{ inputs.perf_only }}" != "true" ]; then python3 .github/android-ui.py app/.nsh/ui screens; fi
       - uses: actions/upload-artifact@v7
         if: always()
         with:

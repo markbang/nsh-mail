@@ -89,7 +89,7 @@ def summary(label, times):
     )
 
 
-def listed(timeout=120):
+def listed(timeout=240):
     """Until the inbox's rows are on screen: a cold start on a slow emulator takes a while."""
     import xml.etree.ElementTree as ET
 
@@ -105,6 +105,15 @@ def listed(timeout=120):
     return False
 
 
+def diagnose():
+    """Why no rows: what the app logged, and what is on screen."""
+    for line in adb("logcat", "-d", "-t", "400", check=False).splitlines():
+        if re.search(r"FATAL|AndroidRuntime|Exception|nsh|NSH|panic", line):
+            print("logcat:", line[:300], flush=True)
+    adb("shell", "uiautomator", "dump", "/sdcard/ui.xml", check=False)
+    print(adb("exec-out", "cat", "/sdcard/ui.xml", check=False)[:4000], flush=True)
+
+
 booted()
 adb("install", "-r", apk)
 adb("shell", "am", "force-stop", PKG)
@@ -114,6 +123,7 @@ while PKG not in focused() and time.time() < end:
     time.sleep(1)
 if not listed():
     print("the inbox did not show its rows: nothing measured", flush=True)
+    diagnose()
     sys.exit(1)
 time.sleep(3)
 
