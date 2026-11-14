@@ -1,5 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
+use mail_core::feed::FeedMessage;
+use serde::Serialize;
+
 use axum::{
     extract::{
         Query, State, WebSocketUpgrade,
@@ -16,6 +19,28 @@ use crate::{
     AppState,
     api::{ApiResult, AuthUser},
 };
+
+/// What a live client is told when the feed changes: the app's All view, an agent's SSE stream
+/// and ntfy's JSON stream all read these.
+#[derive(Clone, Debug, Serialize)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum FeedEvent {
+    Message {
+        message: Box<FeedMessage>,
+    },
+    Read {
+        id: String,
+        read_at: Option<i64>,
+    },
+    Archived {
+        id: String,
+        archived_at: Option<i64>,
+    },
+}
 
 #[derive(Deserialize)]
 pub struct EventParams {

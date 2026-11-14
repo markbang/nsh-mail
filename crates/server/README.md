@@ -47,6 +47,18 @@ Back up `data/` and the master key together; without the key the stored mail cre
 - Push data: `{type:"newMail", account, id, from?, subject?}`.
 - `GET|POST /v1/sources`, `GET|PATCH|DELETE /v1/sources/{id}`, `POST /v1/sources/{id}/token`, `POST /v1/sources/{id}/test` — notification sources (see [docs/design/notification-inbox.md](../../docs/design/notification-inbox.md)). A mail account is a `kind: "mail"` source created and deleted with the account. Creating a webhook/Gotify/ntfy source answers `{source, token, ingestUrl}` once; `/token` rotates it and the old URL stops working. Every mail message is also projected into the feed (`feed_messages`) by triggers in `mail_core`, so list and search behave the same for mail and for ingested notifications.
 
+## Ingestion
+
+Notifications arrive on URLs outside `/v1`; each one is a source, and the token in the URL is shown once:
+
+| Front end | URL | Notes |
+|---|---|---|
+| Webhook | `POST /hooks/{token}` | JSON or form; `config.preset` (`github`, `gitlab`, `sentry`, `grafana`, `uptime-kuma`) or `config.mapping` (`sender`, `title`, `body`, `bodyHtml`, `link`, `priority`, `tags`, `externalId` as a path, `a || b` chain, `{{template}}` or literal). Answers `202 {"id": …}`. |
+| Gotify | `POST /message?token={token}` | Gotify's JSON in, Gotify's JSON out. |
+| ntfy | `PUT|POST /{topic}` | The topic is the token; ntfy headers, JSON publish or plain body. `GET /{topic}/json` streams NDJSON, replaying from `?since=<seq>`. |
+
+Limits per source: 256 KiB a request, 60 messages a minute with a burst of 120. A source's `secret` (write-only, `hasSecret` in responses) turns on the `X-Hub-Signature-256` check for its webhook; it is stored AES-256-GCM in `users/notify.secrets.json`, which key rotation covers like the mail secrets. Ingested HTML goes through the same sanitizer as mail, with remote images removed; `externalId` makes a sender's retry a no-op; duplicates still answer `202` with the existing id.
+
 ## Notification feed
 
 `server.sqlite` gains `sources` and `feed_messages` at start; the migration is idempotent and verifies that the projection holds exactly one row per mail message (drafts and trash excluded). The projection is derived data:

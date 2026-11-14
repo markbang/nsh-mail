@@ -55,19 +55,20 @@
 
 `POST /hooks/{token}`，一个 source 一个 URL，token 32 字节随机数，库里只有哈希。
 
-- 请求体：JSON 或表单；`?format=` 可强制指定。
-- 映射：每个字段（`sender`、`title`、`body`、`link`、`priority`、`tags`、`external_id`）用 JSONPath 或 `{{…}}` 模板配置。默认映射：`title` 取 `title`/`subject`/`message`/`text` 里第一个，`body` 是 JSON 的其余部分。
-- 预设（内置可改）：GitHub（issue、PR、Actions、release）、GitLab（pipeline、MR）、Sentry、Grafana、Uptime Kuma。每个预设是一套映射加标题模板。
-- 可选签名校验：source 配了 secret 时校验 `X-Hub-Signature-256`（GitHub 风格 HMAC-SHA256），不匹配拒绝。
-- 返回 `202 {"id": "…"}`；`401` token 错、`413` 超过 256 KiB、`429` 超过每 source 限流（60/分，突发 120）。
+- 请求体：JSON 或表单；`?format=` 可强制指定。表单会变成一个扁平对象，所以同一套路径都能用。
+- 映射：source 的 `config.mapping` 里每个字段一条表达式——`sender`、`title`、`body`、`bodyHtml`、`link`、`priority`、`tags`、`externalId`。表达式可以是路径（`$.issue.title`、`.a.b[0].c`、`$['a']`）、回退链（`a || b`，取第一个有值且非空的）、模板（`{{repository.full_name}}: {{action}}`）或字面量（`3`）。路径只做普通取值，没有过滤器和通配符。`priority` 取 0–10，也可以给级别（`error`、`warning`、`info`、`debug`、`critical`、`alerting`、`ok`）。
+- 没配置字段时的默认值：`title` 取 `title`/`subject`/`message`/`text`/`name` 里第一个；`sender` 取 `sender`/`from`/`author`/`app`/`service`/`user`；`link` 取 `url`/`link`/`html_url`/`permalink`；`externalId` 取 `id`/`event_id`/`guid`/`uuid`/`fingerprint`；`priority` 取 `priority` 或级别；`body` 是 JSON 其余部分的 pretty 文本。
+- 预设（内置可改，`GET /v1/sources/presets`）：GitHub（issue、PR、Actions、release）、GitLab（pipeline、MR）、Sentry、Grafana、Uptime Kuma。source 用 `config.preset` 选一个，`config.mapping` 覆盖单个字段。
+- 可选签名校验：source 配了 secret 时，`X-Hub-Signature-256`（GitHub 风格 HMAC-SHA256，对原始请求体）必须匹配，否则 `401`。
+- 返回 `202 {"id": "…"}`（`externalId` 重复时同样返回、不入库）；`401` token 或签名错、`403` source 已暂停、`413` 超过 256 KiB、`429` 超过每 source 限流（60/分，突发 120）。
 
 ### Gotify 兼容（`kind = gotify`）
 
-`POST /message?token={token}`，请求体用 Gotify 的 JSON（`title`、`message`、`priority`、`extras`），返回 Gotify 的结构（`id`、`appid`、`message`、`title`、`priority`、`date`）。现有 `curl` 脚本和 Gotify 客户端改个地址就能用。
+`POST /message?token={token}`，请求体用 Gotify 的 JSON（`title`、`message`、`priority`、`extras`），返回 Gotify 的结构（`id`、`appid`、`message`、`title`、`priority`、`date`）；`id` 是 feed 里按用户的 `seq`，`date` 是 RFC 3339。`extras["client::display"].contentType = "text/html"` 时按清洗后的 HTML 存储。现有 `curl` 脚本和 Gotify 客户端改个地址就能用。
 
 ### ntfy 兼容（`kind = ntfy`）
 
-`PUT|POST /{topic}`，topic 就是 source 的 token，用 ntfy 的请求头（`Title`、`Priority`、`Tags` 等），正文就是消息；`GET /{topic}/json` 按 ntfy 的方式流式输出（同一 source 的鉴权）。`ntfy publish` 改个地址即可。
+`PUT|POST /{topic}`，topic 就是 source 的 token，用 ntfy 的请求头（`Title`、`Priority`、`Tags`、`Click`、`X-Title`、`X-Message`）、JSON 发布格式或直接正文，返回 ntfy 的消息 JSON。ntfy 的 1–5 优先级在 feed 里是 2–10。`GET /{topic}/json` 按 ntfy 的方式输出 NDJSON：先用 `?since=<seq>` 补发，然后跟随该 source 的实时消息，每 30 秒一个空行。`ntfy publish` 改个地址即可。
 
 ### IM 来源（`telegram`、`discord`、`slack`、`feishu`、`dingtalk`、`wecom`）
 
@@ -106,7 +107,12 @@ GET  /v1/messages?unread=1&source=src_…&since=<rfc3339|id>&q=…&limit=50&curs
 GET  /v1/messages/{id}
 POST /v1/messages/{id}/read        POST /v1/messages/{id}/archive
 GET  /v1/sources                   GET /v1/sources/{id}
+POST /v1/sources                   PATCH|DELETE /v1/sources/{id}
+POST /v1/sources/{id}/token        POST /v1/sources/{id}/test
+GET  /v1/sources/presets
 ```
+
+source 的 secret（webhook 的 HMAC 密钥）只写不读：新建或修改时传 `secret`（空串表示清除），返回里只有 `hasSecret`，主密钥 AES-256-GCM 加密存在 `users/notify.secrets.json`，现有密钥轮换已覆盖。`POST /v1/sources` 只返回一次 `{"source": …, "token": "…", "ingestUrl": "…"}`；`POST /v1/sources/{id}/token` 轮换后旧地址立刻失效；`POST /v1/sources/{id}/test` 通过与接收相同的路径写入一条测试消息。
 
 cursor 不透明（`received_at` + `id` 的 base64，keyset 分页）。`q` 走 FTS 索引，覆盖邮件和非邮件正文。所有查询都按 key 的 source 范围过滤。
 

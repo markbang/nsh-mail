@@ -55,19 +55,20 @@ Indexes: `(user_id, received_at DESC, id)`, `(user_id, source_id, received_at DE
 
 `POST /hooks/{token}` — one URL per source, token 32 random bytes, only its hash stored.
 
-- Body: JSON (`application/json`) or form-encoded; `?format=` overrides detection.
-- Mapping: JSONPath expressions (or `{{…}}` templates) per field — `sender`, `title`, `body`, `link`, `priority`, `tags`, `external_id` — configured per source in the app. Default mapping: `title` = first of `title`/`subject`/`message`/`text`, `body` = the rest of the JSON rendered as pretty text.
-- Presets (shipped, editable): GitHub (issues, PRs, Actions, releases), GitLab (pipeline, MR), Sentry (issue alerts), Grafana (alerting), Uptime Kuma. Each preset is a mapping plus a title template.
-- Optional signature check: when a source has a secret, `X-Hub-Signature-256` (GitHub style HMAC-SHA256) must match; otherwise the request is refused.
-- Response `202 {"id": "…"}`; `401` bad token, `413` body over 256 KiB, `429` over the per-source rate limit (60/min, burst 120).
+- Body: JSON (`application/json`) or form-encoded; `?format=` overrides detection. Form bodies become a flat object, so the same paths work.
+- Mapping: one expression per field — `sender`, `title`, `body`, `bodyHtml`, `link`, `priority`, `tags`, `externalId` — set in the source's `config.mapping` by the app. An expression is a path (`$.issue.title`, `.a.b[0].c`, `$['a']`), a fallback chain (`a || b`, first that resolves and is not empty), a template (`{{repository.full_name}}: {{action}}`), or a literal (`3`). Paths are plain lookups: no filters or wildcards. `priority` takes 0–10, or a level (`error`, `warning`, `info`, `debug`, `critical`, `alerting`, `ok`).
+- Defaults when a field is not mapped: `title` = first of `title`/`subject`/`message`/`text`/`name`; `sender` = `sender`/`from`/`author`/`app`/`service`/`user`; `link` = `url`/`link`/`html_url`/`permalink`; `externalId` = `id`/`event_id`/`guid`/`uuid`/`fingerprint`; `priority` = `priority` or a level; `body` = the rest of the JSON as pretty text.
+- Presets (shipped, editable, `GET /v1/sources/presets`): GitHub (issues, PRs, Actions, releases), GitLab (pipelines, MRs), Sentry (issue alerts), Grafana (alerting), Uptime Kuma. A source names one with `config.preset`; `config.mapping` overrides individual fields.
+- Optional signature check: when a source has a secret, `X-Hub-Signature-256` (GitHub style HMAC-SHA256 of the raw body) must match; otherwise the request is refused with `401`.
+- Response `202 {"id": "…"}` (also for a repeated `externalId`, which stores nothing); `401` bad token or signature, `403` paused source, `413` body over 256 KiB, `429` over the per-source rate limit (60/min, burst 120).
 
 ### Gotify compatible (`kind = gotify`)
 
-`POST /message?token={token}` with Gotify's JSON body (`title`, `message`, `priority`, `extras`) answering Gotify's shape (`id`, `appid`, `message`, `title`, `priority`, `date`). Existing `curl` scripts and Gotify's own clients work by changing the URL.
+`POST /message?token={token}` with Gotify's JSON body (`title`, `message`, `priority`, `extras`) answering Gotify's shape (`id`, `appid`, `message`, `title`, `priority`, `date`); `id` is the feed's per-user `seq` and `date` is RFC 3339. `extras["client::display"].contentType = "text/html"` stores the message as sanitized HTML. Existing `curl` scripts and Gotify's own clients work by changing the URL.
 
 ### ntfy compatible (`kind = ntfy`)
 
-`PUT|POST /{topic}` where the topic *is* the source token, with ntfy headers (`Title`, `Priority`, `Tags`, `X-Title`…) and the body as the message. `GET /{topic}/json` streams as ntfy does (per-source, same auth). Changing `ntfy publish` calls to this host is enough.
+`PUT|POST /{topic}` where the topic *is* the source token, with ntfy headers (`Title`, `Priority`, `Tags`, `Click`, `X-Title`, `X-Message`), the JSON publish form, or the body as the message; it answers ntfy's message JSON. ntfy priorities 1–5 become 2–10 in the feed. `GET /{topic}/json` streams newline-delimited JSON as ntfy does: it replays from `?since=<seq>` and then follows the source live, with an empty line every 30 s. Changing `ntfy publish` calls to this host is enough.
 
 ### IM sources (`telegram`, `discord`, `slack`, `feishu`, `dingtalk`, `wecom`)
 
@@ -108,9 +109,10 @@ POST /v1/messages/{id}/read        POST /v1/messages/{id}/archive
 GET  /v1/sources                   GET /v1/sources/{id}
 POST /v1/sources                   PATCH|DELETE /v1/sources/{id}
 POST /v1/sources/{id}/token        POST /v1/sources/{id}/test
+GET  /v1/sources/presets
 ```
 
-`POST /v1/sources` answers `{"source": …, "token": "…", "ingestUrl": "…"}` once; `POST /v1/sources/{id}/token` rotates the token and answers the same, so the old URL stops working immediately. `POST /v1/sources/{id}/test` stores a test message through the ingestion path.
+A source's secret (the webhook HMAC key) is write-only: sent as `secret` on create or patch (an empty string clears it), reported only as `hasSecret`. It is stored AES-256-GCM under the master key in `users/notify.secrets.json`, which the key rotation already covers. `POST /v1/sources` answers `{"source": …, "token": "…", "ingestUrl": "…"}` once; `POST /v1/sources/{id}/token` rotates the token and answers the same, so the old URL stops working immediately. `POST /v1/sources/{id}/test` stores a test message through the ingestion path.
 
 Cursors are opaque (base64 of `received_at` + `id`, keyset paging). `q` uses the FTS index across non-mail and mail text. Every query is filtered by the key's sources.
 

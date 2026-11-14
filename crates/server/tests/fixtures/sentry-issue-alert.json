@@ -1,0 +1,16 @@
+{
+  "action": "created",
+  "data": {
+    "issue": {
+      "id": "5566778899",
+      "title": "TypeError: cannot read property 'id' of undefined",
+      "culprit": "app/mail/list.tsx in MailList",
+      "permalink": "https://sentry.io/organizations/acme/issues/5566778899/",
+      "project": { "name": "nsh-mail-web", "slug": "nsh-mail-web" }
+    }
+  },
+  "level": "error",
+  "project_name": "nsh-mail-web",
+  "url": "https://sentry.io/api/0/organizations/acme/alerts/rule/42/",
+  "id": "42"
+}

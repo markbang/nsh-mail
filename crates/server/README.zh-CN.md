@@ -47,6 +47,18 @@ curl localhost:8080/healthz
 - 推送数据：`{type:"newMail", account, id, from?, subject?}`。
 - `GET|POST /v1/sources`、`GET|PATCH|DELETE /v1/sources/{id}`、`POST /v1/sources/{id}/token`、`POST /v1/sources/{id}/test` — 通知来源（见 [docs/design/notification-inbox.zh-CN.md](../../docs/design/notification-inbox.zh-CN.md)）。邮件账号就是一个 `kind: "mail"` 的 source，随账号创建和删除。新建 webhook/Gotify/ntfy 来源时返回一次 `{source, token, ingestUrl}`；`/token` 用于轮换，旧地址立刻失效。每封邮件也会被 `mail_core` 里的触发器投影进 feed（`feed_messages`），所以邮件和接收来的通知在列表与搜索里表现一致。
 
+## 接收
+
+通知从 `/v1` 之外的地址进来；每个地址对应一个 source，地址里的 token 只显示一次：
+
+| 入口 | 地址 | 说明 |
+|---|---|---|
+| Webhook | `POST /hooks/{token}` | JSON 或表单；用 `config.preset`（`github`、`gitlab`、`sentry`、`grafana`、`uptime-kuma`）或 `config.mapping`（`sender`、`title`、`body`、`bodyHtml`、`link`、`priority`、`tags`、`externalId`，取值可以写路径、`a || b` 回退链、`{{模板}}` 或字面量）。返回 `202 {"id": …}`。 |
+| Gotify | `POST /message?token={token}` | 收 Gotify 的 JSON，回 Gotify 的 JSON。 |
+| ntfy | `PUT|POST /{topic}` | topic 就是 token；支持 ntfy 请求头、JSON 发布或直接正文。`GET /{topic}/json` 输出 NDJSON，可用 `?since=<seq>` 补发。 |
+
+每个 source 的限制：单次 256 KiB，每分钟 60 条、突发 120 条。source 的 `secret`（只写，响应里只有 `hasSecret`）会开启 webhook 的 `X-Hub-Signature-256` 校验；它和邮件密钥一样用主密钥 AES-256-GCM 存在 `users/notify.secrets.json`，密钥轮换同样覆盖。接收来的 HTML 走和邮件相同的清洗（远程图片一律去掉）；`externalId` 让发送方的重试变成空操作，重复时同样返回 `202` 和已有的 id。
+
 ## 通知 feed
 
 启动时 `server.sqlite` 会新增 `sources` 和 `feed_messages`；迁移可重复执行，并校验投影里正好每封邮件一行（草稿箱和垃圾箱除外）。投影是派生数据：

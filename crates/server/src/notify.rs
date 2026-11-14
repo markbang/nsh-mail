@@ -11,31 +11,75 @@ use axum::{
     response::IntoResponse,
 };
 use mail_core::feed::{NewFeedMessage, NewSource, Source, SourcePatch, now_ms};
-use serde::Serialize;
-use serde_json::json;
+use mail_core::secrets::SecretStore;
+use serde::Deserialize;
+use serde_json::{Value, json};
 
 use crate::{
     AppState,
     api::{ApiResult, AuthUser},
-    crypto,
+    crypto, ingest,
 };
 
-#[derive(Serialize)]
+/// A source as the app sees it: the stored fields plus whether a webhook secret is set. Secrets
+/// are never returned.
+fn view(state: &AppState, source: &Source) -> Value {
+    let mut value = serde_json::to_value(source).unwrap_or(Value::Null);
+    let has_secret = state
+        .notify_secrets
+        .get(&ingest::secret_key(&source.id))
+        .ok()
+        .flatten()
+        .is_some();
+    value["hasSecret"] = json!(has_secret);
+    value
+}
+
+fn with_token(state: &AppState, source: &Source, token: String) -> Value {
+    json!({
+        "source": view(state, source),
+        "token": token,
+        "ingestUrl": ingest_url(&state.config.public_url, &source.kind, &token),
+    })
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct WithToken {
-    source: Source,
-    token: String,
-    /// Where to send notifications with that token.
-    ingest_url: String,
+pub struct CreateSource {
+    #[serde(flatten)]
+    source: NewSource,
+    /// Write-only: the HMAC key a webhook's `X-Hub-Signature-256` is checked against.
+    #[serde(default)]
+    secret: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSource {
+    #[serde(flatten)]
+    patch: SourcePatch,
+    /// Empty string clears it.
+    #[serde(default)]
+    secret: Option<String>,
+}
+
+/// The shipped presets the settings UI offers; each is a mapping the user can then edit.
+pub async fn list_presets() -> ApiResult<impl IntoResponse> {
+    Ok(Json(ingest::presets::list()))
 }
 
 pub async fn list_sources(
     State(s): State<Arc<AppState>>,
     user: AuthUser,
 ) -> ApiResult<impl IntoResponse> {
-    Ok(Json(
-        json!({ "sources": s.mail_db.feed(user.id).sources()? }),
-    ))
+    let sources: Vec<Value> = s
+        .mail_db
+        .feed(user.id)
+        .sources()?
+        .iter()
+        .map(|source| view(&s, source))
+        .collect();
+    Ok(Json(json!({ "sources": sources })))
 }
 
 pub async fn get_source(
@@ -43,16 +87,17 @@ pub async fn get_source(
     user: AuthUser,
     Path(id): Path<String>,
 ) -> ApiResult<impl IntoResponse> {
-    Ok(Json(s.mail_db.feed(user.id).source(&id)?))
+    let source = s.mail_db.feed(user.id).source(&id)?;
+    Ok(Json(view(&s, &source)))
 }
 
 pub async fn create_source(
     State(s): State<Arc<AppState>>,
     user: AuthUser,
-    Json(new): Json<NewSource>,
+    Json(input): Json<CreateSource>,
 ) -> ApiResult<impl IntoResponse> {
     let feed = s.mail_db.feed(user.id);
-    let (token, hash) = match mail_core::feed::TOKEN_KINDS.contains(&new.kind.as_str()) {
+    let (token, hash) = match mail_core::feed::TOKEN_KINDS.contains(&input.source.kind.as_str()) {
         true => {
             let token = crypto::new_token();
             let hash = crypto::sha256(token.as_bytes());
@@ -60,19 +105,14 @@ pub async fn create_source(
         }
         false => (None, None),
     };
-    let source = feed.create_source(&new, hash.as_deref())?;
+    let source = feed.create_source(&input.source, hash.as_deref())?;
+    if let Some(secret) = input.secret.as_deref().filter(|s| !s.is_empty()) {
+        s.notify_secrets
+            .set(&ingest::secret_key(&source.id), secret)?;
+    }
     let body = match token {
-        Some(token) => {
-            let ingest_url = ingest_url(&s.config.public_url, &source.kind, &token);
-            WithToken {
-                source,
-                token,
-                ingest_url,
-            }
-        }
-        None => {
-            return Ok((StatusCode::CREATED, Json(json!({ "source": source }))).into_response());
-        }
+        Some(token) => with_token(&s, &source, token),
+        None => json!({ "source": view(&s, &source) }),
     };
     Ok((StatusCode::CREATED, Json(body)).into_response())
 }
@@ -81,9 +121,18 @@ pub async fn update_source(
     State(s): State<Arc<AppState>>,
     user: AuthUser,
     Path(id): Path<String>,
-    Json(patch): Json<SourcePatch>,
+    Json(input): Json<UpdateSource>,
 ) -> ApiResult<impl IntoResponse> {
-    Ok(Json(s.mail_db.feed(user.id).update_source(&id, &patch)?))
+    let source = s.mail_db.feed(user.id).update_source(&id, &input.patch)?;
+    if let Some(secret) = input.secret {
+        let key = ingest::secret_key(&id);
+        if secret.is_empty() {
+            s.notify_secrets.delete(&key)?;
+        } else {
+            s.notify_secrets.set(&key, &secret)?;
+        }
+    }
+    Ok(Json(view(&s, &source)))
 }
 
 pub async fn delete_source(
@@ -92,6 +141,7 @@ pub async fn delete_source(
     Path(id): Path<String>,
 ) -> ApiResult<StatusCode> {
     s.mail_db.feed(user.id).delete_source(&id)?;
+    s.notify_secrets.delete(&ingest::secret_key(&id))?;
     Ok(StatusCode::NO_CONTENT)
 }
 

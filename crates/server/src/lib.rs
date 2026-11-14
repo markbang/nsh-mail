@@ -3,6 +3,7 @@ pub mod config;
 pub mod crypto;
 pub mod db;
 pub mod events;
+pub mod ingest;
 pub mod mail;
 pub mod notify;
 pub mod oauth;
@@ -20,7 +21,7 @@ use axum::{
     http::{HeaderValue, Method, header},
     middleware::{self, Next},
     response::Response,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
 };
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
@@ -42,6 +43,11 @@ pub struct AppState {
     pub push: Arc<Push>,
     pub http: reqwest::Client,
     pub vapid_public_key: String,
+    /// Webhook secrets for notification sources, AES-256-GCM under the master key. It lives in
+    /// `users/` as `*.secrets.json` so `rotate_secrets` re-encrypts it with the rest.
+    pub notify_secrets: Arc<mail_core::secrets::EncryptedFileStore>,
+    pub rate_limits: ingest::RateLimits,
+    pub feed_events: tokio::sync::broadcast::Sender<events::FeedEvent>,
 }
 
 /// Opens storage (moving old per-user mail databases in), loads push credentials and starts mail
@@ -84,6 +90,10 @@ pub async fn build(config: Config) -> Result<Arc<AppState>> {
         fcm,
         presence: Default::default(),
     });
+    let notify_secrets = Arc::new(mail_core::secrets::EncryptedFileStore::with_key(
+        users_dir.join("notify.secrets.json"),
+        config.master_key,
+    ));
     let mailboxes = Mailboxes::new(
         mail_db.clone(),
         users_dir,
@@ -93,6 +103,7 @@ pub async fn build(config: Config) -> Result<Arc<AppState>> {
         push.clone(),
     );
     uploads::sweep(config.data_dir.join("uploads"));
+    let (feed_events, _) = tokio::sync::broadcast::channel(512);
     let state = Arc::new(AppState {
         vapid_public_key,
         config,
@@ -101,6 +112,9 @@ pub async fn build(config: Config) -> Result<Arc<AppState>> {
         mailboxes,
         push,
         http,
+        notify_secrets,
+        rate_limits: Default::default(),
+        feed_events,
     });
     let users = state
         .mailboxes
@@ -168,6 +182,7 @@ pub fn router(state: Arc<AppState>) -> Router {
                 .patch(notify::update_source)
                 .delete(notify::delete_source),
         )
+        .route("/sources/presets", get(notify::list_presets))
         .route("/sources/{id}/token", post(notify::rotate_token))
         .route("/sources/{id}/test", post(notify::test_source))
         .route("/devices", post(api::add_device))
@@ -175,8 +190,23 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/push/vapid-key", get(api::vapid_key))
         .route("/events", get(events::events));
 
+    // Ingestion, outside `/v1` because these URLs are copied into other services: our webhook,
+    // Gotify's `POST /message?token=`, and ntfy's `PUT|POST /{topic}`.
+    let ingest_limit = DefaultBodyLimit::max(ingest::BODY_LIMIT);
     let mut app = Router::new()
         .nest("/v1", api)
+        .route("/hooks/{token}", post(ingest::webhook).layer(ingest_limit))
+        .route(
+            "/message",
+            post(ingest::gotify).layer(DefaultBodyLimit::max(ingest::BODY_LIMIT)),
+        )
+        .route(
+            "/{topic}",
+            put(ingest::ntfy_publish)
+                .post(ingest::ntfy_publish)
+                .layer(DefaultBodyLimit::max(ingest::BODY_LIMIT)),
+        )
+        .route("/{topic}/json", get(ingest::ntfy_stream))
         .route("/healthz", get(api::health));
 
     if let Some(dir) = &state.config.web_dir {

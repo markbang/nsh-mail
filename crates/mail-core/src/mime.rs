@@ -158,7 +158,7 @@ fn rendered(msg: &mail_parser::Message<'_>) -> (Option<String>, Vec<String>, Vec
     let mut budget = INLINE_BUDGET;
     match html_of(&msg.root(), &mut budget) {
         Some(h) => {
-            let (clean, remote, shown) = sanitize_html(&h, &inline_images(msg, &mut budget));
+            let (clean, remote, shown) = sanitize_html(&h, &inline_images(msg, &mut budget), false);
             (Some(clean), remote, shown)
         }
         None => (None, Vec::new(), Vec::new()),
@@ -308,6 +308,7 @@ fn data_uri(part: &MessagePart<'_>, budget: &mut usize) -> Option<String> {
 pub(crate) fn sanitize_html(
     html: &str,
     inline: &HashMap<String, String>,
+    block_remote: bool,
 ) -> (String, Vec<String>, Vec<String>) {
     let remote = Arc::new(Mutex::new(Vec::<String>::new()));
     let shown = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -357,13 +358,22 @@ pub(crate) fn sanitize_html(
                 return Some(Cow::Owned(uri.clone()));
             }
             if (image || attribute == "background") && is_remote(&lower) {
+                if block_remote {
+                    return None;
+                }
                 lock(&sink).push(v.to_string());
+            }
+            // A remote background image leaks the same read receipt as an <img>.
+            if attribute == "style" && block_remote && lower.contains("url(") {
+                return None;
             }
             Some(Cow::Borrowed(value))
         });
     let clean = builder.clean(html).to_string();
     let mut remote = std::mem::take(&mut *lock(&remote));
-    remote.extend(css_urls(&clean));
+    if !block_remote {
+        remote.extend(css_urls(&clean));
+    }
     let shown = std::mem::take(&mut *lock(&shown));
     (clean, remote, shown)
 }
