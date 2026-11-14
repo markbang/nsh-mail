@@ -106,7 +106,13 @@ export function InboxPage() {
       root
     >
       <View class="flex-1 bg-surface">
-        <MailboxList onOpen={open} onAddAccount={() => nav.stack.push({ name: "addAccount" })} searchable={false} touchActions={systemHeader} />
+        <MailboxList
+          onOpen={open}
+          onAddAccount={() => nav.stack.push({ name: "addAccount" })}
+          onCompose={() => nav.stack.push({ name: "compose", init: { mode: "new" } })}
+          searchable={false}
+          touchActions={systemHeader}
+        />
       </View>
     </Page>
   );

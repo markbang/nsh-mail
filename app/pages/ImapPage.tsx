@@ -29,7 +29,8 @@ export function ImapPage() {
   const settings = signal<ServerSettings>(guess(""));
   const known = signal(false);
   const busy = signal(false);
-  const error = signal<string | null>(null);
+  // The failure, with its code: a refused sign-in also explains app passwords.
+  const error = signal<{ text: string; code?: string } | null>(null);
 
   const set = (server: "imap" | "smtp", change: Partial<Endpoint>) =>
     settings.update((s) => ({ ...s, [server]: { ...s[server], ...change } }));
@@ -39,8 +40,9 @@ export function ImapPage() {
     { value: "starttls", title: t("imap.starttls") },
   ];
 
+  const fail = (e: unknown) => error.set({ text: errorText(e), code: (e as { code?: string })?.code });
   const detect = async () => {
-    if (!isAddress(email())) return error.set(t("imap.badEmail"));
+    if (!isAddress(email())) return error.set({ text: t("imap.badEmail") });
     error.set(null);
     busy.set(true);
     try {
@@ -49,7 +51,7 @@ export function ImapPage() {
       settings.set(found ? { ...found, username: found.username || email().trim() } : guess(email().trim()));
       step.set("servers");
     } catch (e) {
-      error.set(errorText(e));
+      fail(e);
     } finally {
       busy.set(false);
     }
@@ -57,8 +59,8 @@ export function ImapPage() {
 
   const add = async () => {
     const s = settings();
-    if (!s.imap.host.trim() || !s.smtp.host.trim()) return error.set(t("imap.needServers"));
-    if (!password()) return error.set(t("imap.needPassword"));
+    if (!s.imap.host.trim() || !s.smtp.host.trim()) return error.set({ text: t("imap.needServers") });
+    if (!password()) return error.set({ text: t("imap.needPassword") });
     error.set(null);
     busy.set(true);
     try {
@@ -74,7 +76,7 @@ export function ImapPage() {
       showToast(t("accounts.added", { email: account.email }));
       nav.done();
     } catch (e) {
-      error.set(errorText(e));
+      fail(e);
     } finally {
       busy.set(false);
     }
@@ -146,9 +148,27 @@ export function ImapPage() {
         </If>
 
         <If when={error()}>
-          <Text class={`text-error ${note}`} testID="imap-error">
-            {error()}
-          </Text>
+          {(failure) => (
+            <View role="alert" class="gap-2 rounded-large bg-error-container p-4" testID="imap-error">
+              <Text class={`text-on-error-container ${note}`}>{failure().text}</Text>
+              <If when={failure().code === "ERR_AUTH"}>
+                <Text class={`text-on-error-container ${note}`}>{t("imap.authFailed")}</Text>
+                <If when={settings().helpUrl}>
+                  {(url) => (
+                    <Button
+                      size="xs"
+                      variant="tonal"
+                      icon="external"
+                      label={t("imap.appPasswordLink", { provider: provider() })}
+                      onPress={() => void openUrl(url())}
+                      class="self-start"
+                      testID="imap-auth-help"
+                    />
+                  )}
+                </If>
+              </If>
+            </View>
+          )}
         </If>
 
         <If

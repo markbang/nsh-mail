@@ -160,8 +160,13 @@ test("search finds mail across accounts and folders", async () => {
   await app.waitFor("id:results >> text:Re: Q4 roadmap draft");
   await app.waitFor("text:Results for “roadmap”");
   await app.clear("id:search");
+  await app.waitFor("id:results", { state: "gone" });
   await app.type("id:search", "no such words anywhere");
   await app.waitFor("text:Nothing found for “no such words anywhere”");
+  await app.waitFor("id:search-empty >> text:Try another word, or check the spelling.");
+  // Clearing goes back to the mailbox the search was over.
+  await app.press("id:search-clear");
+  await app.waitFor("id:messages >> text:Q4 roadmap draft");
 });
 
 test("archives a message with Undo, then for real", async () => {

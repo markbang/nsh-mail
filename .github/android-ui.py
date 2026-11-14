@@ -326,6 +326,16 @@ for mode in ("light", "dark"):
                     break
             else:
                 fail("the receipt never opened")
+        # A search that finds nothing says so, and clears back to the hint.
+        if tap("id:search"):
+            adb("shell", "input", "keyevent", "123", *["67"] * 10)
+            adb("shell", "input", "text", "zzzzqqq")
+            wait("id:search-empty", 15)
+            back()
+            shot(f"{mode}-search-none")
+            if tap("id:search-clear"):
+                wait("text:Search by sender, subject or text.", 5)
+                shot(f"{mode}-search-hint")
 
     if tap("Mailboxes"):
         wait("id:mailbox-all")
@@ -335,6 +345,12 @@ for mode in ("light", "dark"):
             shot(f"{mode}-scheduled")
             if tap("Mailboxes"):
                 tap("id:mailbox-all")
+        # Nothing is seeded in Drafts: the folder says so, with its one next step.
+        if tap("id:mailbox-drafts"):
+            wait("text:No drafts", 15)
+            shot(f"{mode}-empty-folder")
+        if tap("Mailboxes"):
+            tap("id:mailbox-all")
 
     if tap("Settings"):
         wait("id:settings")

@@ -5,7 +5,7 @@ import { batch, resource, signal, Storage } from "nsh";
 import { t } from "nsh/i18n";
 import { fileSize } from "./lib/format";
 import { clearDrafts, loadDrafts } from "./drafts";
-import { Mail, type Account, type Address, type Flags, type Folder, type MailEvent, type Signature, type Status, type Summary, type Thread } from "nsh-mail/native";
+import { Mail, type Account, type Address, type ErrorInfo, type Flags, type Folder, type MailEvent, type Signature, type Status, type Summary, type Thread } from "nsh-mail/native";
 
 const PAGE = 30;
 /** The most results a search shows. */
@@ -75,6 +75,8 @@ const selected = signal<string | null>(null);
 const selectedThread = signal<string | null>(null);
 const query = signal("");
 const results = signal<Row[] | null>(null);
+const searchState = signal<"idle" | "loading" | "error">("idle");
+const searchFailure = signal<string | null>(null);
 export interface ToastAction {
   label: string;
   run: () => void;
@@ -125,6 +127,11 @@ export const searchResults = () => {
   const list = results();
   return list && list.filter((r) => shown(r, gone));
 };
+/** A search is shown: the user typed something, or its results are on screen. */
+export const searchActive = () => results() !== null || !!query().trim();
+export const searchStatus = () => searchState();
+/** Why the last search failed, as people read it. */
+export const searchError = () => searchFailure();
 export const conversationsEnabled = () => threadsOn();
 /** Archived or deleted, its Undo still open. */
 export const isLeaving = (key: string) => !!leaving()[key];
@@ -239,10 +246,8 @@ function close() {
 }
 
 /** A failure as people read it: by its code, with the engine's detail. */
-export function errorText(e: unknown): string {
-  const code = (e as { code?: string })?.code;
-  const message = e instanceof Error ? e.message : String(e);
-  switch (code) {
+export function errorInfoText(e: ErrorInfo): string {
+  switch (e.code) {
     case "ERR_UNSUPPORTED":
       return t("errors.unsupported");
     case "ERR_AUTH":
@@ -250,14 +255,18 @@ export function errorText(e: unknown): string {
     case "ERR_NETWORK":
       return t("errors.network");
     case "ERR_INVALID_INPUT":
-      return t("errors.invalid", { detail: message });
+      return t("errors.invalid", { detail: e.message });
     case "ERR_OAUTH":
-      return t("errors.oauth", { detail: message });
+      return t("errors.oauth", { detail: e.message });
     case "ERR_TOO_LARGE":
       return t("compose.tooLarge", { limit: fileSize(Mail.attachmentLimit()) });
     default:
-      return t("errors.generic", { detail: message });
+      return t("errors.generic", { detail: e.message });
   }
+}
+
+export function errorText(e: unknown): string {
+  return errorInfoText({ code: (e as { code?: string })?.code ?? "", message: e instanceof Error ? e.message : String(e) });
 }
 
 let sessionListener: (() => void) | undefined;
@@ -518,14 +527,28 @@ export async function runSearch(text: string) {
   query.set(text);
   const token = ++searchToken;
   if (!text.trim()) {
-    results.set(null);
+    batch(() => {
+      results.set(null);
+      searchState.set("idle");
+      searchFailure.set(null);
+    });
     return;
   }
+  searchState.set("loading");
+  searchFailure.set(null);
   try {
     const found = await Mail.search(text, SEARCH_LIMIT);
-    if (token === searchToken) results.set(found.map(messageRow));
+    if (token !== searchToken) return;
+    batch(() => {
+      results.set(found.map(messageRow));
+      searchState.set("idle");
+    });
   } catch (e) {
-    if (token === searchToken) showToast(errorText(e), "error");
+    if (token !== searchToken) return;
+    batch(() => {
+      searchState.set("error");
+      searchFailure.set(errorText(e));
+    });
   }
 }
 
@@ -543,6 +566,8 @@ export function clearSearch() {
   batch(() => {
     query.set("");
     results.set(null);
+    searchState.set("idle");
+    searchFailure.set(null);
   });
 }
 
@@ -569,6 +594,8 @@ export async function sessionChanged() {
     selectedThread.set(null);
     results.set(null);
     query.set("");
+    searchState.set("idle");
+    searchFailure.set(null);
     box.set({ account: null, folder: "inbox" });
     unreadCounts.set({});
   });

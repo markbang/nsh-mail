@@ -21,6 +21,7 @@ for p in "${GREENMAIL_SMTP_PORT:-3025}" "${GREENMAIL_IMAPS_PORT:-3993}"; do
   (echo > "/dev/tcp/127.0.0.1/$p") 2>/dev/null || { echo "GreenMail is not listening on port $p" >&2; exit 1; }
 done
 
+# The failure shots kill the server at the end of the run: shoot.mjs gets its pid.
 NSHMAIL_MASTER_KEY=$(head -c 32 /dev/urandom | base64) \
   NSHMAIL_DATA_DIR="$data" \
   NSHMAIL_BIND="127.0.0.1:$port" \
@@ -29,5 +30,6 @@ NSHMAIL_MASTER_KEY=$(head -c 32 /dev/urandom | base64) \
   "$server" > "$out/server.log" 2>&1 &
 for _ in $(seq 60); do (echo > "/dev/tcp/127.0.0.1/$port") 2>/dev/null && break; sleep 1; done
 
+server_pid=$!
 python3 "$here/seed.py"
-node "$here/shoot.mjs" "http://127.0.0.1:$port" "$out"
+SERVER_PID=$server_pid node "$here/shoot.mjs" "http://127.0.0.1:$port" "$out"

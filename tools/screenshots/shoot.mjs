@@ -214,5 +214,44 @@ for (const theme of ["light", "dark"]) {
   log("narrow reader scrolls sideways by", overflow, "px");
   if (overflow === null || overflow > 0) throw new Error(`the booking mail at 412px: sideways overflow ${overflow}`);
 }
+// Empty and failure states, at 1440 again: a folder with nothing in it, a search that finds nothing.
+await page.setViewportSize({ width: 1440, height: 900 });
+for (const theme of ["light", "dark"]) {
+  await page.emulateMedia({ colorScheme: theme });
+  await home();
+  // Nothing is seeded in Drafts or Trash.
+  await press("mailbox-drafts");
+  await page.getByText("No drafts").waitFor({ timeout: 30_000 });
+  await shot("empty-folder", theme);
+  await press("mailbox-trash");
+  await page.getByText("Trash is empty").waitFor({ timeout: 30_000 });
+  await shot("empty-trash", theme);
+  await press("mailbox-all");
+  await fill("search", "no such words anywhere");
+  await page.getByText("Nothing found for \u201cno such words anywhere\u201d").waitFor({ timeout: 30_000 });
+  await shot("search-none", theme);
+  await press("search-clear");
+}
+
+// The server goes away: the sync fails (a banner with a retry) and the reader
+// cannot open a message. Both say what to do, instead of looking empty.
+const serverPid = Number(process.env.SERVER_PID ?? 0);
+if (!serverPid) log("SERVER_PID unset: no failure shots");
+else {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await home();
+  process.kill(serverPid, "SIGKILL");
+  await press("refresh-all");
+  await id("sync-banner").waitFor({ timeout: 90_000 });
+  await shot("sync-error", "dark");
+  await page.emulateMedia({ colorScheme: "light" });
+  await shot("sync-error", "light");
+  await page.getByText("Reminder: benefits enrollment closes Nov 20").first().click();
+  await id("reader-retry").waitFor({ timeout: 60_000 });
+  await shot("reader-error", "light");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await shot("reader-error", "dark");
+}
+
 await browser.close();
 log("done");
