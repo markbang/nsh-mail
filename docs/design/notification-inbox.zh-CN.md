@@ -22,9 +22,11 @@
 | `enabled` | 暂停接收而不删除 |
 | `created_at` | |
 
-邮件账号就是一个 `kind = mail` 的 source，`config.account_id` 指向现有的邮件账号。迁移时给已有账号补上 source；邮件代码路径不变。
+邮件账号就是一个 `kind = mail` 的 source，`config.accountId` 指向现有的邮件账号（id 为 `src_m_<账号 id>`，重建时落在同一行）。迁移时给已有账号补上 source；邮件代码路径不变。
 
-### `messages`（feed）
+### `feed_messages`（feed）
+
+（初稿叫 `messages`，但同一个库里邮件表已经用了这个名字。）
 
 | 字段 | 说明 |
 |---|---|
@@ -34,16 +36,18 @@
 | `sender`、`title` | |
 | `body_text`、`body_html`、`body_markdown` | 至少一个；HTML 和邮件一样清洗（脚本、事件属性去掉，远程图片默认拦截） |
 | `link` | 用系统浏览器打开 |
-| `received_at` | 服务端接收时间 |
+| `received_at` | 服务端接收时间，毫秒时间戳（邮件的 `date` 本来就是毫秒） |
 | `read_at`、`archived_at` | 未读 / 仍在 feed 里时为 null |
 | `priority` | 0–10，与 Gotify/ntfy 同尺度 |
 | `tags` | JSON 数组 |
 | `payload` | 原始请求体，最多 64 KiB，便于排查 |
 | `thread_id` | 仅邮件 |
 
-索引：`(user_id, received_at DESC, id)`、`(user_id, source_id, received_at DESC)`、未读部分索引、以及非邮件正文的 FTS 表。
+索引：`(user_id, received_at DESC, id)`、`(user_id, source_id, received_at DESC)`、未读部分索引、去重用的唯一索引 `(source_id, external_id) WHERE external_id IS NOT NULL`，以及非邮件正文的第二张 FTS 表（`feed_messages_fts`）；邮件正文仍在邮件索引里。
 
-**邮件是投影，不是搬家。** 邮件保留自己的表（正文、标记、线程、水位）。每次插入邮件或改标记，在同一个事务里写一条 `messages` 行——统一 feed 用的投影副本，这样 feed 的分页、筛选和 SSE 都是一条查询，邮件代码完全不动。投影可重建（`nsh-mail-server rebuild-feed`），所以出 bug 也不会丢邮件。代价是每封邮件多一行（约 120 字节加文本），换来统一的 feed。
+`id` 对接收来的消息是 `msg_…`，对邮件就是邮件 id；`seq`（rowid）按用户单调递增，SSE 从它续传。
+
+**邮件是投影，不是搬家。** 邮件保留自己的表（正文、标记、线程、水位）。`accounts`、`folders`、`messages` 上的触发器在同一个事务里写对应的 `feed_messages` 行——所以邮件代码路径不变——草稿箱和垃圾箱不投影（它们不是通知）——统一 feed 用的投影副本，这样 feed 的分页、筛选和 SSE 都是一条查询，邮件代码完全不动。投影可重建（`nsh-mail-server rebuild-feed`），所以出 bug 也不会丢邮件。代价是每封邮件多一行（约 120 字节加文本），换来统一的 feed。
 
 ## 2. 入口
 

@@ -21,7 +21,7 @@ pub const LOCAL_USER: i64 = 0;
 /// `user_id` in place (its rows become [`LOCAL_USER`]'s).
 #[derive(Clone)]
 pub struct MailDb {
-    conn: Arc<Mutex<Connection>>,
+    pub(crate) conn: Arc<Mutex<Connection>>,
 }
 
 /// One user's view of a [`MailDb`]. Every statement on the mail tables binds `user_id` as `?1`;
@@ -223,6 +223,16 @@ const SUBJECT_WINDOW_MS: i64 = 30 * 24 * 3600 * 1000;
 
 impl MailDb {
     pub fn open(path: &Path) -> Result<Self> {
+        Self::open_inner(path, true)
+    }
+
+    /// Opens without migrating the feed, for `nsh-mail-server rebuild-feed`: that command must be
+    /// able to repair a projection the migration would refuse to accept.
+    pub fn open_unmigrated(path: &Path) -> Result<Self> {
+        Self::open_inner(path, false)
+    }
+
+    fn open_inner(path: &Path, migrate_feed: bool) -> Result<Self> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| {
                 err(
@@ -266,6 +276,18 @@ impl MailDb {
         }
         conn.pragma_update(None, "foreign_keys", true)?;
         conn.execute_batch(SCHEMA)?;
+        if migrate_feed {
+            Self::migrate_feed(&mut conn).map_err(|e| {
+                err(
+                    ErrorCode::Storage,
+                    format!(
+                        "cannot migrate the notification feed in {}: {}",
+                        path.display(),
+                        e.message
+                    ),
+                )
+            })?;
+        }
         thread_unthreaded(&mut conn).map_err(|e| {
             err(
                 ErrorCode::Storage,

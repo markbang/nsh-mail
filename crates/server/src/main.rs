@@ -7,6 +7,10 @@ async fn main() {
     if std::env::args().nth(1).as_deref() == Some("healthcheck") {
         std::process::exit(healthcheck().await);
     }
+    // Recreates the notification feed from the mail tables; mail is only read.
+    if std::env::args().nth(1).as_deref() == Some("rebuild-feed") {
+        std::process::exit(rebuild_feed());
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -35,6 +39,24 @@ async fn run() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown())
         .await?;
     Ok(())
+}
+
+/// `rebuild-feed`: the projection is derived data, so this is the repair for a feed that is wrong
+/// or was written by a buggy version. Counts go to stdout as JSON for an operator to keep.
+fn rebuild_feed() -> i32 {
+    let dir = std::env::var("NSHMAIL_DATA_DIR").unwrap_or_else(|_| "data".into());
+    let path = std::path::Path::new(&dir).join("server.sqlite");
+    let counts = mail_core::MailDb::open_unmigrated(&path).and_then(|db| db.rebuild_feed());
+    match counts {
+        Ok(c) => {
+            println!("{}", serde_json::to_string(&c).unwrap_or_default());
+            0
+        }
+        Err(e) => {
+            eprintln!("nsh-mail-server rebuild-feed: {}", e.message);
+            1
+        }
+    }
 }
 
 async fn healthcheck() -> i32 {
