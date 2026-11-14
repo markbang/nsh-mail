@@ -279,8 +279,12 @@ for mode in ("light", "dark"):
             back()  # the keyboard
             wait("id:signature-preview")
             shot(f"{mode}-signature")
-            if tap("id:signature-save"):
-                wait("id:settings")
+            # The first tap may only take the focus from the field.
+            for _ in range(2):
+                if tap("id:signature-save") and find("id:settings", 8):
+                    break
+            else:
+                fail("the signature page never closed")
 
     if tap("Mail"):
         wait("id:messages")
