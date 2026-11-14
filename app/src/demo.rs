@@ -1016,7 +1016,7 @@ const ARRIVALS: &[((&str, &str), &str, &str)] = &[
     ),
     (
         ("GitHub", "notifications@github.com"),
-        "[markbang/nsh-mail] CI passed on main",
+        "[northwind/atlas] CI passed on main",
         "All checks have passed on main.\n\n5 successful checks: core, server, linux, windows, web.",
     ),
     (
@@ -1175,8 +1175,8 @@ const SEEDS: &[Seed] = &[
             WORK,
             7.0 * HOUR,
             ("GitHub", "notifications@github.com"),
-            "[markbang/nsh-mail] Review requested: feat(app): client UI",
-            "@markbang requested your review on #3: feat(app): client UI.\n\n+2,140 −12 across 41 files.",
+            "[northwind/atlas] Review requested: feat(app): client UI",
+            "@maya-patel requested your review on #3: feat(app): client UI.\n\n+2,140 −12 across 41 files.",
         )
     },
     Seed {
@@ -1311,8 +1311,8 @@ const SEEDS: &[Seed] = &[
         WORK,
         12.0 * DAY,
         ("GitHub", "notifications@github.com"),
-        "[markbang/nsh-mail] Issue #1 opened: design doc",
-        "markbang opened issue #1: design doc.",
+        "[northwind/atlas] Issue #1 opened: design doc",
+        "jonas-weber opened issue #1: design doc.",
     ),
     seed_msg(
         OUTLOOK,
