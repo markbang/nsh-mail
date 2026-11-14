@@ -47,7 +47,7 @@
 
 `id` 对接收来的消息是 `msg_…`，对邮件就是邮件 id；`seq`（rowid）按用户单调递增，SSE 从它续传。
 
-**邮件是投影，不是搬家。** 邮件保留自己的表（正文、标记、线程、水位）。`accounts`、`folders`、`messages` 上的触发器在同一个事务里写对应的 `feed_messages` 行——所以邮件代码路径不变——草稿箱和垃圾箱不投影（它们不是通知）——统一 feed 用的投影副本，这样 feed 的分页、筛选和 SSE 都是一条查询，邮件代码完全不动。投影可重建（`nsh-mail-server rebuild-feed`），所以出 bug 也不会丢邮件。代价是每封邮件多一行（约 120 字节加文本），换来统一的 feed。
+**邮件是投影，不是搬家。** 邮件保留自己的表（正文、标记、线程、水位）。`accounts`、`folders`、`messages` 上的触发器在同一个事务里写对应的 `feed_messages` 行——所以邮件代码路径不变——草稿箱和垃圾箱不投影（它们不是通知）——统一 feed 用的投影副本，这样 feed 的分页、筛选和 SSE 都是一条查询，邮件代码完全不动。已经躺在 Archive 里的邮件按已归档投影（`archived_at` 就是邮件日期），因为归档就是“处理完了”，这样 App 的归档和 agent 的归档是同一件事。投影可重建（`nsh-mail-server rebuild-feed`），所以出 bug 也不会丢邮件。代价是每封邮件多一行（约 120 字节加文本），换来统一的 feed。
 
 ## 2. 入口
 
@@ -98,29 +98,40 @@
 | `source_ids` | 为空表示全部 source，否则只这些 |
 | `expires_at`、`last_used_at`、`revoked_at` | |
 
-`Authorization: Bearer nb_…`（或 `X-API-Key`）。key 只用于新接口，App 自己的会话鉴权不变。
+`Authorization: Bearer nb_…`（或 `X-API-Key`）。key 只用于 feed 接口、实时流和 `/mcp`；App 自己的会话鉴权不变，同一批路由两种身份都接受，所以 agent 和 App 看到的 feed 永远一致。
+
+key 是 `nb_` 加 32 字节随机数，`prefix` 取前 8 个字符。所有 key 都能读；`scopes` 里的 `write` 表示可以标记已读和归档。`last_used_at` 最多每分钟写一次，轮询的 agent 不会把每个请求都变成一次写入。`POST /v1/keys` 只返回一次 token，明文从不落盘；撤销后下一个请求即失效。
 
 ### REST
 
 ```
-GET  /v1/messages?unread=1&source=src_…&since=<rfc3339|id>&q=…&limit=50&cursor=…
-GET  /v1/messages/{id}
-POST /v1/messages/{id}/read        POST /v1/messages/{id}/archive
+GET  /v1/feed?unread=1&source=src_…&since=<rfc3339|ms|id>&q=…&limit=50&cursor=…
+GET  /v1/feed/{id}
+POST /v1/feed/{id}/read            POST /v1/feed/{id}/archive
+POST /v1/feed/read                 POST /v1/feed/archive            （批量，App 用）
+GET  /v1/keys                      POST /v1/keys
+DELETE /v1/keys/{id}
 GET  /v1/sources                   GET /v1/sources/{id}
 POST /v1/sources                   PATCH|DELETE /v1/sources/{id}
 POST /v1/sources/{id}/token        POST /v1/sources/{id}/test
 GET  /v1/sources/presets
 ```
 
+feed 是 `/v1/feed` 而不是 `/v1/messages`：后者是现有的单文件夹邮件列表，§5 承诺它不变，而 feed 覆盖所有来源。`/v1/keys` 和 `/v1/sources` 的写操作只接受 App 会话；agent 需要的接口两种身份都接受。
+
 source 的 secret（webhook 的 HMAC 密钥）只写不读：新建或修改时传 `secret`（空串表示清除），返回里只有 `hasSecret`，主密钥 AES-256-GCM 加密存在 `users/notify.secrets.json`，现有密钥轮换已覆盖。`POST /v1/sources` 只返回一次 `{"source": …, "token": "…", "ingestUrl": "…"}`；`POST /v1/sources/{id}/token` 轮换后旧地址立刻失效；`POST /v1/sources/{id}/test` 通过与接收相同的路径写入一条测试消息。
 
-返回结构：`GET /v1/messages` 返回 `{messages: [Message], next_cursor?}`（最后一页没有 cursor）；`GET /v1/messages/{id}` 返回一个 `Message`；`read`/`archive` 返回更新后的 `Message` 或 204；`GET /v1/sources` 返回 `{sources: [Source]}`。`Message` 是 `{id, sourceId, sender, title, bodyText, bodyHtml?, link, receivedAt, priority, tags, readAt, archivedAt, threadId?}`，`Source` 是 `{id, kind, name, enabled, minPriority, icon?, color?, hasToken, hasSecret}`。字段和 `/v1` 其余接口一样用 camelCase（App 读的是同一份 JSON）；`receivedAt`/`readAt`/`archivedAt` 是毫秒时间戳。客户端忽略不认识的字段，所以两边都能加字段而不影响已安装的 agent；MCP 客户端同时也接受 snake_case 写法。
+用 key 读取 source 时 `Source` 不带 `config`（里面是映射规则，也可能带着 bot 凭据）。
 
-cursor 不透明（`receivedAt` + `id` 的 base64，keyset 分页）。`q` 走 FTS 索引，覆盖邮件和非邮件正文。所有查询都按 key 的 source 范围过滤。
+返回结构：`GET /v1/feed` 返回 `{messages: [Message], nextCursor?, more, unread, counts}`（最后一页没有 `nextCursor`；`counts` 是调用方可见范围内每个 source 的未读数）；`GET /v1/feed/{id}` 返回一个 `Message`；`read` 返回更新后的 `Message`；`archive` 返回 204，因为邮件通知由邮件引擎搬走，已经没有被更新的行可返回。`POST /v1/feed/read` 接受 `{ids, read?}`，`POST /v1/feed/archive` 接受 `{ids}`（最多 200 条），就是 App 列表上的两个操作。`Message` 是 `{id, seq, sourceId, externalId?, sender, title, bodyText, bodyHtml, bodyMarkdown, link, receivedAt, readAt, archivedAt, priority, tags, threadId?}`，`Source` 是 `{id, kind, name, enabled, minPriority, icon?, color?, createdAt, hasToken, hasSecret}`。字段和 `/v1` 其余接口一样用 camelCase（App 读的是同一份 JSON）；`receivedAt`/`readAt`/`archivedAt` 是毫秒时间戳。客户端忽略不认识的字段，所以两边都能加字段而不影响已安装的 agent；MCP 客户端同时也接受 snake_case 写法。
+
+cursor 不透明（`receivedAt` + `id` 的 base64，按 `(receivedAt DESC, id DESC)` 做 keyset 分页）。`before=<id>` 从调用方已有的一条消息继续；`since=` 接受 RFC 3339 时间、毫秒时间戳或消息 id，含义是“在此之后收到”；`archived=0`（默认视图）、`1`（只看已归档）、`any`。`q` 同时查两个 FTS 索引，一次搜索覆盖邮件和其他所有通知。所有查询都按 key 的 source 范围过滤。
+
+归档对 App 和 agent 是同一条路径：邮件通知由邮件引擎移动到 Archive（之后在那里重新投影为已归档，见 §1），其他来源直接在 feed 行上写 `archived_at`。两种情况都会离开默认 feed 视图，并发出对应的 `archived` 事件。
 
 ### 实时
 
-`GET /v1/stream`（SSE）：事件 `message`（JSON 与 `/v1/messages/{id}` 相同）、`read`、`archived`，每 15 秒心跳注释。`Last-Event-ID` 从最后收到的 id 续传（id 按用户单调递增），`?since=` 用于冷启动；`?source=` 收窄；key 的范围始终生效。另提供 WebSocket 变体（`GET /v1/stream?format=ws`）。
+`GET /v1/stream`（SSE）：事件 `message`（JSON 与 `/v1/feed/{id}` 相同）、`read`（`{id, readAt}`）、`archived`（`{id, archivedAt}`），每 15 秒心跳注释。`message` 事件把 feed 的 `seq` 作为事件 id（按用户单调递增），`Last-Event-ID` 从最后收到的那条续传，冷启动用 `?since=<seq>`。`read`/`archived` 只做实时推送，重连的客户端重新拉一次 feed 即可。`?source=` 收窄；key 的范围始终生效，其他用户的 feed 事件不会出现在这个流里。另提供 WebSocket 变体（`GET /v1/stream?format=ws`），推送同样的事件，JSON 里多一个 `type` 字段。
 
 ### MCP
 
@@ -136,11 +147,11 @@ cursor 不透明（`receivedAt` + `id` 的 base64，keyset 分页）。`q` 走 F
 
 两种传输：stdio（`nsh-notify-mcp --server https://… --key nb_…`）和服务端 HTTP（`/mcp`，同一个 Bearer key）。README 给出 Claude Code、Codex、Cursor 的接入配置。
 
-这个 crate 既是可执行文件也是库：`notify_mcp::router(factory)` 返回可挂载的 `POST /mcp`，自身不鉴权（由挂载它的服务器校验 key），`Notify` trait 让服务器直接用自己的存储回答工具调用，不必绕一圈 HTTP。独立可执行文件是同一个分发器，只是 `Notify` 走 REST。
+这个 crate 既是可执行文件也是库：`notify_mcp::router(factory)` 返回可挂载的 `POST /mcp`，自身不鉴权（由挂载它的服务器校验 key），`Notify` trait 让服务器直接用自己的存储回答工具调用，不必绕一圈 HTTP。服务端就在 `/mcp` 挂载它，前面加 key 检查，回答时应用 key 的范围，所以用 `/mcp` 的 agent 不需要第二个地址。独立可执行文件是同一个分发器，只是 `Notify` 走 REST。
 
 ### OpenAPI
 
-由路由定义自动生成（`utoipa`），`/openapi.json` 提供，`/docs` 渲染；CI 把它提交到 `docs/openapi.json`，agent 不连服务端也能读。
+由路由定义自动生成（`utoipa`），`/openapi.json` 提供，`/docs` 渲染（Swagger UI，资源内置，断网部署也能看文档）。`nsh-mail-server openapi` 打印这份文档，同一份字节提交在 `docs/openapi.json`，agent 不连服务端也能读；路由和文件不一致时测试会失败。
 
 ## 4. 给人的界面
 
@@ -154,7 +165,8 @@ cursor 不透明（`receivedAt` + `id` 的 base64，keyset 分页）。`q` 走 F
 
 - 只新增表，不改现有字段含义。邮件投影按用户一个事务写入并核对条数（同 #24 的做法），`users/*.sqlite` 导入先跑。
 - 每次涉及这些的部署前都备份数据卷（沿用现有流程：停应用 → 手动备份 schedule → 在副本上试跑 → 部署）。
-- 现有客户端不受影响：`/v1/accounts`、`/v1/messages`、`/v1/threads` 不变，新接口是新增。
+- 现有客户端不受影响：`/v1/accounts`、`/v1/messages`、`/v1/threads` 不变，新接口是新增；`/v1/messages` 含义不变（单个文件夹的邮件），agent 的 feed 是 `/v1/feed`（见 §3）。
+- feed 迁移有版本号（`feed_meta`）；版本 2 会把已经在 Archive 里的邮件标记为已归档，晚迁移的邮箱不会看起来像一堆新通知。
 - 入口有限流和大小上限；`payload` 有上限；HTML 清洗；token 和 API key 只存哈希。
 
 ## 6. 命名

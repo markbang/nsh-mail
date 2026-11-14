@@ -8,6 +8,9 @@ publish = false
 
 [features]
 default = ["engine"]
+# Derives `utoipa::ToSchema` on the feed types, for the server's OpenAPI document. Off by
+# default: the app never needs it.
+openapi = ["dep:utoipa"]
 engine = [
     "dep:aes-gcm",
     "dep:ammonia",
@@ -34,6 +37,7 @@ engine = [
 insecure-test-tls = ["engine"]
 
 [dependencies]
+utoipa = { version = "6", optional = true, default-features = false }
 serde = { version = "1", features = ["derive"] }
 
 aes-gcm = { version = "0.11", optional = true }

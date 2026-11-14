@@ -15,5 +15,5 @@ pub mod http;
 pub mod protocol;
 pub mod stdio;
 
-pub use api::{Error, ListQuery, Message, Notify, NotifyApi, Page, Source};
+pub use api::{BoxFuture, Error, ListQuery, Message, Notify, NotifyApi, Page, Source};
 pub use http::{BackendFactory, client_router, router};

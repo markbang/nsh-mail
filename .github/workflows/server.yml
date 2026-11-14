@@ -6,6 +6,8 @@ on:
     paths:
       - crates/server/**
       - crates/mail-core/**
+      # the server mounts crates/mcp at /mcp
+      - crates/mcp/**
       - Cargo.toml
       - Cargo.lock
       - docker-compose.yml
@@ -14,6 +16,8 @@ on:
     paths:
       - crates/server/**
       - crates/mail-core/**
+      # the server mounts crates/mcp at /mcp
+      - crates/mcp/**
       - Cargo.toml
       - Cargo.lock
       - docker-compose.yml
@@ -46,6 +50,13 @@ jobs:
       - name: wait for GreenMail
         run: for i in $(seq 60); do (echo > /dev/tcp/127.0.0.1/3993) 2>/dev/null && exit 0; sleep 1; done; exit 1
       - run: cargo test -p nsh-mail-server --locked
+      - name: docs/openapi.json is current
+        run: |
+          cargo run -p nsh-mail-server --locked -- openapi > /tmp/openapi.json
+          if ! diff -u docs/openapi.json /tmp/openapi.json; then
+            echo "::error file=docs/openapi.json::stale; run cargo run -p nsh-mail-server -- openapi > docs/openapi.json"
+            exit 1
+          fi
 
   docker:
     needs: test

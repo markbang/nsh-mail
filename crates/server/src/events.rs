@@ -21,7 +21,8 @@ use crate::{
 };
 
 /// What a live client is told when the feed changes: the app's All view, an agent's SSE stream
-/// and ntfy's JSON stream all read these.
+/// and ntfy's JSON stream all read these. `user_id` says whose feed it is — the subscription is
+/// shared, so every stream must filter, and it is not sent to anyone.
 #[derive(Clone, Debug, Serialize)]
 #[serde(
     tag = "type",
@@ -30,16 +31,44 @@ use crate::{
 )]
 pub enum FeedEvent {
     Message {
+        #[serde(skip)]
+        user_id: i64,
         message: Box<FeedMessage>,
     },
     Read {
+        #[serde(skip)]
+        user_id: i64,
         id: String,
+        source_id: String,
+        /// The feed's row number, so a stream that resumes from `Last-Event-ID` does not repeat it.
+        seq: i64,
         read_at: Option<i64>,
     },
     Archived {
+        #[serde(skip)]
+        user_id: i64,
         id: String,
+        source_id: String,
+        seq: i64,
         archived_at: Option<i64>,
     },
+}
+
+impl FeedEvent {
+    pub fn user_id(&self) -> i64 {
+        match self {
+            FeedEvent::Message { user_id, .. }
+            | FeedEvent::Read { user_id, .. }
+            | FeedEvent::Archived { user_id, .. } => *user_id,
+        }
+    }
+
+    pub fn source_id(&self) -> &str {
+        match self {
+            FeedEvent::Message { message, .. } => &message.source_id,
+            FeedEvent::Read { source_id, .. } | FeedEvent::Archived { source_id, .. } => source_id,
+        }
+    }
 }
 
 #[derive(Deserialize)]

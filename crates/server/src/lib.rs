@@ -1,4 +1,6 @@
+pub mod agent;
 pub mod api;
+pub mod apikeys;
 pub mod config;
 pub mod crypto;
 pub mod db;
@@ -34,6 +36,7 @@ use db::Db;
 use mail::Mailboxes;
 use mail_core::MailDb;
 use push::{Fcm, Push};
+use utoipa::OpenApi as _;
 
 pub struct AppState {
     pub config: Config,
@@ -185,6 +188,15 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/sources/presets", get(notify::list_presets))
         .route("/sources/{id}/token", post(notify::rotate_token))
         .route("/sources/{id}/test", post(notify::test_source))
+        .route("/feed", get(agent::list_feed))
+        .route("/feed/read", post(agent::read_feed_messages))
+        .route("/feed/archive", post(agent::archive_feed_messages))
+        .route("/feed/{id}", get(agent::get_feed_message))
+        .route("/feed/{id}/read", post(agent::read_feed_message))
+        .route("/feed/{id}/archive", post(agent::archive_feed_message))
+        .route("/stream", get(agent::stream))
+        .route("/keys", get(agent::list_keys).post(agent::create_key))
+        .route("/keys/{id}", delete(agent::revoke_key))
         .route("/devices", post(api::add_device))
         .route("/devices/{id}", delete(api::delete_device))
         .route("/push/vapid-key", get(api::vapid_key))
@@ -208,7 +220,12 @@ pub fn router(state: Arc<AppState>) -> Router {
                 .layer(DefaultBodyLimit::max(ingest::BODY_LIMIT)),
         )
         .route("/{topic}/json", get(ingest::ntfy_stream))
-        .route("/healthz", get(api::health));
+        .route("/healthz", get(api::health))
+        // The API document, for agents that read it without a server, and the same rendered.
+        .merge(
+            utoipa_swagger_ui::SwaggerUi::new("/docs")
+                .url("/openapi.json", agent::ApiDoc::openapi()),
+        );
 
     if let Some(dir) = &state.config.web_dir {
         let sw = Router::new()
@@ -231,12 +248,18 @@ pub fn router(state: Arc<AppState>) -> Router {
             CorsLayer::new()
                 .allow_origin(AllowOrigin::list(origins))
                 .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE])
-                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]),
+                .allow_headers([
+                    header::AUTHORIZATION,
+                    header::CONTENT_TYPE,
+                    // API keys are also sent in this header.
+                    header::HeaderName::from_static("x-api-key"),
+                ]),
         );
     }
 
-    app.layer(middleware::from_fn(log_request))
-        .with_state(state)
+    app.with_state(state.clone())
+        .merge(agent::mcp_router(state))
+        .layer(middleware::from_fn(log_request))
 }
 
 /// Logs the path only: query strings may carry session tokens (`?token=`) or OAuth codes.

@@ -1,0 +1,1353 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "nsh-mail server",
+    "description": "Mail and notification API. Every `/v1` path takes the session token from `POST /v1/auth/login` as `Authorization: Bearer`, and the agent paths (`/v1/feed`, `/v1/stream`, `/mcp`) also take an API key `nb_…` created in Settings → API keys, limited to the sources and scopes it was given.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    },
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "`{ok, version}`"
+          }
+        }
+      }
+    },
+    "/v1/accounts": {
+      "get": {
+        "tags": [
+          "mail"
+        ],
+        "operationId": "list_accounts",
+        "responses": {
+          "200": {
+            "description": "Every mail account, without credentials"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "description": "Signs in with `{email, password}` and answers `{token}`, the session token.",
+        "operationId": "login",
+        "responses": {
+          "200": {
+            "description": "Signed in: `{token}`"
+          },
+          "401": {
+            "description": "Wrong email or password"
+          }
+        }
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "description": "Ends this session; the token stops working.",
+        "operationId": "logout",
+        "responses": {
+          "204": {
+            "description": "Signed out"
+          }
+        }
+      }
+    },
+    "/v1/auth/signup": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "description": "Creates the account and signs in. The body is `{email, password}`; the answer `{token}` is the session token every other `/v1` path takes as `Authorization: Bearer`.",
+        "operationId": "signup",
+        "responses": {
+          "201": {
+            "description": "Signed in: `{token}`"
+          },
+          "403": {
+            "description": "Sign-up is closed on this server"
+          },
+          "409": {
+            "description": "Email already registered"
+          }
+        }
+      }
+    },
+    "/v1/feed": {
+      "get": {
+        "tags": [
+          "feed"
+        ],
+        "summary": "One page of the notification feed, newest first.",
+        "operationId": "list_feed",
+        "parameters": [
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Only this source (src_…)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Words to find in sender, title and body",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "unread",
+            "in": "query",
+            "description": "1: only unread notifications in the feed",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "description": "0 (default), 1 (only archived) or any",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "Only newer than this RFC 3339 time, ms since the epoch or message id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "description": "The previous page's last message id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "The previous page's nextCursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1–200, default 50",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of the feed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session or API key"
+          },
+          "403": {
+            "description": "The API key lacks the write scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/feed/archive": {
+      "post": {
+        "tags": [
+          "feed"
+        ],
+        "summary": "Archives several notifications at once, as the app's list does.",
+        "operationId": "archive_feed_messages",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "ids"
+                ],
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "At most 200."
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Archived"
+          },
+          "400": {
+            "description": "More than 200 ids"
+          },
+          "403": {
+            "description": "The API key lacks the write scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/feed/read": {
+      "post": {
+        "tags": [
+          "feed"
+        ],
+        "summary": "Marks several notifications read or unread at once, as the app's list does.",
+        "operationId": "read_feed_messages",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "ids"
+                ],
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "At most 200."
+                  },
+                  "read": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ],
+                    "description": "Default true."
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Applied"
+          },
+          "400": {
+            "description": "More than 200 ids"
+          },
+          "403": {
+            "description": "The API key lacks the write scope"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/feed/{id}": {
+      "get": {
+        "tags": [
+          "feed"
+        ],
+        "summary": "One notification in full.",
+        "operationId": "get_feed_message",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Message id: msg_…, or a mail message id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The notification",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedMessage"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such notification, or outside the API key's sources"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/feed/{id}/archive": {
+      "post": {
+        "tags": [
+          "feed"
+        ],
+        "summary": "Takes one notification out of the feed. A mail notification is also moved to Archive, through\nthe same path the app uses.",
+        "operationId": "archive_feed_message",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Message id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Archived"
+          },
+          "403": {
+            "description": "The API key lacks the write scope"
+          },
+          "404": {
+            "description": "No such notification, or outside the key's sources"
+          },
+          "502": {
+            "description": "The mail server refused the move to Archive"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/feed/{id}/read": {
+      "post": {
+        "tags": [
+          "feed"
+        ],
+        "summary": "Marks one notification read (or unread again). A mail message's own flag follows, so the\nmailbox agrees with the feed.",
+        "operationId": "read_feed_message",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Message id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "read": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ],
+                    "description": "Default true; `false` makes it unread again."
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The updated notification",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedMessage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The API key lacks the write scope"
+          },
+          "404": {
+            "description": "No such notification, or outside the key's sources"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/keys": {
+      "get": {
+        "tags": [
+          "keys"
+        ],
+        "summary": "The API keys of this account, newest last. Revoked ones are kept for the record.",
+        "operationId": "list_keys",
+        "responses": {
+          "200": {
+            "description": "Every key, without its token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "keys"
+        ],
+        "summary": "Creates a key. The token is answered once and cannot be read again.",
+        "operationId": "create_key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "expiresDays": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "description": "Days until it stops working; never, when left out.",
+                    "minimum": 0
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Something you recognise later in Settings, e.g. \"Claude Code on the laptop\"."
+                  },
+                  "sourceIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Empty: every source."
+                  },
+                  "write": {
+                    "type": "boolean",
+                    "description": "Marks notifications read and archives them; reading is always allowed."
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The key and its token, shown only here",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedKey"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A key needs a name; unknown source ids"
+          },
+          "401": {
+            "description": "No valid session"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/keys/{id}": {
+      "delete": {
+        "tags": [
+          "keys"
+        ],
+        "summary": "Revokes a key: it stops working at once and stays in the list for the record.",
+        "operationId": "revoke_key",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Key id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoked"
+          },
+          "404": {
+            "description": "No such key"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "description": "`{email, hideContent, maxAttachmentBytes}`"
+          },
+          "401": {
+            "description": "No valid session"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "auth"
+        ],
+        "description": "Changes settings. `hideContent` keeps notifications private: pushes then carry only account and message ids.",
+        "operationId": "update_me",
+        "responses": {
+          "200": {
+            "description": "The updated profile, as GET /v1/me"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/messages": {
+      "get": {
+        "tags": [
+          "mail"
+        ],
+        "description": "Mail messages of one folder, newest first. The notification feed, which includes mail, is GET /v1/feed.",
+        "operationId": "list_messages",
+        "parameters": [
+          {
+            "name": "folder",
+            "in": "query",
+            "description": "inbox (default), sent, drafts, archive or trash",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "account",
+            "in": "query",
+            "description": "Only this account",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "description": "The previous page's last message id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1–200, default 50",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Messages, newest first"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/messages/{id}": {
+      "get": {
+        "tags": [
+          "mail"
+        ],
+        "operationId": "get_message",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Mail message id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The message with its body and attachments"
+          },
+          "404": {
+            "description": "No such message"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/search": {
+      "get": {
+        "tags": [
+          "mail"
+        ],
+        "description": "Full-text search over mail. The notification feed, mail included, searches with GET /v1/feed?q=.",
+        "operationId": "search",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Words to look for",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1–200, default 50",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matches, newest first"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/sources": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "description": "Every source the caller may see. An API key sees only its own sources, without `config`.",
+        "operationId": "list_sources",
+        "responses": {
+          "200": {
+            "description": "`{sources}`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session or API key"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/sources/{id}": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "operationId": "get_source",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Source id (src_…)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The source",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such source, or outside the API key's sources"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/stream": {
+      "get": {
+        "tags": [
+          "feed"
+        ],
+        "summary": "Live notifications: SSE by default, a WebSocket with `?format=ws`. Events are `message`\n(the same JSON as `/v1/feed/{id}`), `read` and `archived`; each carries the feed's seq as its\nid, so `Last-Event-ID` or `?since=` resumes without a gap.",
+        "operationId": "stream",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`ws` for a WebSocket; SSE otherwise",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Only this source",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "The feed seq to resume after",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "text/event-stream of message, read and archived events"
+          },
+          "401": {
+            "description": "No valid session or API key"
+          },
+          "403": {
+            "description": "The API key cannot read the requested source"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ArchiveMany": {
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "At most 200."
+          }
+        }
+      },
+      "CreatedKey": {
+        "type": "object",
+        "description": "A new key, with its token: the only time the token is shown.",
+        "required": [
+          "key",
+          "token"
+        ],
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/Key"
+          },
+          "token": {
+            "type": "string",
+            "description": "`nb_…`; send it as `Authorization: Bearer` or `X-API-Key`."
+          }
+        }
+      },
+      "FeedList": {
+        "type": "object",
+        "required": [
+          "messages",
+          "more",
+          "unread",
+          "counts"
+        ],
+        "properties": {
+          "counts": {
+            "type": "object",
+            "description": "Unread per source id.",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeedMessage"
+            }
+          },
+          "more": {
+            "type": "boolean",
+            "description": "More notifications wait beyond this page."
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The cursor for the next page; absent on the last one."
+          },
+          "unread": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unread notifications the caller can see."
+          }
+        }
+      },
+      "FeedMessage": {
+        "type": "object",
+        "required": [
+          "id",
+          "seq",
+          "sourceId",
+          "title",
+          "receivedAt",
+          "priority",
+          "tags"
+        ],
+        "properties": {
+          "archivedAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "bodyHtml": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bodyMarkdown": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bodyText": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "externalId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "The mail message id when the source is a mail account."
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "readAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "receivedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sender": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Monotonic per user; SSE resumes from it."
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "threadId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "Key": {
+        "type": "object",
+        "description": "A key as its owner sees it. `scopes` holds `read` and, for keys that may change the inbox,\n`write`; every key can read.",
+        "required": [
+          "id",
+          "name",
+          "prefix",
+          "scopes",
+          "sourceIds",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expiresAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sourceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Empty: every source."
+          }
+        }
+      },
+      "KeyList": {
+        "type": "object",
+        "required": [
+          "keys"
+        ],
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Key"
+            }
+          }
+        }
+      },
+      "NewKey": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "expiresDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Days until it stops working; never, when left out.",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "description": "Something you recognise later in Settings, e.g. \"Claude Code on the laptop\"."
+          },
+          "sourceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Empty: every source."
+          },
+          "write": {
+            "type": "boolean",
+            "description": "Marks notifications read and archives them; reading is always allowed."
+          }
+        }
+      },
+      "ReadBody": {
+        "type": "object",
+        "properties": {
+          "read": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Default true; `false` makes it unread again."
+          }
+        }
+      },
+      "ReadMany": {
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "At most 200."
+          },
+          "read": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Default true."
+          }
+        }
+      },
+      "Source": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "config",
+          "minPriority",
+          "enabled",
+          "createdAt",
+          "hasToken"
+        ],
+        "properties": {
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "config": {},
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "hasToken": {
+            "type": "boolean",
+            "description": "Whether an ingest token is set; the token itself is only ever returned by the create and\nrotate calls."
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "minPriority": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "SourceList": {
+        "type": "object",
+        "description": "The sources one caller may see.",
+        "required": [
+          "sources"
+        ],
+        "properties": {
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceView"
+            }
+          }
+        }
+      },
+      "SourceView": {
+        "type": "object",
+        "description": "A source as its owner sees it: the stored fields plus whether a webhook secret is set (the\ntoken and the secret themselves are only ever answered once). An agent's key gets it without\n`config`, which holds the ingest mapping and may name a bot's credentials.",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "minPriority",
+          "enabled",
+          "createdAt",
+          "hasToken",
+          "hasSecret"
+        ],
+        "properties": {
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "config": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "hasSecret": {
+            "type": "boolean",
+            "description": "A webhook signing secret is set."
+          },
+          "hasToken": {
+            "type": "boolean",
+            "description": "An ingest URL exists for this source."
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "minPriority": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Session token from POST /v1/auth/login, or an API key nb_… (Settings → API keys)"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "feed",
+      "description": "The notification feed: mail and everything else in one list"
+    },
+    {
+      "name": "keys",
+      "description": "API keys for agents"
+    },
+    {
+      "name": "sources",
+      "description": "Where notifications come from"
+    },
+    {
+      "name": "auth",
+      "description": "Sessions"
+    },
+    {
+      "name": "mail",
+      "description": "Mailboxes"
+    }
+  ]
+}

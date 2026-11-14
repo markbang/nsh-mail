@@ -27,17 +27,17 @@ impl ApiError {
     pub fn new(status: StatusCode, code: ErrorCode, msg: impl Into<String>) -> Self {
         ApiError(status, Error::new(code, msg))
     }
-    fn bad_request(msg: impl Into<String>) -> Self {
+    pub(crate) fn bad_request(msg: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, ErrorCode::InvalidInput, msg)
     }
-    fn unauthorized() -> Self {
+    pub(crate) fn unauthorized() -> Self {
         Self::new(
             StatusCode::UNAUTHORIZED,
             ErrorCode::Auth,
             "missing or invalid session token; sign in again",
         )
     }
-    fn not_found() -> Self {
+    pub(crate) fn not_found() -> Self {
         Self::new(StatusCode::NOT_FOUND, ErrorCode::NotFound, "not found")
     }
     fn conflict(msg: impl Into<String>) -> Self {
@@ -151,6 +151,19 @@ fn issue_session(state: &AppState, user_id: i64) -> ApiResult<Json<Value>> {
     Ok(Json(json!({ "token": token })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/v1/auth/signup",
+    tag = "auth",
+    description = "Creates the account and signs in. The body is `{email, password}`; the answer \
+                   `{token}` is the session token every other `/v1` path takes as `Authorization: \
+                   Bearer`.",
+    responses(
+        (status = 201, description = "Signed in: `{token}`"),
+        (status = 403, description = "Sign-up is closed on this server"),
+        (status = 409, description = "Email already registered"),
+    )
+)]
 pub async fn signup(
     State(state): State<Arc<AppState>>,
     Json(c): Json<Credentials>,
@@ -188,6 +201,16 @@ pub async fn signup(
     Ok((StatusCode::CREATED, issue_session(&state, id)?))
 }
 
+#[utoipa::path(
+    post,
+    path = "/v1/auth/login",
+    tag = "auth",
+    description = "Signs in with `{email, password}` and answers `{token}`, the session token.",
+    responses(
+        (status = 200, description = "Signed in: `{token}`"),
+        (status = 401, description = "Wrong email or password"),
+    )
+)]
 pub async fn login(
     State(state): State<Arc<AppState>>,
     Json(c): Json<Credentials>,
@@ -213,11 +236,28 @@ pub async fn login(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/v1/auth/logout",
+    tag = "auth",
+    description = "Ends this session; the token stops working.",
+    responses((status = 204, description = "Signed out"))
+)]
 pub async fn logout(State(state): State<Arc<AppState>>, user: AuthUser) -> ApiResult<StatusCode> {
     state.db.delete_session(&user.token_hash)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/me",
+    tag = "auth",
+    security(("bearer" = [])),
+    responses(
+        (status = 200, description = "`{email, hideContent, maxAttachmentBytes}`"),
+        (status = 401, description = "No valid session"),
+    )
+)]
 pub async fn me(State(state): State<Arc<AppState>>, user: AuthUser) -> ApiResult<Json<Value>> {
     let u = state.db.user(user.id)?.ok_or_else(ApiError::unauthorized)?;
     Ok(Json(json!({
@@ -233,6 +273,15 @@ pub struct MePatch {
     hide_content: Option<bool>,
 }
 
+#[utoipa::path(
+    patch,
+    path = "/v1/me",
+    tag = "auth",
+    security(("bearer" = [])),
+    description = "Changes settings. `hideContent` keeps notifications private: pushes then carry \
+                   only account and message ids.",
+    responses((status = 200, description = "The updated profile, as GET /v1/me"))
+)]
 pub async fn update_me(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
@@ -248,6 +297,13 @@ async fn mail(state: &AppState, user: &AuthUser) -> ApiResult<Engine> {
     Ok(state.mailboxes.get(user.id).await?)
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/accounts",
+    tag = "mail",
+    security(("bearer" = [])),
+    responses((status = 200, description = "Every mail account, without credentials"))
+)]
 pub async fn list_accounts(
     State(s): State<Arc<AppState>>,
     u: AuthUser,
@@ -381,6 +437,21 @@ impl ListParams {
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/messages",
+    tag = "mail",
+    security(("bearer" = [])),
+    description = "Mail messages of one folder, newest first. The notification feed, which \
+                   includes mail, is GET /v1/feed.",
+    params(
+        ("folder" = Option<String>, Query, description = "inbox (default), sent, drafts, archive or trash"),
+        ("account" = Option<String>, Query, description = "Only this account"),
+        ("before" = Option<String>, Query, description = "The previous page's last message id"),
+        ("limit" = Option<u32>, Query, description = "1–200, default 50"),
+    ),
+    responses((status = 200, description = "Messages, newest first"))
+)]
 pub async fn list_messages(
     State(s): State<Arc<AppState>>,
     u: AuthUser,
@@ -426,6 +497,17 @@ pub async fn move_thread(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/messages/{id}",
+    tag = "mail",
+    security(("bearer" = [])),
+    params(("id" = String, Path, description = "Mail message id")),
+    responses(
+        (status = 200, description = "The message with its body and attachments"),
+        (status = 404, description = "No such message"),
+    )
+)]
 pub async fn get_message(
     State(s): State<Arc<AppState>>,
     u: AuthUser,
@@ -585,6 +667,19 @@ pub struct SearchParams {
     limit: Option<u32>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/v1/search",
+    tag = "mail",
+    security(("bearer" = [])),
+    description = "Full-text search over mail. The notification feed, mail included, searches \
+                   with GET /v1/feed?q=.",
+    params(
+        ("q" = String, Query, description = "Words to look for"),
+        ("limit" = Option<u32>, Query, description = "1–200, default 50"),
+    ),
+    responses((status = 200, description = "Matches, newest first"))
+)]
 pub async fn search(
     State(s): State<Arc<AppState>>,
     u: AuthUser,
@@ -684,6 +779,12 @@ pub async fn vapid_key(State(s): State<Arc<AppState>>) -> Json<Value> {
     Json(json!({ "key": s.vapid_public_key }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/healthz",
+    tag = "auth",
+    responses((status = 200, description = "`{ok, version}`"))
+)]
 pub async fn health(State(s): State<Arc<AppState>>) -> ApiResult<Json<Value>> {
     s.db.ping()?;
     Ok(Json(

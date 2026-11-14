@@ -15,14 +15,18 @@ argon2 = "0.6"
 axum = { version = "0.8", features = ["ws"] }
 base64 = "0.22"
 futures-util = "0.3"
-mail-core = { path = "../mail-core" }
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "form"] }
+mail-core = { path = "../mail-core", features = ["openapi"] }
+notify-mcp = { package = "nsh-notify-mcp", path = "../mcp" }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "form", "stream"] }
 rusqlite = { version = "0.42", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time", "fs"] }
 tower-http = { version = "0.6", features = ["fs", "cors", "set-header"] }
+# The OpenAPI document agents read: generated from the routes, served at /openapi.json and /docs.
+utoipa = "6"
+utoipa-swagger-ui = { version = "10", features = ["axum", "vendored"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 web-push-native = "0.5"

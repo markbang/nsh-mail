@@ -120,6 +120,7 @@ fn store(state: &AppState, source: &Source, mut n: Normalised) -> Result<FeedMes
         .map_err(|e| refused(StatusCode::INTERNAL_SERVER_ERROR, &e.message))?;
     let message = inserted.message().clone();
     let _ = state.feed_events.send(FeedEvent::Message {
+        user_id: source.user_id,
         message: Box::new(message.clone()),
     });
     Ok(message)
@@ -452,7 +453,9 @@ pub async fn ntfy_stream(
                     return Some((Ok::<_, Infallible>(Bytes::from(line)), (pending, rx)));
                 }
                 match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
-                    Ok(Ok(FeedEvent::Message { message })) if message.source_id == source_id => {
+                    Ok(Ok(FeedEvent::Message { message, .. }))
+                        if message.source_id == source_id =>
+                    {
                         if let Some(line) = ndjson(&message) {
                             return Some((Ok(Bytes::from(line)), (pending, rx)));
                         }

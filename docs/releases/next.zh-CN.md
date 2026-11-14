@@ -2,6 +2,9 @@
 
 ## 新增
 
+- 面向 agent 的 API key，以及它打开的接口：在设置 → API key 里创建（`nb_…`、名称、只读或可写、可访问的来源、过期时间），只显示一次——库里只存哈希，列表里只有前几个字符、最近使用时间和是否已撤销。agent 用它读取通知 feed（`GET /v1/feed`，支持未读、按来源、since、全文搜索和分页）、读取单条通知、标为已读和归档；每个请求都限制在这个 key 的来源范围内，标已读和归档需要写权限。
+- 给 agent 的实时推送：`GET /v1/stream`（SSE）推送新通知、已读和归档事件，可用 `Last-Event-ID` 续传，可按来源筛选，每 15 秒心跳；`?format=ws` 用 WebSocket 提供同样的内容。MCP 工具在同一个 key 下挂在 `/mcp`，所以 Claude Code、Codex 或 Cursor 可以直接连服务器，不必用独立可执行文件。
+- 归档一条邮件通知现在会把邮件移到 Archive；已经躺在 Archive 里的邮件显示为已处理，而不是一条新通知。
 - 通知收件箱的地基：邮件开始出现在与其他来源统一的 feed 里，服务端新增 source 管理接口（新建、改名、暂停、删除），每个来源带一个只在创建时显示一次、可轮换的接收地址 token。
 - 通知接收：每个源一个 webhook 地址，接受 JSON 或表单，内置 GitHub、GitLab、Sentry、Grafana、Uptime Kuma 预设（也可以自己配字段映射），可校验 `X-Hub-Signature-256`，并按发送方自己的 id 丢弃重试。Gotify 的 `POST /message` 和 ntfy 的 `POST /topic` 改个地址就能用，ntfy 的 `GET /topic/json` 实时推送；HTML 和邮件一样清洗（远程图片一律去掉）。
 - 面向 agent 的 MCP 服务器（`nsh-notify-mcp`）：列出未读通知、在所有来源里搜索、读取一条通知的完整内容、标记已读和列出通知来源，支持 stdio 和 HTTP，用 API key 认证。Claude Code、Codex 和 Cursor 的配置见 `crates/mcp/README.md`。

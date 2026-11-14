@@ -15,9 +15,9 @@ pub const KEY: &str = "nb_good";
 /// Starts the stub on a random port and returns its base URL.
 pub async fn serve() -> String {
     let app = Router::new()
-        .route("/v1/messages", get(messages))
-        .route("/v1/messages/{id}", get(one))
-        .route("/v1/messages/{id}/read", post(read))
+        .route("/v1/feed", get(messages))
+        .route("/v1/feed/{id}", get(one))
+        .route("/v1/feed/{id}/read", post(read))
         .route("/v1/sources", get(sources));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
