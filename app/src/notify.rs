@@ -41,7 +41,8 @@ pub struct Source {
     /// An icon from the app's set; the kind's when left out.
     pub icon: Option<String>,
     /// A theme colour (`chart-1` … `chart-5`), never a raw hex.
-    pub color: String,
+    #[serde(default)]
+    pub color: Option<String>,
     /// Paused sources keep their history and take nothing new.
     pub enabled: bool,
     /// Notifications below it are stored but not pushed (0–10, Gotify's scale).
@@ -108,18 +109,22 @@ pub struct FeedQuery {
 pub struct NewSource {
     pub kind: SourceKind,
     pub name: String,
+    #[serde(default)]
     pub icon: Option<String>,
-    pub color: String,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
     pub min_priority: u8,
 }
 
 /// A source as created or rotated, with the ingest URL its token makes: the
-/// only time the URL is shown.
+/// only time the URL is shown (the server's `{source, token, ingestUrl}`
+/// answer; the token is in the URL).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CreatedSource {
     pub source: Source,
-    pub url: Option<String>,
+    pub ingest_url: Option<String>,
 }
 
 /// An agent's key to the feed.
@@ -177,7 +182,7 @@ pub const DECLARATIONS: &[(&str, &str)] = &[
         "/** A place notifications come from: a mail account, a webhook, a bot. */\n\
          export interface Source {\n  id: string;\n  kind: SourceKind;\n  name: string;\n  \
          /** An icon from the app's set; the kind's when null. */\n  icon?: string | null;\n  \
-         /** A theme colour (`chart-1` … `chart-5`). */\n  color: string;\n  \
+         /** A theme colour (`chart-1` … `chart-5`); the first when null. */\n  color?: string | null;\n  \
          /** Paused sources keep their history and take nothing new. */\n  enabled: boolean;\n  \
          /** Notifications below it are stored but not pushed (0–10). */\n  minPriority: number;\n  \
          /** When it was added (ms since the epoch). */\n  createdAt: number;\n}",
@@ -207,12 +212,12 @@ pub const DECLARATIONS: &[(&str, &str)] = &[
     (
         "NewSource",
         "/** What adding a source takes. */\n\
-         export interface NewSource {\n  kind: SourceKind;\n  name: string;\n  icon?: string | null;\n  color: string;\n  minPriority: number;\n}",
+         export interface NewSource {\n  kind: SourceKind;\n  name: string;\n  icon?: string | null;\n  /** A theme colour (`chart-1` … `chart-5`). */\n  color?: string | null;\n  minPriority: number;\n}",
     ),
     (
         "CreatedSource",
         "/** A source as created or rotated, with the ingest URL its token makes: shown only here. */\n\
-         export interface CreatedSource {\n  source: Source;\n  url?: string | null;\n}",
+         export interface CreatedSource {\n  source: Source;\n  ingestUrl?: string | null;\n}",
     ),
     (
         "ApiKey",

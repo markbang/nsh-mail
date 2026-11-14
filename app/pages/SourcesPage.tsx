@@ -32,7 +32,7 @@ export function SourcesPage() {
   const showUrl = async (source: Source) => {
     try {
       const rotated = await rotateSource(source);
-      if (rotated.url) nav.stack.push({ name: "sourceIngest", source: rotated.source, url: rotated.url, created: false });
+      if (rotated.ingestUrl) nav.stack.push({ name: "sourceIngest", source: rotated.source, url: rotated.ingestUrl, created: false });
     } catch (e) {
       void e;
     }

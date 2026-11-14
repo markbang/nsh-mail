@@ -42,8 +42,8 @@ export function SourceFormPage(props: { kind: SourceKind }) {
         color: color(),
         minPriority: Number(minPriority()),
       });
-      if (created.url) {
-        nav.stack.replace({ name: "sourceIngest", source: created.source, url: created.url, created: true });
+      if (created.ingestUrl) {
+        nav.stack.replace({ name: "sourceIngest", source: created.source, url: created.ingestUrl, created: true });
       } else {
         showToast(t("sources.added", { name: created.source.name }));
         nav.close();

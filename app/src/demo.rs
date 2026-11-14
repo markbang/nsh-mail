@@ -175,7 +175,7 @@ impl Data {
                 .unwrap_or("Mail")
                 .to_owned(),
             icon: None,
-            color: "chart-3".to_owned(),
+            color: Some("chart-3".to_owned()),
             enabled: true,
             min_priority: 0,
             created_at: unix_ms() as i64,
@@ -1029,11 +1029,7 @@ impl Backend for DemoBackend {
                 kind: input.kind,
                 name: input.name.trim().to_owned(),
                 icon: input.icon.filter(|i| !i.trim().is_empty()),
-                color: if input.color.is_empty() {
-                    "chart-1".to_owned()
-                } else {
-                    input.color
-                },
+                color: Some(input.color.unwrap_or_else(|| "chart-1".to_owned())),
                 enabled: true,
                 min_priority: input.min_priority.min(10),
                 created_at: unix_ms() as i64,
@@ -1041,7 +1037,10 @@ impl Backend for DemoBackend {
             let url = ingest_url(source.kind, &token(now_hex(&data)));
             data.sources.push(source.clone());
             drop(data);
-            Ok(CreatedSource { source, url })
+            Ok(CreatedSource {
+                source,
+                ingest_url: url,
+            })
         })
     }
 
@@ -1076,7 +1075,10 @@ impl Backend for DemoBackend {
         }
         data.next_source += 1;
         let url = ingest_url(source.kind, &token(now_hex(&data)));
-        ok(Ok(CreatedSource { source, url }))
+        ok(Ok(CreatedSource {
+            source,
+            ingest_url: url,
+        }))
     }
 
     fn test_source(&self, id: String) -> MailFuture<'_, ()> {
@@ -2253,7 +2255,7 @@ fn seed_mail_sources(data: &mut Data, now: f64) {
             kind: SourceKind::Mail,
             name: name.to_owned(),
             icon: None,
-            color: color.to_owned(),
+            color: Some(color.to_owned()),
             enabled: true,
             min_priority: 0,
             created_at: (now - 60.0 * DAY) as i64,
@@ -2329,7 +2331,7 @@ fn seed(now: f64) -> Data {
             kind: *kind,
             name: (*name).to_owned(),
             icon: icon.map(str::to_owned),
-            color: (*color).to_owned(),
+            color: Some((*color).to_owned()),
             enabled: *enabled,
             min_priority: *min_priority,
             created_at: (now - (30.0 - n as f64) * DAY) as i64,
