@@ -891,13 +891,13 @@ date.today:
   zh-CN: 今天
 time.minutes:
   en: "%{count}m"
-  zh-CN: "%{count} 分钟"
+  zh-CN: "%{count} 分钟前"
 time.hours:
   en: "%{count}h"
-  zh-CN: "%{count} 小时"
+  zh-CN: "%{count} 小时前"
 time.days:
   en: "%{count}d"
-  zh-CN: "%{count} 天"
+  zh-CN: "%{count} 天前"
 
 common.done:
   en: Done
