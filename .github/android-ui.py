@@ -333,10 +333,6 @@ for mode in ("light", "dark"):
             wait("id:search-empty", 15)
             back()
             shot(f"{mode}-search-none")
-            # Clearing from the empty state goes back to the hint.
-            if tap("Clear search"):
-                wait("text:Search by sender, subject or text.", 8)
-                shot(f"{mode}-search-hint")
 
     if tap("Mailboxes"):
         wait("id:mailbox-all")
@@ -346,12 +342,19 @@ for mode in ("light", "dark"):
             shot(f"{mode}-scheduled")
             if tap("Mailboxes"):
                 tap("id:mailbox-all")
-        # Nothing is seeded in Drafts: the folder says so, with its one next step.
+        # An empty folder on the phone: the one draft is deleted, and Drafts says so with its next step.
         if tap("Mailboxes") and tap("id:mailbox-drafts"):
-            wait("text:No drafts", 15)
-            shot(f"{mode}-empty-folder")
-            if tap("Mailboxes"):
-                tap("id:mailbox-all")
+            wait("id:messages", 15)
+            row = settled("id:message-.*")
+            if row:
+                x1, y1, x2, y2 = row
+                adb("shell", "input", "swipe", str(x1 + 200), str((y1 + y2) // 2), str(x1 + 200), str((y1 + y2) // 2), "900")
+                time.sleep(0.5)
+                if tap("id:picked-delete"):
+                    wait("id:empty-compose", 15)
+                    shot(f"{mode}-empty-folder")
+        if tap("Mailboxes") and tap("id:mailbox-all"):
+            wait("id:messages", 15)
 
     if tap("Settings"):
         wait("id:settings")
