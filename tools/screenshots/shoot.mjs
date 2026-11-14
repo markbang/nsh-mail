@@ -146,6 +146,12 @@ for (const theme of ["light", "dark"]) {
   await id("signed-in-as").waitFor();
   await shot("settings", theme);
 
+  // The shortcuts list: Settings → Help, and ? from the mailbox.
+  await press("open-shortcuts");
+  await id("shortcuts").waitFor();
+  await shot("shortcuts", theme);
+  await press("dialog-close");
+
   await press("account-more-0");
   await page.getByText("Signature…").click();
   await id("signature-preview").waitFor();
@@ -155,6 +161,13 @@ for (const theme of ["light", "dark"]) {
   await press("add-account");
   await id("add-imap").waitFor();
   await shot("add-account", theme);
+
+  await home();
+  await page.keyboard.press("Shift+/");
+  await id("shortcuts").waitFor({ timeout: 10_000 });
+  await shot("shortcuts-keys", theme);
+  await page.keyboard.press("Escape");
+  await id("shortcuts").waitFor({ state: "detached", timeout: 10_000 }).catch(() => {});
 }
 // Undo send and Schedule send, on the wall clock (the server refuses times past): the composer's
 // Send menu, Sending… with Undo, the Scheduled list. Nothing goes: both are taken back.
@@ -241,7 +254,7 @@ else {
   await page.emulateMedia({ colorScheme: "dark" });
   await home();
   process.kill(serverPid, "SIGKILL");
-  await press("refresh-all");
+  // The server's event stream fails on its own: no refresh press, so the list is not mid-reload.
   await id("sync-banner").waitFor({ timeout: 90_000 });
   await shot("sync-error", "dark");
   await page.emulateMedia({ colorScheme: "light" });

@@ -4,6 +4,7 @@
 // modal side and bottom sheets. Anchored popups grow from their trigger on
 // the fast spatial curve.
 import { Keyboard, Text, View, type JSX } from "nsh";
+import { t } from "nsh/i18n";
 import {
   Dialog as BaseDialog,
   Menu as BaseMenu,
@@ -73,7 +74,7 @@ export function Dialog(props: DialogProps) {
               {props.title}
             </Text>
           </View>
-          <IconButton icon="close" label="Close" onPress={props.onClose} class="absolute end-3 top-4" />
+          <IconButton icon="close" label={t("common.close")} onPress={props.onClose} class="absolute end-3 top-4" testID="dialog-close" />
         </If>
         <View class="min-h-0 flex-1">{props.children}</View>
       </View>

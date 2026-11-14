@@ -121,6 +121,12 @@ def wait(key, timeout=30):
         fail(f"never showed: {key}")
 
 
+def centre(node):
+    """The middle of a uiautomator node."""
+    x1, y1, x2, y2 = map(int, re.findall(r"\d+", node.get("bounds")))
+    return (x1 + x2) // 2, (y1 + y2) // 2
+
+
 def fail(what):
     failures.append(f"[{mode}] {what}")
     print("FAIL", what, flush=True)
@@ -396,10 +402,15 @@ for mode in ("light", "dark"):
     if tap("Settings") and tap("id:sign-out"):
         time.sleep(1)
         shot(f"{mode}-sign-out-dialog")
-        nodes_now = [n for n in nodes() if n.get("text", "").lower() == "sign out"]
-        if nodes_now:
-            x1, y1, x2, y2 = map(int, re.findall(r"\d+", nodes_now[-1].get("bounds")))
-            adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+        # The dialog's own button: the one on Cancel's row, not the page's under the dialog.
+        nodes_now = nodes()
+        cancel = next((n for n in nodes_now if n.get("text", "") == "Cancel"), None)
+        choices = [n for n in nodes_now if n.get("text", "").lower() == "sign out"]
+        if choices:
+            # An Element is falsy when it has no children, so ask for None.
+            pick = min(choices, key=lambda n: abs(centre(n)[1] - centre(cancel)[1])) if cancel is not None else choices[-1]
+            x, y = centre(pick)
+            adb("shell", "input", "tap", str(x), str(y))
         wait("id:onboarding")
         shot(f"{mode}-onboarding")
 

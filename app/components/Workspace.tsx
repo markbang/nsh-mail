@@ -49,10 +49,10 @@ export function Workspace(props: WorkspaceProps) {
                 <Text role="header" class="line-clamp-1 flex-1 text-title-large tracking-title-large text-on-surface" testID="results-title">
                   {t("search.title", { query: searchQuery().trim() })}
                 </Text>
-                <If when={searchResults()}>
-                  {(found) => (
+                <If when={searchResults()?.length}>
+                  {(count) => (
                     <Text role="summary" class="text-label-large tabular-nums text-on-surface-variant" testID="result-count">
-                      {resultCount(found().length)}
+                      {resultCount(count())}
                     </Text>
                   )}
                 </If>

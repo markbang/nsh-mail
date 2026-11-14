@@ -28,10 +28,10 @@ export function SearchPage() {
           }
         >
           <View class="flex-1">
-            <If when={searchResults()}>
-              {(found) => (
+            <If when={searchResults()?.length}>
+              {(count) => (
                 <Text role="summary" class="px-4 pb-2 text-label-large tabular-nums text-on-surface-variant" testID="result-count">
-                  {resultCount(found().length)}
+                  {resultCount(count())}
                 </Text>
               )}
             </If>
@@ -45,6 +45,7 @@ export function SearchPage() {
               }}
               showAccount
               highlight={searchQuery()}
+              label={t("search.results")}
               testID="results"
               empty={<SearchEmpty />}
             />

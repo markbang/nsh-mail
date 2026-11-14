@@ -51,6 +51,24 @@ One design language on every platform: Material 3 Expressive (M3E). The values c
 
 Every pressable draws M3's state layer (the content color at 8% hovered, 10% pressed or focused) and morphs its corners while pressed. Features pass variants, sizes and states, never raw colors or radii. `ui/Gallery.tsx` shows every component; `ui/gallery.test.tsx` drives it.
 
+## States
+
+Every list, the reader and a form show what they are doing, rather than an empty frame:
+
+| Where | Empty | Loading | Failed |
+| --- | --- | --- | --- |
+| The list | `Empty` names the folder and what lands in it (`empty.<folder>.title/hint`); Inbox, Sent and Drafts add New message, Archive and Trash don't. No accounts adds Add account | The M3E loading indicator in the list's middle, never an empty frame before the first page | `Empty` with the hint and Try again (`components/Mailbox.tsx`) |
+| Search | Before typing: the hint. Nothing found: the words, a hint and Clear search | The loading indicator while it runs | The reason from the engine and Try again (`components/SearchEmpty.tsx`) |
+| Sync | — | The rail's footnote instead of the status | `components/SyncBanner.tsx` over the list, an `alert` with the reason and a retry, until a sync succeeds |
+| The reader | No message selected, with how to reach one | The indicator in place of the message | `Empty` with the hint and Try again, on the wide reader and on the phone's page |
+| Signing in, adding an IMAP account, saving | — | The button's loading indicator | A red text by the form's action; a refused IMAP sign-in (`ERR_AUTH`) also explains app passwords with the provider's link |
+
+Failures that answer a press (sending, archiving, attachments) are the snackbar, with Undo or the reason; failures that leave a screen without content are that screen's own state with a retry. Copy comes from `errors.*` by the engine's code (`errorInfoText`), never a raw code.
+
+## Keyboard and screen readers
+
+Every pressable is a Tab stop with M3's focus ring (`tokens.focusRing`, inset inside rows) and Return or Space presses it; Escape closes the top dialog, menu or sheet. The message list, the rail and the toolbars carry names for screen readers, rows read as "unread, sender, count, subject, date, flag", the snackbar is an `alert` for failures and a status region for confirmations, and result counts are status regions too. `?` lists the shortcuts (`components/ShortcutsDialog.tsx`, also in Settings → Help); the same list shows each key as the platform labels it (`keymap.label`).
+
 ## Motion tokens
 
 | Token | Value | For |

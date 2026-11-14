@@ -178,13 +178,14 @@ export function Empty(props: { icon: IconName; title: string; description?: stri
 
 /**
  * M3's snackbar: inverse-surface, extra-small corners, body-medium; an
- * optional action in inverse-primary. It rises from the bottom edge.
+ * optional action in inverse-primary. It rises from the bottom edge. A failure
+ * interrupts a screen reader; a confirmation waits for a pause.
  */
 export function Snackbar(props: { text: string; tone?: "neutral" | "error"; action?: { label: string; run: () => void } }) {
   const enter = createMotion({ enter: reduceMotion() ? undefined : "slideInUp", duration: 300 });
   return (
     <View
-      role="alert"
+      role={props.tone === "error" ? "alert" : "summary"}
       android={{ elevation: 3 }}
       class="min-h-12 w-full max-w-[560px] flex-row items-center gap-2 rounded-extra-small bg-inverse-surface py-1 pe-2 ps-4 shadow-elevation-3 android:shadow-none"
       style={enter.style}

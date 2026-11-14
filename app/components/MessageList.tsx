@@ -27,6 +27,8 @@ export interface MessageListProps {
   /** Search words to mark in subjects and previews. */
   highlight?: string;
   empty?: JSX.Element;
+  /** What screen readers call the list (its rows name themselves). */
+  label?: string;
   testID?: string;
   /** Swipe actions (touch screens). */
   onArchive?: (id: string) => void;
@@ -48,6 +50,8 @@ export function MessageList(props: MessageListProps) {
   return (
     <View class="flex-1">
     <List
+      role="list"
+      accessibilityLabel={props.label}
       refreshIndicator={m3() && props.onRefresh ? { height: PULL } : undefined}
       pullValue={m3() ? pull : undefined}
       contentStyle={m3() ? { paddingTop: 4, paddingBottom: 96 } : undefined}

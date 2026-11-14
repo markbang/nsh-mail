@@ -169,6 +169,21 @@ test("search finds mail across accounts and folders", async () => {
   await app.waitFor("id:messages >> text:Q4 roadmap draft");
 });
 
+test("? lists the shortcuts, Escape closes the list, Settings opens it too", async () => {
+  const app = await open("./App.tsx", { ...desktop, ...demo });
+  await app.waitFor("text:Q4 roadmap draft");
+  await app.keyboard.press("shift+/");
+  await app.waitFor("id:shortcuts");
+  await app.waitFor("id:shortcuts >> text:Archive");
+  await app.waitFor("id:shortcuts >> text:New message");
+  await app.keyboard.press("escape");
+  await app.waitFor("id:shortcuts", { state: "gone" });
+  // A phone with no hardware keyboard has no ? to press.
+  await app.press("id:open-settings");
+  await app.press("id:open-shortcuts");
+  await app.waitFor("id:shortcuts");
+});
+
 test("archives a message with Undo, then for real", async () => {
   const app = await open("./App.tsx", { ...desktop, ...demo });
   await app.waitFor("text:Q4 roadmap draft");

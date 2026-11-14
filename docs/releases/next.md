@@ -6,6 +6,9 @@ English | [简体中文](next.zh-CN.md)
 
 ## Improved
 
+- Keyboard and screen readers. Every control is a Tab stop with Material's focus ring and presses with Return or Space, and `?` — or Settings → Help — lists the shortcuts, each key as your platform names it. Screen readers hear the snackbar as an alert for failures and a status for confirmations, the mailbox, search, sidebar and toolbar names, and rows as unread, sender, count, subject and date.
 - Empty, loading and failure states across the app. An empty folder says which one it is and offers New message where that helps; a search shows a hint before you type, a loading indicator while it runs, and the reason with Try again if it fails. A mailbox that won't load, a message that won't open and a failed sync all say what to do next, in the list, in the reader and in a banner with a retry. An IMAP sign-in the server refuses now explains app passwords, with a link for the provider.
 
 ## Fixed
+
+- Settings' About line showed a version number that never changed; it now shows the one the build reports.
