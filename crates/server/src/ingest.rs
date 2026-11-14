@@ -275,6 +275,55 @@ async fn gotify_inner(
     store(&state, &source, Normalised { message })
 }
 
+/// `GET /{topic}`: ntfy has no such endpoint, and the web client's files sit at the same level
+/// (`/app.<hash>.js`, `/nsh.<hash>.wasm`), so a GET here serves the site. The topic route would
+/// otherwise answer 405 to every asset request and blank the page.
+pub async fn web_asset(
+    State(state): State<std::sync::Arc<AppState>>,
+    Path(topic): Path<String>,
+) -> Response {
+    let Some(dir) = &state.config.web_dir else {
+        return (StatusCode::NOT_FOUND, "not found").into_response();
+    };
+    if topic.is_empty() || topic.starts_with('.') || topic.contains(['/', '\\']) {
+        return (StatusCode::NOT_FOUND, "not found").into_response();
+    }
+    let Ok(bytes) = tokio::fs::read(dir.join(&topic)).await else {
+        return (StatusCode::NOT_FOUND, "not found").into_response();
+    };
+    let cache = if topic.ends_with(".html") {
+        "no-cache"
+    } else {
+        "public, max-age=3600"
+    };
+    (
+        [
+            (header::CONTENT_TYPE, content_type(&topic)),
+            (header::CACHE_CONTROL, cache),
+        ],
+        bytes,
+    )
+        .into_response()
+}
+
+/// Enough for the web build's files; anything else is served as bytes.
+fn content_type(name: &str) -> &'static str {
+    match name.rsplit_once('.').map(|(_, ext)| ext).unwrap_or("") {
+        "html" => "text/html; charset=utf-8",
+        "js" => "text/javascript; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "json" | "webmanifest" => "application/json",
+        "wasm" => "application/wasm",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        "woff2" => "font/woff2",
+        "txt" | "map" => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
+    }
+}
+
 /// ntfy's `PUT|POST /{topic}`, the topic being the source token.
 pub async fn ntfy_publish(
     State(state): State<std::sync::Arc<AppState>>,

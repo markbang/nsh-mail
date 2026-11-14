@@ -57,6 +57,8 @@ Notifications arrive on URLs outside `/v1`; each one is a source, and the token 
 | Gotify | `POST /message?token={token}` | Gotify's JSON in, Gotify's JSON out. |
 | ntfy | `PUT|POST /{topic}` | The topic is the token; ntfy headers, JSON publish or plain body. `GET /{topic}/json` streams NDJSON, replaying from `?since=<seq>`. |
 
+The web client's files sit at the same level as a topic (`/app.<hash>.js`, `/nsh.<hash>.wasm`), so `GET /{topic}` serves them from `NSHMAIL_WEB_DIR`; only `PUT` and `POST` on that path are ntfy publishes.
+
 Limits per source: 256 KiB a request, 60 messages a minute with a burst of 120. A source's `secret` (write-only, `hasSecret` in responses) turns on the `X-Hub-Signature-256` check for its webhook; it is stored AES-256-GCM in `users/notify.secrets.json`, which key rotation covers like the mail secrets. Ingested HTML goes through the same sanitizer as mail, with remote images removed; `externalId` makes a sender's retry a no-op; duplicates still answer `202` with the existing id.
 
 ## Notification feed

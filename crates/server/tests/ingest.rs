@@ -55,7 +55,12 @@ struct Server {
 }
 
 async fn start(data_dir: PathBuf) -> Server {
-    let state = build(config(data_dir.clone())).await.unwrap();
+    start_with(config(data_dir.clone())).await
+}
+
+async fn start_with(config: Config) -> Server {
+    let data_dir = config.data_dir.clone();
+    let state = build(config).await.unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr: SocketAddr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
@@ -585,6 +590,80 @@ async fn ntfy_compatible() {
             .unwrap()
             .status(),
         StatusCode::UNAUTHORIZED
+    );
+}
+
+/// The web client's files live at the same level as an ntfy topic (`/app.<hash>.js`), so a GET
+/// there must serve the site instead of answering 405 for the topic route.
+#[tokio::test]
+async fn static_files_at_the_root_still_load() {
+    let dir = temp_dir();
+    let site = dir.join("site");
+    std::fs::create_dir_all(&site).unwrap();
+    std::fs::write(site.join("app.abc.js"), b"console.log('mail')").unwrap();
+    std::fs::write(site.join("nsh.abc.wasm"), b"\0asm").unwrap();
+    std::fs::write(site.join("index.html"), b"<html></html>").unwrap();
+    let mut config = config(dir.clone());
+    config.web_dir = Some(site.clone());
+    let server = start_with(config).await;
+
+    for (file, kind) in [
+        ("app.abc.js", "text/javascript"),
+        ("nsh.abc.wasm", "application/wasm"),
+        ("index.html", "text/html"),
+    ] {
+        let res = server
+            .http
+            .get(format!("{}/{file}", server.origin))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{file}");
+        assert!(
+            res.headers()["content-type"]
+                .to_str()
+                .unwrap()
+                .starts_with(kind),
+            "{file}: {:?}",
+            res.headers()["content-type"]
+        );
+    }
+    assert_eq!(
+        server
+            .http
+            .get(format!("{}/missing.js", server.origin))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    // The site is still a session: `/` and its assets load together.
+    assert_eq!(
+        server
+            .http
+            .get(format!("{}/", server.origin))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+
+    // Publishing to a topic still works on the same path.
+    let session = server.signup("owner@test.local").await;
+    let (topic, _) = server.source(&session, "ntfy", json!({}), None).await;
+    assert_eq!(
+        server
+            .http
+            .put(format!("{}/{}", server.origin, topic))
+            .header("title", "Still ntfy")
+            .body("yes")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
     );
 }
 

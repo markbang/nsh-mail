@@ -21,7 +21,7 @@ use axum::{
     http::{HeaderValue, Method, header},
     middleware::{self, Next},
     response::Response,
-    routing::{delete, get, post, put},
+    routing::{delete, get, post},
 };
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
@@ -202,7 +202,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/{topic}",
-            put(ingest::ntfy_publish)
+            get(ingest::web_asset)
+                .put(ingest::ntfy_publish)
                 .post(ingest::ntfy_publish)
                 .layer(DefaultBodyLimit::max(ingest::BODY_LIMIT)),
         )
