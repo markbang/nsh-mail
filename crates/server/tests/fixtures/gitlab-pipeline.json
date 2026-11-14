@@ -1,0 +1,11 @@
+{
+  "object_kind": "pipeline",
+  "object_attributes": {
+    "id": 101,
+    "status": "failed",
+    "name": "main",
+    "url": "https://gitlab.com/bang/nsh-mail/-/pipelines/101"
+  },
+  "project": { "name": "nsh-mail", "web_url": "https://gitlab.com/bang/nsh-mail" },
+  "user": { "name": "Bang Wu", "username": "bang" }
+}

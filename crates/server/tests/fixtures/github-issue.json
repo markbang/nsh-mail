@@ -1,0 +1,17 @@
+{
+  "action": "opened",
+  "issue": {
+    "id": 2300470027,
+    "number": 42,
+    "title": "Sync drops messages above 5k",
+    "body": "Steps:\n1. sync a 20k mailbox\n2. the list stops at 5000\n\nIt resumes on the next sync.",
+    "html_url": "https://github.com/markbang/nsh-mail/issues/42",
+    "user": { "login": "bangwu" }
+  },
+  "repository": {
+    "full_name": "markbang/nsh-mail",
+    "html_url": "https://github.com/markbang/nsh-mail",
+    "description": "Mail client"
+  },
+  "sender": { "login": "bangwu" }
+}

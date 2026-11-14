@@ -1,0 +1,15 @@
+{
+  "action": "completed",
+  "workflow_run": {
+    "id": 5512345678,
+    "name": "CI",
+    "head_branch": "main",
+    "conclusion": "failure",
+    "html_url": "https://github.com/markbang/nsh-mail/actions/runs/5512345678"
+  },
+  "repository": {
+    "full_name": "markbang/nsh-mail",
+    "html_url": "https://github.com/markbang/nsh-mail"
+  },
+  "sender": { "login": "markbang" }
+}

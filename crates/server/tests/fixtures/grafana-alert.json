@@ -1,0 +1,18 @@
+{
+  "receiver": "nsh-mail",
+  "status": "firing",
+  "state": "alerting",
+  "title": "[FIRING:1] HighErrorRate",
+  "message": "Error rate above 5% for 5m",
+  "ruleName": "HighErrorRate",
+  "dashboardURL": "https://grafana.example.com/d/abc",
+  "fingerprint": "a1b2c3d4",
+  "alerts": [
+    {
+      "status": "firing",
+      "fingerprint": "a1b2c3d4",
+      "labels": { "alertname": "HighErrorRate", "severity": "critical" },
+      "annotations": { "summary": "Error rate above 5%" }
+    }
+  ]
+}

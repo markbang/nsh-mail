@@ -134,6 +134,12 @@ pub const TAG_LIMIT: usize = 64;
 /// The raw request body kept for debugging.
 pub const PAYLOAD_LIMIT: usize = 64 * 1024;
 
+/// HTML from any source, sanitized like mail (scripts, event handlers, forms, frames, remote
+/// images) so the feed can render it without leaking a read receipt.
+pub fn sanitize_html(html: &str) -> String {
+    crate::mime::sanitize_html(html, &Default::default(), true).0
+}
+
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -145,6 +151,9 @@ pub fn now_ms() -> i64 {
 #[serde(rename_all = "camelCase")]
 pub struct Source {
     pub id: String,
+    /// Owner; never serialized, since a source only ever leaves the server to its own user.
+    #[serde(skip)]
+    pub user_id: i64,
     pub kind: String,
     pub name: String,
     pub icon: Option<String>,
@@ -273,8 +282,8 @@ pub struct Feed {
     user: i64,
 }
 
-const SOURCE_COLUMNS: &str = "id, kind, name, icon, color, config, min_priority, enabled, \
-     created_at, ingest_token_hash IS NOT NULL";
+const SOURCE_COLUMNS: &str = "id, user_id, kind, name, icon, color, config, min_priority, \
+     enabled, created_at, ingest_token_hash IS NOT NULL";
 
 const MESSAGE_COLUMNS: &str = "id, pk, source_id, external_id, sender, title, body_text, \
      body_html, body_markdown, link, received_at, read_at, archived_at, priority, tags, thread_id";
@@ -766,6 +775,26 @@ impl Feed {
         self.message(id)
     }
 
+    /// Messages received after `after_seq`, oldest first, for catching a stream up (`since=`).
+    pub fn since(
+        &self,
+        source_id: Option<&str>,
+        after_seq: i64,
+        limit: u32,
+    ) -> Result<Vec<FeedMessage>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {MESSAGE_COLUMNS} FROM feed_messages
+             WHERE user_id = ?1 AND pk > ?2 AND (?3 IS NULL OR source_id = ?3)
+             ORDER BY pk LIMIT ?4"
+        ))?;
+        let rows = stmt.query_map(
+            params![self.user, after_seq, source_id, limit.min(500)],
+            message_row,
+        )?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// Unread count across the feed, and per source.
     pub fn unread(&self) -> Result<(i64, Vec<(String, i64)>)> {
         let conn = self.conn();
@@ -791,18 +820,19 @@ fn not_found(what: &str, id: &str) -> crate::types::Error {
 }
 
 fn source_row(r: &Row) -> rusqlite::Result<Source> {
-    let config: String = r.get(5)?;
+    let config: String = r.get(6)?;
     Ok(Source {
         id: r.get(0)?,
-        kind: r.get(1)?,
-        name: r.get(2)?,
-        icon: r.get(3)?,
-        color: r.get(4)?,
+        user_id: r.get(1)?,
+        kind: r.get(2)?,
+        name: r.get(3)?,
+        icon: r.get(4)?,
+        color: r.get(5)?,
         config: serde_json::from_str(&config).unwrap_or(Value::Null),
-        min_priority: r.get(6)?,
-        enabled: r.get(7)?,
-        created_at: r.get(8)?,
-        has_token: r.get(9)?,
+        min_priority: r.get(7)?,
+        enabled: r.get(8)?,
+        created_at: r.get(9)?,
+        has_token: r.get(10)?,
     })
 }
 
