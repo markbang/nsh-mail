@@ -57,7 +57,7 @@ function Gallery() {
   const checked = signal(true);
   const choice = signal<"inbox" | "sent" | "drafts">("inbox");
   const nav = signal("inbox");
-  const text = signal("mark@bangwu.top");
+  const text = signal("lin@mail.example");
   const empty = signal("");
   const modal = signal(false);
   const fab = signal(false);
@@ -243,8 +243,8 @@ function Gallery() {
             <CircularProgress label="Half" value={0.5} />
             <Badge label="4"><IconButton icon="inbox" label="Inbox" /></Badge>
             <Badge dot><IconButton icon="mail" label="Mail" /></Badge>
-            <Avatar name="Mark Wu" />
-            <Avatar name="吴马克" size="lg" />
+            <Avatar name="Lin Chen" />
+            <Avatar name="陈琳" size="lg" />
           </Wrap>
           <View class="max-w-xl gap-4">
             <LinearProgress label="Syncing" />

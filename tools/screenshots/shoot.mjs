@@ -9,9 +9,9 @@ const imaps = process.env.GREENMAIL_IMAPS_PORT ?? "3993";
 const smtps = process.env.GREENMAIL_SMTPS_PORT ?? "3465";
 const NOW = new Date("2026-11-13T09:30:00+08:00"); // seed.py's NOW
 const accounts = [
-  ["mark.wu@lumenlabs.dev", "Mark Wu (Lumen Labs)"],
-  ["mark@wu-family.net", "Mark Wu"],
-  ["2837465510@qq.com", "吴马克"],
+  ["lin.chen@northwind.dev", "Lin Chen (Northwind)"],
+  ["lin@chen-family.example", "Lin Chen"],
+  ["chenlin@mail.example", "陈琳"],
 ];
 // The newest message of each account: all three listed means the first sync is done.
 const synced = ["Lunch tomorrow?", "Reminder: your trip to Kyoto is coming up", "豆瓣读书周报：本周新书速递"];
@@ -75,7 +75,7 @@ await id("onboarding").waitFor({ timeout: 60_000 });
 if (await id("mode-cloud").isVisible()) await press("mode-cloud");
 await page.getByText("Create account").click();
 if (await id("server").isVisible()) await fill("server", origin);
-await fill("cloud-email", "mark@bangwu.top");
+await fill("cloud-email", "lin@mail.example");
 await fill("cloud-password", "correct horse battery staple");
 await press("onboarding-go");
 await id("open-settings").waitFor({ timeout: 30_000 });
@@ -104,7 +104,7 @@ for (const [email, name] of accounts) {
 await press("open-settings");
 await press("account-more-0");
 await page.getByText("Signature…").click();
-await fill("signature-text", "**Mark Wu**\nLumen Labs · [lumenlabs.dev](https://lumenlabs.dev)");
+await fill("signature-text", "**Lin Chen**\nNorthwind · [northwind.dev](https://northwind.dev)");
 await press("signature-save");
 await page.getByText("Signature saved").waitFor();
 await press("header-back");
@@ -131,7 +131,7 @@ for (const theme of ["light", "dark"]) {
   await press("reply");
   await field("compose-body").waitFor();
   await field("compose-body").press("Control+Home");
-  await page.keyboard.type("Hi Sarah,\n\nSounds good, 12:15 works. I'll bring the dark mode mockups so we can go through contrast before Thursday.\n\nMark");
+  await page.keyboard.type("Hi Maya,\n\nSounds good, 12:15 works. I'll bring the dark mode mockups so we can go through contrast before Thursday.\n\nLin");
   await shot("compose", theme);
 
   await home();
@@ -163,9 +163,9 @@ for (const theme of ["light", "dark"]) {
   await page.emulateMedia({ colorScheme: theme });
   await home();
   await press("compose");
-  await fill("compose-to", "sarah@lumenlabs.dev");
+  await fill("compose-to", "maya@northwind.dev");
   await fill("compose-subject", "Kickoff notes");
-  await fill("compose-body", "Hi Sarah,\n\nNotes from today's kickoff are below.\n\nMark");
+  await fill("compose-body", "Hi Maya,\n\nNotes from today's kickoff are below.\n\nLin");
   await press("send-later");
   await page.getByText("Tomorrow morning").waitFor();
   await shot("send-menu", theme);
@@ -173,7 +173,7 @@ for (const theme of ["light", "dark"]) {
   await page.getByText(/^Scheduled for /).waitFor();
 
   await press("compose");
-  await fill("compose-to", "sarah@lumenlabs.dev");
+  await fill("compose-to", "maya@northwind.dev");
   await fill("compose-subject", "Slides for Thursday");
   await press("send");
   await page.getByText("Sending…").waitFor();
