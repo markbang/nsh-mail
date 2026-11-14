@@ -14,6 +14,7 @@ use mail_core::{
     Engine,
     types::{
         Draft, DraftAttachment, Error, ErrorCode, Flags, FolderKind, ImapInput, ListQuery, SendAt,
+        Signature,
     },
 };
 
@@ -262,6 +263,22 @@ pub async fn add_account(
     Ok((
         StatusCode::CREATED,
         Json(mail(&s, &u).await?.add_imap_account(input).await?),
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct AccountPatch {
+    signature: Signature,
+}
+
+pub async fn patch_account(
+    State(s): State<Arc<AppState>>,
+    u: AuthUser,
+    Path(id): Path<String>,
+    Json(p): Json<AccountPatch>,
+) -> ApiResult<impl IntoResponse> {
+    Ok(Json(
+        mail(&s, &u).await?.set_signature(&id, p.signature).await?,
     ))
 }
 

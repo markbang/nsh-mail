@@ -14,6 +14,7 @@ export type Route =
   | { name: "folders" }
   | { name: "settings" }
   | { name: "addAccount" }
+  | { name: "signature"; account: string }
   | { name: "imap" };
 
 /** The phone's stack: the only one in a narrow browser, the Mail tab's on iOS and Android. */

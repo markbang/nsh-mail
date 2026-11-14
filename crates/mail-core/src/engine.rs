@@ -219,6 +219,7 @@ impl Engine {
             auth: Auth::Password,
             imap: input.imap.clone(),
             smtp: input.smtp.clone(),
+            signature: Signature::default(),
         };
         let cred = Credential::Password(input.password.clone());
         self.verify(&account, &cred).await?;
@@ -280,6 +281,7 @@ impl Engine {
                 },
                 imap: preset.imap,
                 smtp: preset.smtp,
+                signature: Signature::default(),
             },
         };
         self.verify(
@@ -319,6 +321,24 @@ impl Engine {
         let mut conn = imap::connect(&account.imap, login(account, cred)).await?;
         let _ = conn.session.logout().await;
         smtp::verify(&account.smtp, smtp_auth(account, cred)).await
+    }
+
+    pub async fn set_signature(&self, id: &str, signature: Signature) -> Result<Account> {
+        if signature.text.chars().count() > MAX_SIGNATURE {
+            return Err(err(
+                ErrorCode::InvalidInput,
+                format!("a signature holds at most {MAX_SIGNATURE} characters"),
+            ));
+        }
+        let id = id.to_string();
+        self.store()
+            .run(move |s| {
+                let mut account = s.account(&id)?;
+                account.signature = signature;
+                s.update_account(&account)?;
+                Ok(account)
+            })
+            .await
     }
 
     pub async fn remove_account(&self, id: &str) -> Result<()> {

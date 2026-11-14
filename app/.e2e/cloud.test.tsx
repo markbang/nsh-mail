@@ -95,12 +95,30 @@ test("cloud mode: sign up, add a mailbox, read, get new mail live, reply, sign o
   await addMailbox(alices, alice);
   await alices.waitFor("id:messages >> text:Hello before you joined", slow);
 
+  // Her signature is kept on the server: another copy of the app finds it there.
+  await alices.press("id:open-settings");
+  await alices.press("id:account-more-0");
+  await alices.press("text:Signature…");
+  await alices.type("id:signature-text", "*Alice*");
+  await alices.press("id:signature-save");
+  await alices.waitFor("text:Signature saved", slow);
+  await alices.press("id:header-back");
+  await alices.waitFor("id:modal", { state: "gone" });
+  const again = await open("../App.tsx", { ...desktop, storage: alices.storage() });
+  await again.waitFor("id:open-settings", slow);
+  await again.press("id:open-settings");
+  await again.press("id:account-more-0");
+  await again.press("text:Signature…");
+  expect(again.value("id:signature-text")).toBe("*Alice*");
+
   // New mail arrives over the event stream: nothing in Alice's app asks for it.
   await send(bobs, alice, "Lunch at noon?");
   await alices.waitFor("id:messages >> text:Lunch at noon?", slow);
 
   await alices.press("id:messages >> text:Lunch at noon?");
   await alices.press("id:reply");
+  await alices.waitFor("id:compose-body");
+  expect(alices.value("id:compose-body")).toMatch(/^\n\n-- \nAlice\n\nOn /);
   await alices.type("id:compose-body", "Sounds good.");
   // The server holds it for the undo delay: Undo takes it back from there.
   await alices.press("id:send");

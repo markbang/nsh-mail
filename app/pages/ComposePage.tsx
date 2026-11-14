@@ -17,7 +17,8 @@ import { endDraft, holdDraft, isEnded, useDraft } from "../drafts";
 import { isAddress, parseRecipient, sendDate, splitRecipients, type ComposeInit } from "../lib/format";
 import { wide } from "../layout";
 import { queueDraft, schedulePresets, undoDelay } from "../outbox";
-import { accounts, errorText, mailbox, showToast } from "../store";
+import { bodyHtml, signatureMode, swapSignature } from "../lib/signature";
+import { accountById, accounts, errorText, mailbox, showToast } from "../store";
 
 export function ComposePage(props: { init: ComposeInit }) {
   const nav = NavContext();
@@ -31,6 +32,12 @@ export function ComposePage(props: { init: ComposeInit }) {
   const picking = signal(false);
   const dragging = signal(false);
   const editing = props.init.mode === "edit" ? props.init.outgoing : undefined;
+  const signing = signatureMode(props.init);
+  // Another account's signature replaces this one's, unless the user changed it.
+  const changeFrom = (id: string) => {
+    body.set(swapSignature(body(), start.text, accountById(from()), accountById(id), signing));
+    from.set(id);
+  };
   const attach = (list: Incoming[]) => files.add(list);
   onPageDrop((on) => dragging.set(on), attach);
   const pick = async () => {
@@ -71,6 +78,7 @@ export function ComposePage(props: { init: ComposeInit }) {
     bcc: splitRecipients(bcc()).map(parseRecipient),
     subject: subject(),
     text: body(),
+    html: bodyHtml(body(), accountById(from()), signing),
     inReplyTo: start.inReplyTo,
     references: start.references,
     attachments: files.draft(),
@@ -169,6 +177,8 @@ export function ComposePage(props: { init: ComposeInit }) {
   const label = "w-16 text-body-large tracking-body-large text-on-surface-variant";
   const line = "min-h-14 flex-row items-center gap-2 border-b border-outline-variant px-4";
   const replying = props.init.mode === "reply" || props.init.mode === "replyAll";
+  // What the user writes goes above the quote and the signature.
+  const caretAtTop = replying || !draft.edited();
   return (
     <Page title={title()} header={<PageHeader title={title()} actions={actions()} />} headerRight={systemHeader ? actions() : undefined}>
       <View
@@ -187,7 +197,7 @@ export function ComposePage(props: { init: ComposeInit }) {
               <SelectField
                 value={from()}
                 items={accounts().map((a) => ({ value: a.id, title: a.name ? `${a.name} <${a.email}>` : a.email }))}
-                onChange={(v) => from.set(v)}
+                onChange={changeFrom}
                 label={t("compose.from")}
                 floatingLabel={false}
                 class="flex-1"
@@ -246,7 +256,7 @@ export function ComposePage(props: { init: ComposeInit }) {
             multiline
             label={t("compose.body")}
             autoFocus={replying}
-            ref={(input) => replying && setTimeout(() => input.setSelection(0), 0)}
+            ref={(input) => caretAtTop && setTimeout(() => input.setSelection(0), 0)}
             variant="plain"
             class="flex-1"
             testID="compose-body"

@@ -14,6 +14,7 @@ import { AddAccountPage } from "./pages/AddAccountPage";
 import { ComposePage } from "./pages/ComposePage";
 import { FoldersPage } from "./pages/FoldersPage";
 import { ImapPage } from "./pages/ImapPage";
+import { SignaturePage } from "./pages/SignaturePage";
 import { InboxPage } from "./pages/InboxPage";
 import { MessagePage } from "./pages/MessagePage";
 import { Onboarding } from "./pages/Onboarding";
@@ -42,6 +43,8 @@ function page(route: Route) {
       return <AddAccountPage />;
     case "imap":
       return <ImapPage />;
+    case "signature":
+      return <SignaturePage accountId={route.account} />;
   }
 }
 

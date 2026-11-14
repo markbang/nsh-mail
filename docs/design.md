@@ -64,6 +64,7 @@ Mail.detect(email): Promise<ServerSettings | null> // preset table + Mozilla aut
 Mail.addImap(input: ImapInput): Promise<Account>   // connects to IMAP and SMTP before saving
 Mail.addOAuth(provider: "google"|"microsoft"): Promise<Account>
 Mail.removeAccount(id): Promise<void>
+Mail.setSignature(id, { text, newMessages, replies }): Promise<Account>   // kept with the account (§4 Signatures)
 Mail.list(q: { folder: "inbox"|"sent"|"drafts"|"archive"|"trash", account?, before?, limit }): Promise<Summary[]>
 Mail.threads(q): Promise<Thread[]>                 // conversations, as `list` pages messages (§4 Conversations); `before` is a thread id
 Mail.thread(id): Promise<Summary[]>                // a conversation's messages, oldest first, in every folder and account
@@ -162,12 +163,20 @@ Send with Undo and Schedule send both put the message in an outbox that mail-cor
 - **Cloud mode**: the server holds the message; `POST /v1/send` with `delay` or `sendAt` answers 202 with the `Outgoing`, `DELETE /v1/outbox/{id}` cancels before it goes (the files become uploads again, same ids). Closing the tab changes nothing; the server's outbox survives restarts (the engines of users with accounts start at boot).
 - **Failures**: network errors retry 5 times, 1, 2, 4, 8, 16 minutes apart; other errors leave the message `failed` with its error, listed under Scheduled for the user to edit or cancel. A message left `sending` by a process that stopped becomes `failed` ("check Sent"), since it may have gone. A time more than a minute in the past is refused; delays are at most 5 minutes.
 
+### Signatures
+
+Each account has a signature (Settings → an account's menu → Signature): plain text where `**bold**`, `*italic*` and `[label](https://…)` format, with two switches, new messages and replies/forwards (both on by default). It is part of `Account` (`signature: {text, newMessages, replies}`, at most 10,000 characters): local mode keeps it in the account row of `mail.sqlite`, cloud mode with `PATCH /v1/accounts/{id}` in the server's (bound to the user like every row). Neither formats it: `app/lib/signature.ts` does.
+
+- **Composer**: a new composer's body is `\n\n-- \n<signature as plain text>`, above the quote or the forwarded message (Gmail's place), editable like the rest; a link reads `label <url>`. Changing From replaces the block when it is still as it was added (`\n\n` before it, a line end or the end after); one the user edited stays.
+- **Sending**: while the block is intact the draft gets an `html` part too: the body's lines, `>` quotes as blockquotes, links linked, and the signature with its formatting; otherwise the message is plain text. Drafts, Undo send and Schedule send carry the body as typed, so a message taken back or edited keeps its signature once.
+
 ### Server API
 
 ```
 POST /v1/auth/signup | /v1/auth/login        {email, password} → {token}
 POST /v1/auth/logout      GET /v1/me    PATCH /v1/me  {hideContent} (notifications without content)
 GET  /v1/accounts        POST /v1/accounts (imap)        DELETE /v1/accounts/{id}
+PATCH /v1/accounts/{id}  {signature: {text, newMessages, replies}} → Account
 GET  /v1/detect?email=   POST /v1/sync (sync every account now)
 GET  /v1/oauth/{google|microsoft}/start?token=…           GET /v1/oauth/{provider}/callback
 GET  /v1/messages?folder=&account=&before=&limit=         GET /v1/messages/{id}

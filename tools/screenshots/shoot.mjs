@@ -100,6 +100,16 @@ for (const [email, name] of accounts) {
   log("added", email);
 }
 
+// The work account signs its mail: the composer shots show it above the quote.
+await press("open-settings");
+await press("account-more-0");
+await page.getByText("Signature…").click();
+await fill("signature-text", "**Mark Wu**\nLumen Labs · [lumenlabs.dev](https://lumenlabs.dev)");
+await press("signature-save");
+await page.getByText("Signature saved").waitFor();
+await press("header-back");
+log("signature set");
+
 for (const theme of ["light", "dark"]) {
   await page.emulateMedia({ colorScheme: theme });
   await home();
@@ -135,6 +145,12 @@ for (const theme of ["light", "dark"]) {
   await press("open-settings");
   await id("signed-in-as").waitFor();
   await shot("settings", theme);
+
+  await press("account-more-0");
+  await page.getByText("Signature…").click();
+  await id("signature-preview").waitFor();
+  await shot("signature", theme);
+  await press("header-back");
 
   await press("add-account");
   await id("add-imap").waitFor();

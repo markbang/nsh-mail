@@ -542,6 +542,14 @@ impl Backend for CloudBackend {
         })
     }
 
+    fn set_signature(&self, id: String, signature: Signature) -> MailFuture<'_, Account> {
+        Box::pin(async move {
+            let path = format!("/accounts/{}", enc(&id));
+            let body = json!({ "signature": signature });
+            self.api().call("PATCH", &path, Some(body)).await
+        })
+    }
+
     fn list(&self, query: ListQuery) -> MailFuture<'_, Vec<Summary>> {
         Box::pin(async move {
             let path = page("/messages", &query);

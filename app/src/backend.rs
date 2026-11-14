@@ -33,6 +33,7 @@ pub trait Backend {
     fn add_imap(&self, input: ImapInput) -> MailFuture<'_, Account>;
     fn add_oauth(&self, provider: OAuthProvider) -> MailFuture<'_, Account>;
     fn remove_account(&self, id: String) -> MailFuture<'_, ()>;
+    fn set_signature(&self, id: String, signature: Signature) -> MailFuture<'_, Account>;
     fn list(&self, query: ListQuery) -> MailFuture<'_, Vec<Summary>>;
     /// Conversations, as `list` pages messages; `before` is a thread id.
     fn threads(&self, query: ListQuery) -> MailFuture<'_, Vec<Thread>>;

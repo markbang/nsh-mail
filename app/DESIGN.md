@@ -87,6 +87,8 @@ Reduced motion: transitions off (`motion-reduce:`), motions not started (`reduce
 | Composer | Send's menu opens | The menu button's chevron turns 180° and its inner corners go round (spatial fast); the menu grows from it |
 | Schedule send | A day is picked | The day fills with primary, the last one empties: effects fast (150ms) |
 | Scheduled | A message is cancelled / put back | No motion: the list follows the outbox; the snackbar carries the Undo |
+| Signature | Typing | The preview follows each keystroke and appears with the first character: no motion, it is the text itself |
+| Composer | From changes | The signature in the body is swapped in place: no motion |
 
 Reduced motion: transitions off (`motion-reduce:`), motions and springs not started (`reduceMotion()`), indicators rest.
 

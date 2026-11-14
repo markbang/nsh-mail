@@ -995,6 +995,59 @@ impl Server {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn account_signature_is_the_users_own() {
+    let s = start(config(temp_dir())).await;
+    let (alice, bob) = (s.user("alice").await, s.user("bob").await);
+    let patch = |user: &User, account: &str, body: Value| {
+        s.http
+            .patch(format!("{}/accounts/{account}", s.base))
+            .bearer_auth(&user.token)
+            .json(&body)
+            .send()
+    };
+    let signature = json!({ "text": "**Alice**", "newMessages": true, "replies": false });
+
+    let res = patch(&alice, &alice.account, json!({ "signature": signature }))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(res.json::<Value>().await.unwrap()["signature"], signature);
+    let accounts: Vec<Value> = s.get(&alice.token, "/accounts").await.json().await.unwrap();
+    assert_eq!(accounts[0]["signature"], signature);
+    let res = patch(&bob, &alice.account, json!({ "signature": signature }))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let accounts: Vec<Value> = s.get(&bob.token, "/accounts").await.json().await.unwrap();
+    assert_eq!(accounts[0]["signature"]["text"], "");
+    let long = json!({ "signature": { "text": "x".repeat(10_001) } });
+    let res = patch(&alice, &alice.account, long).await.unwrap();
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    // What the composer makes of it goes out as both parts.
+    let res = s
+        .send_draft(
+            &alice,
+            json!({ "to": [{ "email": bob.email }], "subject": "signed",
+                    "text": "Hi\n\n-- \nAlice", "html": "<div>Hi<br><br>-- <br><b>Alice</b></div>" }),
+        )
+        .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let inbox = s.inbox(&bob, 1).await;
+    let m: Value = s
+        .get(
+            &bob.token,
+            &format!("/messages/{}", inbox[0]["id"].as_str().unwrap()),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(m["text"].as_str().unwrap().contains("-- \nAlice"), "{m}");
+    assert!(m["html"].as_str().unwrap().contains("<b>Alice</b>"), "{m}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn outbox_undo_cancel_and_isolation() {
     let s = start(config(temp_dir())).await;
     let (alice, bob) = (s.user("alice").await, s.user("bob").await);

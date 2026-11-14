@@ -207,6 +207,10 @@ impl Backend for LocalBackend {
         self.call(|e| async move { e.remove_account(&id).await })
     }
 
+    fn set_signature(&self, id: String, signature: Signature) -> MailFuture<'_, Account> {
+        self.call(|e| async move { e.set_signature(&id, signature).await })
+    }
+
     fn list(&self, query: ListQuery) -> MailFuture<'_, Vec<Summary>> {
         self.call(|e| async move { e.list(query).await })
     }

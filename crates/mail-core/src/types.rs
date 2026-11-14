@@ -135,7 +135,34 @@ pub struct Account {
     pub auth: Auth,
     pub imap: Endpoint,
     pub smtp: Endpoint,
+    #[serde(default)]
+    pub signature: Signature,
 }
+
+/// What the composer adds under what the user writes. The client turns `text` into the
+/// message's plain and HTML parts; the store only keeps it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Signature {
+    /// Plain text with `**bold**`, `*italic*` and `[links](https://…)`; empty: none.
+    pub text: String,
+    pub new_messages: bool,
+    /// Replies and forwards.
+    pub replies: bool,
+}
+
+impl Default for Signature {
+    fn default() -> Self {
+        Signature {
+            text: String::new(),
+            new_messages: true,
+            replies: true,
+        }
+    }
+}
+
+/// The longest signature kept, in characters.
+pub const MAX_SIGNATURE: usize = 10_000;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Address {

@@ -64,6 +64,7 @@ Mail.detect(email): Promise<ServerSettings | null> // 预设表 + Mozilla autoco
 Mail.addImap(input: ImapInput): Promise<Account>   // 先连通 IMAP 和 SMTP 再保存
 Mail.addOAuth(provider: "google"|"microsoft"): Promise<Account>
 Mail.removeAccount(id): Promise<void>
+Mail.setSignature(id, { text, newMessages, replies }): Promise<Account>   // 随账号保存（§4 签名）
 Mail.list(q: { folder: "inbox"|"sent"|"drafts"|"archive"|"trash", account?, before?, limit }): Promise<Summary[]>
 Mail.threads(q): Promise<Thread[]>                 // 会话，分页方式同 `list`（见 §4 会话）；`before` 是会话 id
 Mail.thread(id): Promise<Summary[]>                // 会话里的邮件，从旧到新，跨文件夹、跨账号
@@ -162,12 +163,20 @@ mail-core 在每封邮件入库时为它归入会话（`store.rs`），本地模
 - **云端模式**：邮件由服务端保管；`POST /v1/send` 带 `delay` 或 `sendAt` 时返回 202 和 `Outgoing`，`DELETE /v1/outbox/{id}` 在发出前取消（附件按原 id 重新成为 upload）。关掉网页不影响发送；服务端的发件箱在重启后仍在（有账号的用户的引擎在启动时就运行）。
 - **失败**：网络错误重试 5 次，间隔 1、2、4、8、16 分钟；其他错误使邮件进入 `failed` 并记下错误，列在"定时发送"里，由用户编辑或取消。进程停止时停在 `sending` 的邮件改为 `failed`（"请先查看已发送"），因为它可能已经发出。早于当前时间一分钟以上的定时会被拒绝；延迟最长 5 分钟。
 
+### 签名
+
+每个账号有一个签名（设置 → 账号的菜单 → 签名）：纯文本，`**粗体**`、`*斜体*` 和 `[文字](https://…)` 可用来排版，另有两个开关：新邮件、回复和转发（默认都开）。它是 `Account` 的一部分（`signature: {text, newMessages, replies}`，最多 10,000 个字符）：本地模式存在 `mail.sqlite` 的账号行里，云端模式通过 `PATCH /v1/accounts/{id}` 存在服务端的账号行里（和所有行一样按用户隔离）。两边都不处理格式，格式由 `app/lib/signature.ts` 负责。
+
+- **写信**：新开写信窗口时正文是 `\n\n-- \n<签名的纯文本>`，放在引用或转发内容上方（与 Gmail 相同），可以像其他内容一样编辑；链接写成 `文字 <url>`。切换发件账号时，如果签名块还保持添加时的样子（前面是 `\n\n`，后面是换行或结尾）就换成新账号的；用户改过的保持不动。
+- **发送**：签名块完好时草稿会附带 `html` 部分：正文按行排列，`>` 引用变成 blockquote，链接可点，签名带格式；否则邮件只发纯文本。草稿、撤销发送和定时发送都保存输入的正文，所以撤回或编辑后的邮件只带一份签名。
+
 ### 服务端 API
 
 ```
 POST /v1/auth/signup | /v1/auth/login        {email, password} → {token}
 POST /v1/auth/logout      GET /v1/me    PATCH /v1/me  {hideContent}（通知不显示内容）
 GET  /v1/accounts        POST /v1/accounts (imap)        DELETE /v1/accounts/{id}
+PATCH /v1/accounts/{id}  {signature: {text, newMessages, replies}} → Account
 GET  /v1/detect?email=   POST /v1/sync（立即同步全部账号）
 GET  /v1/oauth/{google|microsoft}/start?token=…           GET /v1/oauth/{provider}/callback
 GET  /v1/messages?folder=&account=&before=&limit=         GET /v1/messages/{id}

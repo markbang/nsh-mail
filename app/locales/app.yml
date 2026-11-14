@@ -635,6 +635,40 @@ accounts.removed:
   en: Removed %{email}
   zh-CN: 已移除 %{email}
 
+signature.menu:
+  en: Signature…
+  zh-CN: 签名…
+signature.title:
+  en: Signature
+  zh-CN: 签名
+signature.text:
+  en: Signature
+  zh-CN: 签名
+signature.placeholder:
+  en: "Lin Chen\n**Northwind** · [northwind.dev](https://northwind.dev)"
+  zh-CN: "陈琳\n**Northwind** · [northwind.dev](https://northwind.dev)"
+signature.hint:
+  en: "**bold**, *italic*, [link](https://…)"
+  zh-CN: "**粗体**、*斜体*、[链接](https://…)"
+signature.preview:
+  en: Preview
+  zh-CN: 预览
+signature.newMessages:
+  en: Add to new messages
+  zh-CN: 添加到新邮件
+signature.replies:
+  en: Add to replies and forwards
+  zh-CN: 添加到回复和转发
+signature.repliesDetail:
+  en: Above the quoted message
+  zh-CN: 放在引用的原邮件上方
+signature.save:
+  en: Save
+  zh-CN: 保存
+signature.saved:
+  en: Signature saved
+  zh-CN: 签名已保存
+
 imap.email:
   en: Email
   zh-CN: 邮箱地址
