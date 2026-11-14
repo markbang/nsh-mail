@@ -158,7 +158,9 @@ function NotificationRow(props: { note: Notification; selected: boolean; dense: 
           <Text class={`line-clamp-1 shrink text-label-large tracking-label-large ${n().read ? "text-on-surface-variant" : "font-medium text-on-surface"}`}>
             {n().sender}
           </Text>
-          <Text class="line-clamp-1 text-label-medium tracking-label-medium text-on-surface-variant">{source()?.name ?? ""}</Text>
+          <Text class="line-clamp-1 text-label-medium tracking-label-medium text-on-surface-variant">
+            {source()?.name === n().sender ? "" : (source()?.name ?? "")}
+          </Text>
           <View class="flex-1" />
           <Text class={`text-label-medium tabular-nums tracking-label-medium ${n().read ? "text-on-surface-variant" : "font-medium text-primary"}`}>
             {relativeDate(n().receivedAt)}
