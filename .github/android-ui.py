@@ -249,10 +249,16 @@ for mode in ("light", "dark"):
         during(["swipe", str(mid + quarter), str(y), str(mid), str(y), "1500"], f"{mode}-swipe-delete", 1.0)
         time.sleep(1)
 
-        # Long-press selects; a tap adds the next row; back ends it.
-        adb("shell", "input", "swipe", str(x1 + 200), str(y), str(x1 + 200), str(y), "900")
-        time.sleep(0.5)
-        adb("shell", "input", "tap", str(x1 + 200), str(y + (y2 - y1)))
+        # Long-press selects; a tap adds the next row; back ends it. A long-press the list takes for a
+        # scroll must not fail the run: it is tried again.
+        for attempt in range(1, 4):
+            adb("shell", "input", "swipe", str(x1 + 200), str(y), str(x1 + 200), str(y), "900")
+            time.sleep(0.5)
+            adb("shell", "input", "tap", str(x1 + 200), str(y + (y2 - y1)))
+            if find("id:end-selection", 4):
+                break
+            print(f"select {attempt} did not start a selection", flush=True)
+            back()
         wait("id:end-selection", 5)
         shot(f"{mode}-selection")
         back()
@@ -398,21 +404,28 @@ for mode in ("light", "dark"):
     adb("shell", "cmd", "uimode", "night", "yes" if mode == "dark" else "no")
     time.sleep(3)
 
-    # Signing out shows the onboarding.
-    if tap("Settings") and tap("id:sign-out"):
-        time.sleep(1)
-        shot(f"{mode}-sign-out-dialog")
-        # The dialog's own button: the one on Cancel's row, not the page's under the dialog.
-        nodes_now = nodes()
-        cancel = next((n for n in nodes_now if n.get("text", "") == "Cancel"), None)
-        choices = [n for n in nodes_now if n.get("text", "").lower() == "sign out"]
-        if choices:
-            # An Element is falsy when it has no children, so ask for None.
-            pick = min(choices, key=lambda n: abs(centre(n)[1] - centre(cancel)[1])) if cancel is not None else choices[-1]
-            x, y = centre(pick)
-            adb("shell", "input", "tap", str(x), str(y))
-        wait("id:onboarding")
-        shot(f"{mode}-onboarding")
+    # Signing out shows the onboarding. The confirmation is a system dialog the emulator is slow to
+    # draw, so the whole step is tried again rather than failing the run on its timing.
+    if tap("Settings"):
+        for attempt in range(1, 4):
+            tap("id:sign-out")
+            time.sleep(1)
+            if attempt == 1:
+                shot(f"{mode}-sign-out-dialog")
+            # The dialog's own button: the one on Cancel's row, not the page's under the dialog.
+            nodes_now = nodes()
+            cancel = next((n for n in nodes_now if n.get("text", "") == "Cancel"), None)
+            choices = [n for n in nodes_now if n.get("text", "").lower() == "sign out"]
+            if choices:
+                pick = min(choices, key=lambda n: abs(centre(n)[1] - centre(cancel)[1])) if cancel is not None else choices[-1]
+                x, y = centre(pick)
+                adb("shell", "input", "tap", str(x), str(y))
+            if find("id:onboarding", 10):
+                shot(f"{mode}-onboarding")
+                break
+            print(f"sign out {attempt} did not show the onboarding", flush=True)
+        else:
+            fail("signing out never showed the onboarding")
 
 mode = "large"
 # Larger text (Android's font size at 130%), then a tablet-sized screen (1280 x 800 dp).
