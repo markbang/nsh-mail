@@ -32,6 +32,7 @@ ts! {
     Account => "Account",
     Address => "Address",
     Attachment => "Attachment",
+    Backfill => "Backfill",
     Draft => "Draft",
     Flags => "Flags",
     FolderKind => "Folder",
@@ -46,6 +47,7 @@ ts! {
     ServerSettings => "ServerSettings",
     Status => "Status",
     Summary => "Summary",
+    SyncProgress => "SyncProgress",
     Thread => "Thread",
     Upload => "Upload",
 }
@@ -108,7 +110,19 @@ const DECLARATIONS: &[(&str, &str)] = &[
         "/** The state of the mail engine. */\n\
          export interface Status {\n  mode: Mode;\n  /** The server's URL in cloud mode. */\n  server?: string | null;\n  \
          /** The server account signed in, in cloud mode. */\n  user?: string | null;\n  \
-         /** A sync is running. */\n  syncing: boolean;\n  /** The last sync error, until a sync succeeds. */\n  error?: ErrorInfo | null;\n}",
+         /** A sync is running. */\n  syncing: boolean;\n  /** How far the running sync has come. */\n  progress?: SyncProgress | null;\n  \
+         /** The last sync error, until a sync succeeds. */\n  error?: ErrorInfo | null;\n}",
+    ),
+    (
+        "SyncProgress",
+        "/** How far a sync has come: folders finished and messages stored so far. */\n\
+         export interface SyncProgress {\n  foldersDone: number;\n  foldersTotal: number;\n  messages: number;\n}",
+    ),
+    (
+        "Backfill",
+        "/** What loading older mail did. */\n\
+         export interface Backfill {\n  /** Messages added to the store. */\n  inserted: number;\n  \
+         /** Older mail is still on the server. */\n  pending: boolean;\n}",
     ),
     (
         "Folder",
@@ -233,6 +247,7 @@ const DECLARATIONS: &[(&str, &str)] = &[
          export type MailEvent =\n  | { type: \"newMail\"; summary: Summary }\n  \
          | { type: \"changed\"; accountId: string; folder: Folder }\n  \
          | { type: \"syncState\"; accountId: string; syncing: boolean; error: ErrorInfo | null }\n  \
+         | { type: \"syncProgress\"; accountId: string; progress: SyncProgress }\n  \
          | { type: \"error\"; accountId: string | null; error: ErrorInfo }\n  \
          | { type: \"outbox\"; accountId: string; id: string; subject: string; state: OutboxState; late: boolean; error: ErrorInfo | null };",
     ),

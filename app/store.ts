@@ -5,7 +5,7 @@ import { batch, resource, signal, Storage } from "nsh";
 import { t } from "nsh/i18n";
 import { fileSize } from "./lib/format";
 import { clearDrafts, loadDrafts } from "./drafts";
-import { Mail, type Account, type Address, type ErrorInfo, type Flags, type Folder, type MailEvent, type Signature, type Status, type Summary, type Thread } from "nsh-mail/native";
+import { Mail, type Account, type Address, type Backfill, type ErrorInfo, type Flags, type Folder, type MailEvent, type Signature, type Status, type Summary, type Thread } from "nsh-mail/native";
 
 const PAGE = 30;
 /** The most results a search shows. */
@@ -286,7 +286,7 @@ function heard(e: MailEvent) {
     if (e.error.code === "ERR_SECRETS") showToast(t("errors.secrets"));
     else showToast(t("errors.generic", { detail: e.error.message }), "error");
   }
-  if (e.type === "syncState" || e.type === "error") {
+  if (e.type === "syncState" || e.type === "syncProgress" || e.type === "error") {
     status.set(Mail.status());
     return;
   }
@@ -349,6 +349,16 @@ async function loadUnread() {
 // Only the latest load of the list counts.
 let loadToken = 0;
 
+/** A page of older mail from the server, when the store ran out; null on failure (the list
+ * still shows what is stored). */
+async function olderPage(folder: Folder, account: string | null): Promise<Backfill | null> {
+  try {
+    return await Mail.older(folder, account);
+  } catch {
+    return null;
+  }
+}
+
 /** Loads the mailbox again, keeping as many messages as are shown. */
 export async function reload(state: "loading" | "refreshing" = "loading") {
   const token = ++loadToken;
@@ -363,11 +373,22 @@ export async function reload(state: "loading" | "refreshing" = "loading") {
   }
   listState.set(state);
   try {
-    const page = await listPage({ folder, account, limit: Math.max(PAGE, items().length) });
+    const limit = Math.max(PAGE, items().length);
+    let page = await listPage({ folder, account, limit });
+    // A short list may just be all that is stored: older mail waits on the server.
+    let pending = false;
+    if (page.length < limit) {
+      const older = await olderPage(folder, account);
+      pending = older?.pending ?? false;
+      if (older?.inserted) {
+        page = await listPage({ folder, account, limit });
+        if (token !== loadToken) return;
+      }
+    }
     if (token !== loadToken) return;
     batch(() => {
       items.set(page);
-      more.set(page.length >= Math.max(PAGE, items().length));
+      more.set(page.length >= limit || pending);
       listState.set("idle");
     });
   } catch (e) {
@@ -389,11 +410,20 @@ export async function loadMore() {
   const token = ++loadToken;
   listState.set("more");
   try {
-    const page = await listPage({ folder, account, before: last.key, limit: PAGE });
+    let page = await listPage({ folder, account, before: last.key, limit: PAGE });
+    let pending = false;
+    if (page.length < PAGE) {
+      const older = await olderPage(folder, account);
+      pending = older?.pending ?? false;
+      if (older?.inserted) {
+        page = await listPage({ folder, account, before: last.key, limit: PAGE });
+        if (token !== loadToken) return;
+      }
+    }
     if (token !== loadToken) return;
     batch(() => {
       items.update((list) => [...list, ...page.filter((r) => !list.some((l) => l.key === r.key))]);
-      more.set(page.length >= PAGE);
+      more.set(page.length >= PAGE || pending);
       listState.set("idle");
     });
   } catch (e) {

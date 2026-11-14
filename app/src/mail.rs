@@ -49,6 +49,7 @@ fn no_session() -> Status {
         server: None,
         user: None,
         syncing: false,
+        progress: None,
         error: None,
     }
 }
@@ -80,8 +81,12 @@ fn emit(event: MailEvent) {
                     s.syncing.remove(account_id);
                 }
                 s.status.syncing = !s.syncing.is_empty();
+                if !s.status.syncing {
+                    s.status.progress = None;
+                }
                 s.status.error = error.clone();
             }
+            MailEvent::SyncProgress { progress, .. } => s.status.progress = Some(*progress),
             MailEvent::Error {
                 account_id: Some(_),
                 error,
@@ -136,6 +141,7 @@ async fn open(
             server,
             user,
             syncing: false,
+            progress: None,
             error: None,
         };
     });
@@ -341,6 +347,19 @@ impl Mail {
     /// A page of a folder, newest first.
     pub async fn list(query: Js<ListQuery>) -> Result<Js<Vec<Summary>>, JsError> {
         backend()?.list(query.0).await.map(Js).map_err(js)
+    }
+
+    /// Loads a page of older mail the store does not hold yet: `inserted` new
+    /// messages, and whether older mail is still on the server.
+    pub async fn older(
+        folder: Js<FolderKind>,
+        account: Option<String>,
+    ) -> Result<Js<Backfill>, JsError> {
+        backend()?
+            .older(folder.0, account)
+            .await
+            .map(Js)
+            .map_err(js)
     }
 
     /// A page of conversations in a folder, newest first; `before` is the

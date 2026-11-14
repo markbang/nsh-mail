@@ -123,7 +123,8 @@ pub fn router(state: Arc<AppState>) -> Router {
             delete(api::delete_account).patch(api::patch_account),
         )
         .route("/detect", get(api::detect))
-        .route("/sync", post(api::sync))
+        .route("/sync", get(api::sync_status).post(api::sync))
+        .route("/sync/older", post(api::older))
         .route("/oauth/{provider}/start", get(oauth::start))
         .route("/oauth/{provider}/callback", get(oauth::callback))
         .route("/messages", get(api::list_messages))

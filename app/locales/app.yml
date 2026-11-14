@@ -139,6 +139,9 @@ sync.running:
 sync.failed:
   en: Couldn't check for mail
   zh-CN: 收取邮件失败
+sync.progress:
+  en: "Checking for mail… %{count} so far"
+  zh-CN: "正在收取邮件… 已收 %{count} 封"
 
 actions.new:
   en: New

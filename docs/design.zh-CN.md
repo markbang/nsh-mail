@@ -55,7 +55,7 @@ TSX 不知道当前是哪种模式，界面一套。状态归属：邮件、账�
 
 ```ts
 Mail.init(): Promise<Status>                       // 打开库、恢复会话、开始同步
-Mail.status(): Status                              // { mode: "none"|"local"|"cloud", server?, user?, syncing, error? }
+Mail.status(): Status                              // { mode: "none"|"local"|"cloud", server?, user?, syncing, progress?, error? }
 Mail.useLocal(): Promise<void>                     // Web 上 reject：ERR_UNSUPPORTED
 Mail.signIn(server, email, password, signUp): Promise<void>   // 进入云端模式
 Mail.signOut(): Promise<void>
@@ -66,6 +66,7 @@ Mail.addOAuth(provider: "google"|"microsoft"): Promise<Account>
 Mail.removeAccount(id): Promise<void>
 Mail.setSignature(id, { text, newMessages, replies }): Promise<Account>   // 随账号保存（§4 签名）
 Mail.list(q: { folder: "inbox"|"sent"|"drafts"|"archive"|"trash", account?, before?, limit }): Promise<Summary[]>
+Mail.older(folder, account): Promise<Backfill>      // 加载一页本地没有的更早邮件：`{inserted, pending}`（§4 同步）
 Mail.threads(q): Promise<Thread[]>                 // 会话，分页方式同 `list`（见 §4 会话）；`before` 是会话 id
 Mail.thread(id): Promise<Summary[]>                // 会话里的邮件，从旧到新，跨文件夹、跨账号
 Mail.setThreadFlags(id, { seen?, flagged? }): Promise<void>   // 已读/未读作用于整个会话；加旗标只标最新一封，取消则全部取消
@@ -87,7 +88,7 @@ Mail.attachmentLimit(): number                     // 一封信附件总大小�
 Mail.search(text, limit): Promise<Summary[]>
 Mail.unread(): Promise<Record<accountId, number>>  // 各账号收件箱的未读数
 Mail.refresh(): Promise<void>
-Mail.on(listener: (e: MailEvent) => void): () => void   // newMail / changed / syncState / error / outbox
+Mail.on(listener: (e: MailEvent) => void): () => void   // newMail / changed / syncState / syncProgress / error / outbox
 Push.setToken(token): Promise<void>                // Android 宿主的 FCM token（§5），云端模式登记到服务端
 ```
 
@@ -107,11 +108,12 @@ TSX ──Mail.*──▶ Rust LocalBackend ──tokio/rustls──▶ IMAP (99
 ```
 
 1. 添加账号：`detect` 填好服务器 → 连通测试 → 凭据进钥匙串，账号元数据进 SQLite。
-2. 首次同步：每个文件夹取最近 500 封。不超过 32 KB 的整封下载（离线可读、全文索引）；更大的只取信头和第一个文本部分做摘要（按 `BODYSTRUCTURE` 定位，不用部分 FETCH），正文打开时按需下载并缓存。
-3. 增量：新信取本地已有最大 UID 之上的（`UID FETCH n:*`，RFC 4549 §4.3.1），`UIDNEXT` 只用来判断有没有新信，不当水位线（服务器可能先分配 UID、后让信可见）；支持 `CONDSTORE` 时用 `HIGHESTMODSEQ` 同步标记；UIDVALIDITY 变了就重建该文件夹。
-4. 实时：INBOX 上 `IDLE`，收到 `EXISTS`/`EXPUNGE`/`FETCH`（别的客户端改了标记）就同步 INBOX；每 30 秒重发一次 IDLE，因为有的服务器（如 GreenMail）把别处的标记改动攒到 IDLE 结束才发；每 29 分钟全量同步。不支持 IDLE 的服务器每 2 分钟轮询。命令连接每账户一条、复用；复用的连接已被服务器关掉（空闲超时）时，在新连接上重试一次，其他错误不重试。连接或同步出错时记日志（带账户 id），按 5 秒到 5 分钟退避重连并全量同步。新信写库后发 `newMail` 事件，并在应用不在前台时发系统通知。
-5. 发送：lettre 经 SMTP 发出，成功后 `APPEND` 到"已发送"（Gmail 自动保存的除外）。
-6. 搜索：本地 FTS5（主题、发件人、收件人、正文）；本地没有的旧信，后续版本再补 IMAP `SEARCH`。结果仍按单封邮件列出，打开时进入它所在的会话。
+2. 首次同步：每个文件夹取最近 500 封，每页 200 封，先取最新一页，因此列表在其余邮件还在到达时就能打开。不超过 32 KB 的整封下载（离线可读、全文索引）；更大的只取信头和第一个文本部分做摘要（按 `BODYSTRUCTURE` 定位，不用部分 FETCH），正文打开时按需下载并缓存。
+3. 分页与进度：每页一次 FETCH、一个事务，同时写入文件夹的同步水位，因此中途停止的同步从最后提交的一页继续。`syncProgress` 事件报告已完成文件夹数和已写入邮件数；`Status.progress` 和服务器 `GET /v1/sync` 给出同样的信息。文件夹记录 `uidnext`（已存最大 UID + 1）、`catchup_seq`（中断的“新邮件补齐”从哪一页继续）和 `backfill_seq`（更早的未存邮件从哪一页继续）。更早的邮件按需加载（`Mail.older` / `POST /v1/sync/older`），从新到旧一页一页往回取，存入后即可被搜索。
+4. 增量：新信取本地已有最大 UID 之上的（`UID FETCH n:*`，RFC 4549 §4.3.1），`UIDNEXT` 只用来判断有没有新信，不当水位线（服务器可能先分配 UID、后让信可见）；支持 `CONDSTORE` 时用 `HIGHESTMODSEQ` 同步标记；UIDVALIDITY 变了就重建该文件夹。
+5. 实时：INBOX 上 `IDLE`，收到 `EXISTS`/`EXPUNGE`/`FETCH`（别的客户端改了标记）就同步 INBOX；每 30 秒重发一次 IDLE，因为有的服务器（如 GreenMail）把别处的标记改动攒到 IDLE 结束才发；每 29 分钟全量同步。不支持 IDLE 的服务器每 2 分钟轮询。命令连接每账户一条、复用；复用的连接已被服务器关掉（空闲超时）时，在新连接上重试一次，其他错误不重试。连接或同步出错时记日志（带账户 id），按 5 秒到 5 分钟退避重连并全量同步。新信写库后发 `newMail` 事件，并在应用不在前台时发系统通知。
+6. 发送：lettre 经 SMTP 发出，成功后 `APPEND` 到"已发送"（Gmail 自动保存的除外）。
+7. 搜索：本地 FTS5（主题、发件人、收件人、正文）；本地没有的旧信，后续版本再补 IMAP `SEARCH`。结果仍按单封邮件列出，打开时进入它所在的会话。
 
 桌面端主窗口关闭后留在托盘，IDLE 继续，系统通知照常。Android 本地模式只在应用打开时同步（没有后台服务），需要后台推送请用云端模式，设置页写明。
 
@@ -178,6 +180,7 @@ POST /v1/auth/logout      GET /v1/me    PATCH /v1/me  {hideContent}（通知不�
 GET  /v1/accounts        POST /v1/accounts (imap)        DELETE /v1/accounts/{id}
 PATCH /v1/accounts/{id}  {signature: {text, newMessages, replies}} → Account
 GET  /v1/detect?email=   POST /v1/sync（立即同步全部账号）
+GET  /v1/sync → {syncing, progress}   POST /v1/sync/older {folder, account?} → Backfill {inserted, pending}
 GET  /v1/oauth/{google|microsoft}/start?token=…           GET /v1/oauth/{provider}/callback
 GET  /v1/messages?folder=&account=&before=&limit=         GET /v1/messages/{id}
 GET  /v1/messages/{id}/attachments/{index}  附件字节：Content-Type 为其类型，Content-Disposition: attachment（filename* 按 RFC 5987 带 UTF-8 原名），

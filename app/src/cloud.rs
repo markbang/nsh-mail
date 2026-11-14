@@ -557,6 +557,13 @@ impl Backend for CloudBackend {
         })
     }
 
+    fn older(&self, folder: FolderKind, account: Option<String>) -> MailFuture<'_, Backfill> {
+        Box::pin(async move {
+            let body = json!({ "folder": folder, "account": account });
+            self.api().call("POST", "/sync/older", Some(body)).await
+        })
+    }
+
     fn threads(&self, query: ListQuery) -> MailFuture<'_, Vec<Thread>> {
         Box::pin(async move {
             let path = page("/threads", &query);

@@ -457,6 +457,11 @@ pub enum MailEvent {
         syncing: bool,
         error: Option<Error>,
     },
+    /// How far a running sync has come, sent after each page it commits.
+    SyncProgress {
+        account_id: AccountId,
+        progress: SyncProgress,
+    },
     Error {
         account_id: Option<AccountId>,
         error: Error,
@@ -492,8 +497,31 @@ pub struct Status {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
     pub syncing: bool,
+    /// How far the running sync has come; `None` while none runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<SyncProgress>,
     #[serde(default)]
     pub error: Option<Error>,
+}
+
+/// How far a sync has come: folders finished and messages written so far. Counts cover this run
+/// only, so they start at 0 when a sync starts and keep growing while it runs.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncProgress {
+    pub folders_done: u32,
+    pub folders_total: u32,
+    pub messages: u32,
+}
+
+/// What loading a page of older mail did.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Backfill {
+    /// Messages added to the store.
+    pub inserted: u32,
+    /// The folder still holds older mail that is not stored yet.
+    pub pending: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]

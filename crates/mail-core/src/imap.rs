@@ -102,8 +102,12 @@ impl AsyncWrite for Stream {
 }
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
-/// Newest messages fetched per folder on first sync (and after a long gap).
+/// Messages a first sync stores per folder, so the inbox opens with real mail but sync stays
+/// bounded.
 const WINDOW: u32 = 500;
+/// Messages per FETCH page and per commit; one page keeps the UI responsive and the store work
+/// between pages short.
+const PAGE: u32 = 200;
 /// Messages up to this size are downloaded whole during sync (cached for offline reading and
 /// fully indexed); larger ones get their header and their first text part for the snippet.
 const FULL_FETCH_MAX: u32 = 32 * 1024;
@@ -401,13 +405,17 @@ pub(crate) struct FolderSync {
     pub initial: bool,
 }
 
-/// Brings one folder up to date: UIDVALIDITY check, flags of known messages (CONDSTORE when
-/// available), removed messages, then messages above the highest UID held, capped to the newest
-/// `WINDOW`.
+/// Brings one folder up to date page by page: UIDVALIDITY check, flags of known messages
+/// (CONDSTORE when available), removed messages, then new mail in pages of [`PAGE`] from the
+/// newest down. A first sync (or one interrupted while filling its first [`WINDOW`] messages)
+/// pages down to that window; older mail waits for [`backfill_page`]. Each page commits its
+/// messages and watermark in one transaction and reports how many it inserted through
+/// `on_page`, so an interrupted sync resumes from the last committed page.
 pub(crate) async fn sync_folder(
     conn: &mut Conn,
     store: &Arc<Store>,
     folder: FolderRow,
+    mut on_page: impl FnMut(usize),
 ) -> Result<FolderSync> {
     let use_condstore = conn.condstore;
     let gmail = conn.gmail;
@@ -423,6 +431,8 @@ pub(crate) async fn sync_folder(
         let id = f.id;
         store.run(move |s| s.clear_folder(id)).await?;
         f.uidnext = None;
+        f.catchup_seq = None;
+        f.backfill_seq = None;
         f.highestmodseq = None;
         changed = true;
     }
@@ -473,51 +483,196 @@ pub(crate) async fn sync_folder(
                 .collect();
         }
     }
-
-    let mut new_messages = Vec::new();
-    let mut max_uid = known_next.saturating_sub(1);
-    if mbox.exists > 0 {
-        let unseen = mbox
-            .uid_next
-            .map_or(u32::MAX, |n| n.saturating_sub(known_next));
-        let items = "(UID FLAGS INTERNALDATE RFC822.SIZE BODYSTRUCTURE)";
-        let fetched = if initial || unseen > WINDOW {
-            let start = mbox.exists - WINDOW.min(mbox.exists) + 1;
-            collect(session.fetch(format!("{start}:*"), items).await?).await?
-        } else if unseen > 0 {
-            collect(session.uid_fetch(format!("{known_next}:*"), items).await?).await?
-        } else {
-            Vec::new()
-        };
-        let mut metas = Vec::new();
-        for fetch in fetched {
-            let Some(uid) = fetch.uid else { continue };
-            if uid < known_next || local.binary_search(&uid).is_ok() {
-                continue;
-            }
-            max_uid = max_uid.max(uid);
-            metas.push(Meta::from_fetch(uid, &fetch));
-        }
-        new_messages = fetch_new(session, metas, gmail).await?;
-    }
-    f.uidnext = Some(max_uid + 1);
-    f.highestmodseq = mbox.highest_modseq;
-
-    let state = f.clone();
-    let (inserted, flag_changes) = store
+    let vanished_count = vanished.len();
+    let removed = store
         .run(move |s| {
-            let flag_changes = s.update_flags(folder_id, &flag_updates)?;
+            let n = s.update_flags(folder_id, &flag_updates)?;
             s.delete_uids(folder_id, &vanished)?;
-            let inserted = s.insert_messages(folder_id, &new_messages)?;
-            s.set_folder_state(&state)?;
-            Ok((inserted, flag_changes + vanished.len()))
+            Ok(n)
         })
         .await?;
+    changed |= removed > 0 || vanished_count > 0;
+
+    let mut inserted_all = Vec::new();
+    let mut stored = local.len() as u32;
+    let mut max_uid = known_next.saturating_sub(1);
+    let mut state_committed = false;
+
+    // Mail above everything stored: new mail, or a catch-up a stopped sync left midway. Pages
+    // go down from the newest until one reaches what is stored; the cursor `catchup_seq` makes a
+    // run that stops in between resume there next time instead of skipping the gap.
+    let mut end = if initial {
+        0
+    } else {
+        f.catchup_seq.unwrap_or(0)
+    };
+    if !initial && end == 0 && mbox.exists > 0 && mbox.uid_next.is_none_or(|n| n > known_next) {
+        end = mbox.exists;
+    }
+    while end > 0 {
+        let start = end.saturating_sub(PAGE - 1).max(1);
+        let page = fetch_page(session, start, end, known_next, &local).await?;
+        let new = fetch_new(session, page.metas, gmail).await?;
+        if let Some(&uid) = page.uids.last() {
+            max_uid = max_uid.max(uid);
+        }
+        f.uidnext = Some(max_uid + 1);
+        let reached = page.uids.first().is_none_or(|u| *u < known_next);
+        f.catchup_seq = (!reached && start > 1).then_some(start - 1);
+        f.highestmodseq = mbox.highest_modseq;
+        let state = f.clone();
+        let inserted = commit_page(store, folder_id, new, state).await?;
+        state_committed = true;
+        stored += inserted.len() as u32;
+        changed |= !inserted.is_empty();
+        on_page(inserted.len());
+        inserted_all.extend(inserted);
+        end = start - 1;
+        if reached || end == 0 {
+            break;
+        }
+    }
+
+    // The first `WINDOW` messages, or the rest of them after an interrupted first sync: page
+    // down from the folder's backfill cursor.
+    let mut end = if initial {
+        mbox.exists
+    } else {
+        f.backfill_seq.unwrap_or(0)
+    };
+    if end > 0 && (initial || stored < WINDOW) {
+        while end > 0 && stored < WINDOW {
+            let start = end
+                .saturating_sub(PAGE.min(WINDOW - stored).saturating_sub(1))
+                .max(1);
+            let page = fetch_page(session, start, end, 1, &local).await?;
+            let new = fetch_new(session, page.metas, gmail).await?;
+            if let Some(&uid) = page.uids.last() {
+                max_uid = max_uid.max(uid);
+            }
+            f.uidnext = Some(max_uid + 1);
+            f.backfill_seq = (start > 1).then_some(start - 1);
+            f.highestmodseq = mbox.highest_modseq;
+            let state = f.clone();
+            let inserted = commit_page(store, folder_id, new, state).await?;
+            state_committed = true;
+            stored += inserted.len() as u32;
+            changed |= !inserted.is_empty();
+            on_page(inserted.len());
+            inserted_all.extend(inserted);
+            end = start - 1;
+        }
+    }
+
+    if !state_committed {
+        f.uidnext = Some(max_uid.max(known_next.saturating_sub(1)) + 1);
+        f.highestmodseq = mbox.highest_modseq;
+        let state = f.clone();
+        store.run(move |s| s.set_folder_state(&state)).await?;
+    }
+
     Ok(FolderSync {
-        changed: changed || flag_changes > 0 || !inserted.is_empty(),
-        inserted,
+        changed,
+        inserted: inserted_all,
         initial,
     })
+}
+
+/// One page of older mail, below everything stored.
+pub(crate) struct BackfillPage {
+    pub inserted: Vec<Summary>,
+    /// Older mail is still on the server and not stored yet.
+    pub pending: bool,
+}
+
+/// Loads the next [`PAGE`] messages below the folder's backfill cursor and moves the cursor down
+/// in the same transaction. A folder whose UIDVALIDITY changed is left alone: the next sync
+/// rebuilds it from the top.
+pub(crate) async fn backfill_page(
+    conn: &mut Conn,
+    store: &Arc<Store>,
+    folder: FolderRow,
+) -> Result<Option<BackfillPage>> {
+    let Some(cursor) = folder.backfill_seq.filter(|c| *c > 0) else {
+        return Ok(None);
+    };
+    let use_condstore = conn.condstore;
+    let gmail = conn.gmail;
+    let session = &mut conn.session;
+    let mbox = if use_condstore {
+        session.select_condstore(&folder.name).await?
+    } else {
+        session.select(&folder.name).await?
+    };
+    if folder.uidvalidity != mbox.uid_validity {
+        return Ok(None);
+    }
+    let folder_id = folder.id;
+    let local: Vec<u32> = store.run(move |s| s.uids(folder_id)).await?;
+    let end = cursor.min(mbox.exists);
+    if end == 0 {
+        let mut f = folder;
+        f.backfill_seq = None;
+        store.run(move |s| s.set_folder_state(&f)).await?;
+        return Ok(Some(BackfillPage {
+            inserted: Vec::new(),
+            pending: false,
+        }));
+    }
+    let start = end.saturating_sub(PAGE - 1).max(1);
+    let page = fetch_page(session, start, end, 1, &local).await?;
+    let new = fetch_new(session, page.metas, gmail).await?;
+    let mut f = folder;
+    f.backfill_seq = (start > 1).then_some(start - 1);
+    let state = f.clone();
+    let inserted = store
+        .run(move |s| s.insert_page(folder_id, &new, Some(&state)))
+        .await?;
+    Ok(Some(BackfillPage {
+        inserted,
+        pending: f.backfill_seq.is_some(),
+    }))
+}
+
+/// One sequence-number page: every UID it holds (to tell where the page ends) and the messages
+/// worth downloading (above `floor`, not stored yet).
+struct Page {
+    uids: Vec<u32>,
+    metas: Vec<Meta>,
+}
+
+async fn fetch_page(
+    session: &mut Session,
+    start: u32,
+    end: u32,
+    floor: u32,
+    local: &[u32],
+) -> Result<Page> {
+    let items = "(UID FLAGS INTERNALDATE RFC822.SIZE BODYSTRUCTURE)";
+    let fetched = collect(session.fetch(format!("{start}:{end}"), items).await?).await?;
+    let mut uids = Vec::new();
+    let mut metas = Vec::new();
+    for fetch in fetched {
+        let Some(uid) = fetch.uid else { continue };
+        uids.push(uid);
+        if uid < floor || local.binary_search(&uid).is_ok() {
+            continue;
+        }
+        metas.push(Meta::from_fetch(uid, &fetch));
+    }
+    uids.sort_unstable();
+    Ok(Page { uids, metas })
+}
+
+async fn commit_page(
+    store: &Arc<Store>,
+    folder_id: i64,
+    new: Vec<crate::store::NewMessage>,
+    state: FolderRow,
+) -> Result<Vec<Summary>> {
+    store
+        .run(move |s| s.insert_page(folder_id, &new, Some(&state)))
+        .await
 }
 
 async fn collect(

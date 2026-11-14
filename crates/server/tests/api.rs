@@ -1149,3 +1149,40 @@ fn scheduled_send_survives_restart() {
         assert!(s.outbox(&alice).await.is_empty());
     });
 }
+
+/// A client that connects mid-sync finds the progress on `GET /v1/sync`, and older mail
+/// (nothing left here) comes back as an empty page rather than an error.
+#[tokio::test(flavor = "multi_thread")]
+async fn sync_status_and_older_mail() {
+    let s = start(config(temp_dir())).await;
+    let alice = s.user("alice").await;
+    s.inbox(&alice, 0).await;
+
+    let status: Value = s.get(&alice.token, "/sync").await.json().await.unwrap();
+    assert!(status["syncing"].is_boolean(), "{status}");
+    let progress = &status["progress"];
+    assert!(progress.is_null() || progress["foldersTotal"].is_u64());
+
+    let res = s
+        .http
+        .post(format!("{}/sync/older", s.base))
+        .bearer_auth(&alice.token)
+        .json(&json!({ "folder": "inbox" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let page: Value = res.json().await.unwrap();
+    assert!(page["inserted"].is_u64(), "{page}");
+    assert!(page["pending"].is_boolean(), "{page}");
+
+    let bad = s
+        .http
+        .post(format!("{}/sync/older", s.base))
+        .bearer_auth(&alice.token)
+        .json(&json!({ "folder": "nope" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}

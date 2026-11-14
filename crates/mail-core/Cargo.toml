@@ -68,3 +68,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 [[test]]
 name = "greenmail"
 required-features = ["insecure-test-tls"]
+
+[[test]]
+name = "paged_sync"
+required-features = ["insecure-test-tls"]
