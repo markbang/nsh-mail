@@ -116,7 +116,7 @@ A source's secret (the webhook HMAC key) is write-only: sent as `secret` on crea
 
 Cursors are opaque (base64 of `received_at` + `id`, keyset paging). `q` uses the FTS index across non-mail and mail text. Every query is filtered by the key's sources.
 
-Shapes: `GET /v1/messages` answers `{messages: [Message], next_cursor?}` (no cursor on the last page); `GET /v1/messages/{id}` answers a `Message`; `read` and `archive` answer the updated `Message` or 204; `GET /v1/sources` answers `{sources: [Source]}`. A `Message` is `{id, source_id, sender, title, body_text, link, received_at, priority, tags, read_at, archived_at, thread_id?}` and a `Source` `{id, kind, name, enabled, min_priority}`. Clients ignore unknown fields, so both can grow without breaking installed agents.
+Shapes: `GET /v1/messages` answers `{messages: [Message], next_cursor?}` (no cursor on the last page); `GET /v1/messages/{id}` answers a `Message`; `read` and `archive` answer the updated `Message` or 204; `GET /v1/sources` answers `{sources: [Source]}`. A `Message` is `{id, sourceId, sender, title, bodyText, bodyHtml?, link, receivedAt, priority, tags, readAt, archivedAt, threadId?}` and a `Source` `{id, kind, name, enabled, minPriority, icon?, color?, hasToken, hasSecret}`. Fields are camelCase like the rest of `/v1` (the app reads the same JSON); `receivedAt`/`readAt`/`archivedAt` are milliseconds since the epoch. Clients ignore unknown fields, so both can grow without breaking installed agents, and the MCP client also accepts the snake_case spelling.
 
 ### Streaming
 

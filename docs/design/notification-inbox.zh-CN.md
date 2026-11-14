@@ -114,9 +114,9 @@ GET  /v1/sources/presets
 
 source 的 secret（webhook 的 HMAC 密钥）只写不读：新建或修改时传 `secret`（空串表示清除），返回里只有 `hasSecret`，主密钥 AES-256-GCM 加密存在 `users/notify.secrets.json`，现有密钥轮换已覆盖。`POST /v1/sources` 只返回一次 `{"source": …, "token": "…", "ingestUrl": "…"}`；`POST /v1/sources/{id}/token` 轮换后旧地址立刻失效；`POST /v1/sources/{id}/test` 通过与接收相同的路径写入一条测试消息。
 
-cursor 不透明（`received_at` + `id` 的 base64，keyset 分页）。`q` 走 FTS 索引，覆盖邮件和非邮件正文。所有查询都按 key 的 source 范围过滤。
+返回结构：`GET /v1/messages` 返回 `{messages: [Message], next_cursor?}`（最后一页没有 cursor）；`GET /v1/messages/{id}` 返回一个 `Message`；`read`/`archive` 返回更新后的 `Message` 或 204；`GET /v1/sources` 返回 `{sources: [Source]}`。`Message` 是 `{id, sourceId, sender, title, bodyText, bodyHtml?, link, receivedAt, priority, tags, readAt, archivedAt, threadId?}`，`Source` 是 `{id, kind, name, enabled, minPriority, icon?, color?, hasToken, hasSecret}`。字段和 `/v1` 其余接口一样用 camelCase（App 读的是同一份 JSON）；`receivedAt`/`readAt`/`archivedAt` 是毫秒时间戳。客户端忽略不认识的字段，所以两边都能加字段而不影响已安装的 agent；MCP 客户端同时也接受 snake_case 写法。
 
-返回结构：`GET /v1/messages` 返回 `{messages: [Message], next_cursor?}`（最后一页没有游标）；`GET /v1/messages/{id}` 返回一个 `Message`；`read` 和 `archive` 返回更新后的 `Message` 或 204；`GET /v1/sources` 返回 `{sources: [Source]}`。`Message` 为 `{id, source_id, sender, title, body_text, link, received_at, priority, tags, read_at, archived_at, thread_id?}`，`Source` 为 `{id, kind, name, enabled, min_priority}`。客户端会忽略不认识的字段，所以两者都能扩展而不影响已装好的 agent。
+cursor 不透明（`receivedAt` + `id` 的 base64，keyset 分页）。`q` 走 FTS 索引，覆盖邮件和非邮件正文。所有查询都按 key 的 source 范围过滤。
 
 ### 实时
 
