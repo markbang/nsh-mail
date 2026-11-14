@@ -333,8 +333,9 @@ for mode in ("light", "dark"):
             wait("id:search-empty", 15)
             back()
             shot(f"{mode}-search-none")
-            if tap("id:search-clear"):
-                wait("text:Search by sender, subject or text.", 5)
+            # Clearing from the empty state goes back to the hint.
+            if tap("Clear search"):
+                wait("text:Search by sender, subject or text.", 8)
                 shot(f"{mode}-search-hint")
 
     if tap("Mailboxes"):
@@ -346,11 +347,11 @@ for mode in ("light", "dark"):
             if tap("Mailboxes"):
                 tap("id:mailbox-all")
         # Nothing is seeded in Drafts: the folder says so, with its one next step.
-        if tap("id:mailbox-drafts"):
+        if tap("Mailboxes") and tap("id:mailbox-drafts"):
             wait("text:No drafts", 15)
             shot(f"{mode}-empty-folder")
-        if tap("Mailboxes"):
-            tap("id:mailbox-all")
+            if tap("Mailboxes"):
+                tap("id:mailbox-all")
 
     if tap("Settings"):
         wait("id:settings")
