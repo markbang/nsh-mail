@@ -1,6 +1,6 @@
 // The notification inbox's screens, light and dark, wide and narrow: on a
 // real target (`nsh test --target web`) they are saved under .nsh/.
-import { expect, open, test } from "nsh/test";
+import { open, test } from "nsh/test";
 
 const desktop = { platform: "linux", width: 1440, height: 900, locale: "en-US" } as const;
 const demo = { storage: { "nshmail.mode": "demo", "nshmail.undoSend": "0" } };
