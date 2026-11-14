@@ -150,7 +150,7 @@ for (const theme of ["light", "dark"]) {
   await page.getByText("Signature…").click();
   await id("signature-preview").waitFor();
   await shot("signature", theme);
-  await press("header-back");
+  await page.locator('[data-testid="header-back"]:visible').click();
 
   await press("add-account");
   await id("add-imap").waitFor();
