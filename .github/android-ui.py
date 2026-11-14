@@ -121,7 +121,7 @@ def wait(key, timeout=30):
         fail(f"never showed: {key}")
 
 
-def mid(node):
+def centre(node):
     """The middle of a uiautomator node."""
     x1, y1, x2, y2 = map(int, re.findall(r"\d+", node.get("bounds")))
     return (x1 + x2) // 2, (y1 + y2) // 2
@@ -408,8 +408,8 @@ for mode in ("light", "dark"):
         choices = [n for n in nodes_now if n.get("text", "").lower() == "sign out"]
         if choices:
             # An Element is falsy when it has no children, so ask for None.
-            pick = min(choices, key=lambda n: abs(mid(n)[1] - mid(cancel)[1])) if cancel is not None else choices[-1]
-            x, y = mid(pick)
+            pick = min(choices, key=lambda n: abs(centre(n)[1] - centre(cancel)[1])) if cancel is not None else choices[-1]
+            x, y = centre(pick)
             adb("shell", "input", "tap", str(x), str(y))
         wait("id:onboarding")
         shot(f"{mode}-onboarding")
