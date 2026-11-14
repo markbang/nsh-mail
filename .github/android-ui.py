@@ -132,11 +132,86 @@ def back():
     time.sleep(0.8)
 
 
+def prop(name):
+    return adb("shell", "getprop", name, check=False).strip()
+
+
+def booted(timeout=240):
+    """Boot is done for the user, not just the kernel: until then "Pixel is starting…" covers the screen."""
+    adb("wait-for-device")
+    end = time.time() + timeout
+    while time.time() < end:
+        if prop("sys.boot_completed") == "1" and prop("init.svc.bootanim") in ("stopped", "") and prop("sys.user.0.ce_available") == "true":
+            break
+        time.sleep(2)
+    else:
+        print("boot not reported complete after", timeout, "s, going on", flush=True)
+    # Right after boot the system compiles and indexes: wait (bounded) for the load to drop.
+    cpus = adb("shell", "nproc", check=False).strip()
+    cpus = int(cpus) if cpus.isdigit() else 2
+    end, load = time.time() + 120, None
+    while time.time() < end:
+        try:
+            load = float(adb("shell", "cat", "/proc/loadavg", check=False).split()[0])
+        except (IndexError, ValueError):
+            break
+        if load < cpus:
+            break
+        time.sleep(5)
+    print("booted, load", load, "on", cpus, "cpus", flush=True)
+
+
+def focused():
+    for line in adb("shell", "dumpsys", "window", check=False).splitlines():
+        if "mCurrentFocus" in line:
+            return line.strip()
+    return ""
+
+
 def launch():
     adb("shell", "am", "force-stop", PKG)
     adb("shell", "monkey", "-p", PKG, "-c", "android.intent.category.LAUNCHER", "1")
+    # The app's window has the focus (no system dialog over it) and its list stopped moving.
+    end = time.time() + 60
+    while PKG not in focused() and time.time() < end:
+        dismiss_anr(nodes())
+        time.sleep(1)
+    wait("id:messages", 60)
+    settled("id:message-.*")
 
 
+def first_row():
+    for n in nodes():
+        if re.fullmatch(r"message-.*", n.get("resource-id", "")):
+            return n.get("resource-id")
+    return None
+
+
+def swipe_archive(row, tries=3):
+    """Swipes the first row away until it is archived: True once the Undo snackbar shows."""
+    for attempt in range(1, tries + 1):
+        x1, y1, x2, y2 = row
+        y = (y1 + y2) // 2
+        before = first_row()
+        # Slow enough that the distance alone (past the 35% mark) archives, whatever the measured velocity.
+        adb("shell", "input", "swipe", str((x1 + x2) // 2 - (x2 - x1) // 4), str(y), str(x2 - 60), str(y), "400")
+        end = time.time() + 6
+        while time.time() < end:
+            found = nodes()
+            if any(n.get("resource-id") == "toast-action" for n in found):
+                return True
+            rows = [n.get("resource-id") for n in found if n.get("resource-id", "").startswith("message-")]
+            if before and rows and before not in rows:
+                fail(f"archived {before}, but no Undo snackbar")
+                return False
+            time.sleep(0.5)
+        print(f"swipe {attempt} did not archive, retrying", flush=True)
+        row = settled("id:message-.*") or row
+    fail(f"{tries} swipes never archived the first row")
+    return False
+
+
+booted()
 apk = sorted(glob.glob(os.path.join(apk_dir, "*.apk")))[0]
 adb("install", "-r", "-g", apk)
 adb("shell", "settings", "put", "system", "font_scale", "1.0")
@@ -150,7 +225,6 @@ w, h = map(int, size.split("x"))
 for mode in ("light", "dark"):
     adb("shell", "cmd", "uimode", "night", "yes" if mode == "dark" else "no")
     launch()
-    wait("id:messages", 60)
     shot(f"{mode}-inbox")
 
     # Swipe the first row right: Archive, with Undo. Swipes start mid-row: the screen's edges are the system's back gesture.
@@ -161,16 +235,10 @@ for mode in ("light", "dark"):
         mid = (x1 + x2) // 2
         quarter = (x2 - x1) // 4
         during(["swipe", str(mid - quarter), str(y), str(mid), str(y), "1500"], f"{mode}-swipe-archive", 1.0)
-        time.sleep(1)
-        # Right after launch the list may still be settling and miss the first fling.
-        for _ in range(2):
-            adb("shell", "input", "swipe", str(mid - quarter), str(y), str(x2 - 60), str(y), "150")
-            if find("id:toast-action", 5):
-                break
-        else:
-            fail("never showed: id:toast-action")
-        shot(f"{mode}-archived-snackbar")
-        tap("id:toast-action", 5)
+        settled("id:message-.*")
+        if swipe_archive(row):
+            shot(f"{mode}-archived-snackbar")
+            tap("id:toast-action", 5)
         time.sleep(1)
         during(["swipe", str(mid + quarter), str(y), str(mid), str(y), "1500"], f"{mode}-swipe-delete", 1.0)
         time.sleep(1)
@@ -221,7 +289,7 @@ for mode in ("light", "dark"):
         # Schedule send from the top bar's clock: the presets' sheet, then the snackbar with Undo.
         scheduled = False
         if tap("id:compose-to"):
-            adb("shell", "input", "text", "mei@lumen.dev")
+            adb("shell", "input", "text", "maya@northwind.dev")
             if tap("id:send-later") and find("Tomorrow morning", 5):
                 shot(f"{mode}-schedule-menu")
                 scheduled = tap("Tomorrow morning")
@@ -319,7 +387,6 @@ mode = "large"
 # Larger text (Android's font size at 130%), then a tablet-sized screen (1280 x 800 dp).
 adb("shell", "settings", "put", "system", "font_scale", "1.3")
 launch()
-wait("id:messages", 60)
 shot("large-text-inbox")
 tap("id:message-.*")
 wait("id:reader")
@@ -328,7 +395,6 @@ adb("shell", "settings", "put", "system", "font_scale", "1.0")
 adb("shell", "wm", "size", "2560x1600")
 adb("shell", "wm", "density", "320")
 launch()
-wait("id:messages", 60)
 tap("id:message-.*")
 shot("tablet")
 adb("shell", "wm", "size", "reset")
